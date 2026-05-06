@@ -67,9 +67,13 @@ export async function loadCharacter(): Promise<CharacterRig> {
 
   // Wrapper group: character.ts owns position + yaw. The loaded scene is shifted
   // down so the character's feet land at the wrapper's local y = -0.9 (capsule bottom).
+  // Also rotated 180° around Y because this rig was authored with the model's face
+  // on local +Z, but Three.js movement convention has forward = -Z (camera default).
+  // Without the flip, pressing W walked the character backward.
   const wrapper = new THREE.Group();
   wrapper.name = 'character_root';
   gltf.scene.position.y = FEET_OFFSET_Y;
+  gltf.scene.rotation.y = Math.PI;
   wrapper.add(gltf.scene);
 
   // Override body material with a solid clothing color. Eyes + hair textures stay.
@@ -110,26 +114,150 @@ export async function loadCharacter(): Promise<CharacterRig> {
     return b;
   };
 
-  // Hat parented to Head bone — moves with the head naturally.
+  // Procedural clothing layered on top of the rigged body. The pieces are rigid
+  // (not skinned) but they're parented to the corresponding bones, so they move
+  // with the character during animation. Won't deform smoothly across joints
+  // (some clipping at hip/knee/shoulder during extreme poses), but reads clearly
+  // as clothing rather than painted skin.
   const headBone = find('Head');
+  const spine02 = find('spine_02');
+  const thighL = find('thigh_l');
+  const thighR = find('thigh_r');
+  const calfL = find('calf_l');
+  const calfR = find('calf_r');
+  const upperarmL = find('upperarm_l');
+  const upperarmR = find('upperarm_r');
+  const footL = find('foot_l');
+  const footR = find('foot_r');
+
   const hat = createProspectorHat();
   headBone.add(hat);
+  addClothing({ spine02, thighL, thighR, calfL, calfR, upperarmL, upperarmR, footL, footR });
 
   return {
     group: wrapper,
-    spine: makeJoint(find('spine_02')),
+    spine: makeJoint(spine02),
     head: makeJoint(headBone),
-    shoulderL: makeJoint(find('upperarm_l')),
-    shoulderR: makeJoint(find('upperarm_r')),
+    shoulderL: makeJoint(upperarmL),
+    shoulderR: makeJoint(upperarmR),
     elbowL: makeJoint(find('lowerarm_l')),
     elbowR: makeJoint(find('lowerarm_r')),
     handL: makeJoint(find('hand_l')),
     handR: makeJoint(find('hand_r')),
-    hipL: makeJoint(find('thigh_l')),
-    hipR: makeJoint(find('thigh_r')),
-    kneeL: makeJoint(find('calf_l')),
-    kneeR: makeJoint(find('calf_r')),
+    hipL: makeJoint(thighL),
+    hipR: makeJoint(thighR),
+    kneeL: makeJoint(calfL),
+    kneeR: makeJoint(calfR),
   };
+}
+
+interface ClothingBones {
+  spine02: THREE.Object3D;
+  thighL: THREE.Object3D;
+  thighR: THREE.Object3D;
+  calfL: THREE.Object3D;
+  calfR: THREE.Object3D;
+  upperarmL: THREE.Object3D;
+  upperarmR: THREE.Object3D;
+  footL: THREE.Object3D;
+  footR: THREE.Object3D;
+}
+
+// Adds a layered prospector outfit (shirt + vest + belt + pants + boots + sleeves)
+// as rigid meshes parented to specific skeleton bones. Each cylinder's local Y axis
+// aligns with its bone's local Y, so cylinders are oriented along the limb naturally.
+//
+// Bone-local +Z corresponds to the front of the model in MODEL space (where the
+// face was sculpted). After the wrapper's 180° flip, that's world -Z = where the
+// camera sees the character's chest.
+function addClothing(bones: ClothingBones): void {
+  const matShirt = new THREE.MeshStandardMaterial({ color: 0xa8442d, roughness: 0.88 });
+  const matVest = new THREE.MeshStandardMaterial({ color: 0x4a3826, roughness: 0.92 });
+  const matPants = new THREE.MeshStandardMaterial({ color: 0x1f2a4e, roughness: 0.88 });
+  const matBoot = new THREE.MeshStandardMaterial({ color: 0x2a1a14, roughness: 0.7 });
+  const matBelt = new THREE.MeshStandardMaterial({ color: 0x141014, roughness: 0.85 });
+  const matBuckle = new THREE.MeshStandardMaterial({
+    color: 0xd4a647,
+    roughness: 0.4,
+    metalness: 0.5,
+  });
+
+  // Shirt — covers torso. spine_02 bone Y points up toward neck.
+  const shirt = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.23, 0.55, 16), matShirt);
+  shirt.position.y = 0.05;
+  bones.spine02.add(shirt);
+
+  // Vest layered on top, slightly larger and shorter
+  const vest = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.26, 0.46, 16), matVest);
+  vest.position.y = 0.06;
+  bones.spine02.add(vest);
+
+  // Belt at waist — short fat torus-like cylinder sealing the gap to pants
+  const belt = new THREE.Mesh(new THREE.CylinderGeometry(0.245, 0.245, 0.07, 18), matBelt);
+  belt.position.y = -0.2;
+  bones.spine02.add(belt);
+
+  // Belt buckle on the front (+Z bone-local = world -Z after the scene flip)
+  const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.05, 0.02), matBuckle);
+  buckle.position.set(0, -0.2, 0.255);
+  bones.spine02.add(buckle);
+
+  // Sleeves on upperarms. The bone's rest rotation orients its axes such that the
+  // arm extends along the bone, so a cylinder mesh placed at +0.16 along bone-Y
+  // sits centered on the upper arm.
+  const makeSleeve = (bone: THREE.Object3D): void => {
+    const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.075, 0.32, 14), matShirt);
+    sleeve.position.y = 0.16;
+    bone.add(sleeve);
+  };
+  makeSleeve(bones.upperarmL);
+  makeSleeve(bones.upperarmR);
+
+  // Pants on thighs — bone-Y points toward knee (downward in world after rest rot).
+  const makeThighPants = (bone: THREE.Object3D): void => {
+    const pants = new THREE.Mesh(new THREE.CylinderGeometry(0.115, 0.095, 0.43, 14), matPants);
+    pants.position.y = 0.215;
+    bone.add(pants);
+  };
+  makeThighPants(bones.thighL);
+  makeThighPants(bones.thighR);
+
+  // Pants on calves
+  const makeCalfPants = (bone: THREE.Object3D): void => {
+    const pants = new THREE.Mesh(new THREE.CylinderGeometry(0.095, 0.08, 0.4, 14), matPants);
+    pants.position.y = 0.2;
+    bone.add(pants);
+  };
+  makeCalfPants(bones.calfL);
+  makeCalfPants(bones.calfR);
+
+  // Boots on feet. foot bone-Y points downward, and ball bone (child of foot) is
+  // at +Z bone-local (toward toes). Stretched ellipsoid covers the whole foot.
+  const makeBoot = (bone: THREE.Object3D): void => {
+    const boot = new THREE.Mesh(new THREE.SphereGeometry(0.1, 14, 10), matBoot);
+    boot.scale.set(1.2, 0.55, 1.7);
+    boot.position.set(0, 0.04, 0.06);
+    bone.add(boot);
+  };
+  makeBoot(bones.footL);
+  makeBoot(bones.footR);
+
+  // Cast shadows on all clothing pieces (no-op until shadowMap.enabled)
+  for (const bone of [
+    bones.spine02,
+    bones.thighL,
+    bones.thighR,
+    bones.calfL,
+    bones.calfR,
+    bones.upperarmL,
+    bones.upperarmR,
+    bones.footL,
+    bones.footR,
+  ]) {
+    bone.traverse((o) => {
+      if (o instanceof THREE.Mesh) o.castShadow = true;
+    });
+  }
 }
 
 // Suppress "unused import" if we ever expose the skin tone.

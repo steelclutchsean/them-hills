@@ -258,7 +258,7 @@ export function mountHud(root: HTMLElement): MountedHud {
     return el;
   };
 
-  addInfoLine('title').textContent = 'Them Hills — Phase 3.2 (T-pose baseline)';
+  addInfoLine('title').textContent = 'Them Hills — Phase 3.3 (Clothes + facing fix)';
   addInfoLine('device');
   addInfoLine('state');
   addInfoLine('stamina');

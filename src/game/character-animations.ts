@@ -70,11 +70,30 @@ export function applyIdle(rig: CharacterRig, _time: number, smoothing = 0.15): v
   applyRestPose(rig, smoothing);
 }
 
+// Arm swing axis when walking. With arm-down on bone-X, perpendicular axes are Y
+// and Z. Z is the empirical guess for forward/back swing in this rig.
+const ARM_SWING_AXIS: 'x' | 'y' | 'z' = 'z';
+const ARM_SWING_AMP = 0.5;
+
+function applyArmSwing(rig: CharacterRig, sin: number, smoothing: number): void {
+  // Compose arm-down baseline + forward/back swing into one delta per shoulder
+  const dL = { x: 0, y: 0, z: 0 };
+  const dR = { x: 0, y: 0, z: 0 };
+  dL[ARM_DOWN_AXIS] = ARM_DOWN_L;
+  dR[ARM_DOWN_AXIS] = ARM_DOWN_R;
+  const swing = sin * ARM_SWING_AMP;
+  dL[ARM_SWING_AXIS] += swing;
+  dR[ARM_SWING_AXIS] -= swing;
+  applyDelta(rig.shoulderL, dL.x, dL.y, dL.z, smoothing);
+  applyDelta(rig.shoulderR, dR.x, dR.y, dR.z, smoothing);
+}
+
 // ----- Walk -----
 export function applyWalk(rig: CharacterRig, time: number, smoothing = 0.3): void {
   applyRestPose(rig, smoothing);
   const phase = time * 6;
   const sin = Math.sin(phase);
+  applyArmSwing(rig, sin, smoothing);
   applyDelta(rig.hipL, sin * 0.6, 0, 0, smoothing);
   applyDelta(rig.hipR, -sin * 0.6, 0, 0, smoothing);
   applyDelta(rig.kneeL, Math.max(0, -sin * 0.5), 0, 0, smoothing);
@@ -86,6 +105,7 @@ export function applyRun(rig: CharacterRig, time: number, smoothing = 0.35): voi
   applyRestPose(rig, smoothing);
   const phase = time * 9;
   const sin = Math.sin(phase);
+  applyArmSwing(rig, sin * 1.6, smoothing);
   applyDelta(rig.hipL, sin * 0.95, 0, 0, smoothing);
   applyDelta(rig.hipR, -sin * 0.95, 0, 0, smoothing);
   applyDelta(rig.kneeL, Math.max(0, -sin * 0.85), 0, 0, smoothing);
