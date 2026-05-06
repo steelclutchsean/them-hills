@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.log
+.env
+.env.local
+.DS_Store
+.vscode/
+.idea/
+coverage/
+
+# Claude Code local settings (per-user/per-machine)
+.claude/settings.local.json

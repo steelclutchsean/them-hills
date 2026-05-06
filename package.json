@@ -1,0 +1,31 @@
+{
+  "name": "them-hills",
+  "private": true,
+  "version": "0.0.2-phase1",
+  "type": "module",
+  "description": "A 3D third-person RPG/sim about modern-day gold prospecting. Three.js, browser-first.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "lint": "eslint src",
+    "format": "prettier --write \"src/**/*.{ts,css,html}\" \"*.{ts,json,md}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,css,html}\" \"*.{ts,json,md}\""
+  },
+  "dependencies": {
+    "@dimforge/rapier3d-compat": "^0.19.3",
+    "idb-keyval": "^6.2.1",
+    "three": "^0.170.0",
+    "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "@types/three": "^0.170.0",
+    "eslint": "^9.16.0",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.0",
+    "vite": "^6.0.3"
+  }
+}
