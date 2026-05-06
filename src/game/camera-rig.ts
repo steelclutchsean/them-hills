@@ -7,10 +7,14 @@ import type { LookDelta } from '@/input/manager';
 // pivot toward the desired camera position prevents clipping into terrain.
 //
 // Conventions (Three.js right-handed, +Y up):
-//   yaw=0     → camera behind character at +Z (character faces -Z)
-//   yaw>0     → camera orbits clockwise viewed from above (matches "mouse right = turn right")
+//   yaw=0     → camera behind character at +Z (character faces -Z = "north")
+//   yaw<0     → camera orbits CCW viewed from above; the camera's view direction
+//               rotates clockwise from N → E → S → W (matches "mouse right = turn right")
 //   pitch=0   → camera level with pivot
-//   pitch>0   → camera higher than pivot (looking down)
+//   pitch>0   → camera higher than pivot (looking down at character)
+//
+// Compass bearing (degrees, 0=N, 90=E, 180=S, 270=W) is derived from yaw via
+// `bearingFromYaw()` exported below.
 //
 // Frame ordering: applyLook() updates yaw/pitch immediately so the character can
 // read getYaw() for its movement basis, then placeCamera() runs after physics step
@@ -40,6 +44,12 @@ export interface CameraRig {
 const X_AXIS = new THREE.Vector3(1, 0, 0);
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 
+/** Convert camera yaw (radians) to compass bearing (degrees, 0=N, 90=E, 180=S, 270=W). */
+export function bearingFromYaw(yawRad: number): number {
+  const deg = (-yawRad * 180) / Math.PI;
+  return ((deg % 360) + 360) % 360;
+}
+
 export function createCameraRig(opts: CameraRigOpts): CameraRig {
   const armLength = opts.armLength ?? 5;
   const pivotHeight = opts.pivotHeight ?? 1.4;
@@ -56,8 +66,10 @@ export function createCameraRig(opts: CameraRigOpts): CameraRig {
   return {
     camera,
     applyLook(look) {
-      yaw += look.dx;
-      pitch -= look.dy;
+      // Mouse right (+dx) → camera view turns right (yaw decreases).
+      // Mouse down (+dy) → camera looks down at character (pitch increases).
+      yaw -= look.dx;
+      pitch += look.dy;
       if (pitch < PITCH_MIN) pitch = PITCH_MIN;
       else if (pitch > PITCH_MAX) pitch = PITCH_MAX;
     },

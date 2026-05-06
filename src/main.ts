@@ -1,4 +1,4 @@
-import { createCameraRig } from '@/game/camera-rig';
+import { bearingFromYaw, createCameraRig } from '@/game/camera-rig';
 import { createCharacter } from '@/game/character';
 import { createProspectingController } from '@/game/prospecting';
 import { createStream } from '@/game/stream';
@@ -204,6 +204,7 @@ async function bootstrap(): Promise<void> {
         stamina: character.getStamina(),
         inventory: save.inventory.carry.gold,
         spotPricePerOzt: save.economy.spotPrice.current,
+        bearingDeg: bearingFromYaw(cameraRig.getYaw()),
         prompt: promptInfo,
         prospect: prospect.getSnapshot(),
       });
