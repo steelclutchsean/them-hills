@@ -224,14 +224,14 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
         applyRun(rig, time);
         break;
       case 'jumping':
-        applyJumping(rig);
+        applyJumping(rig, time);
         break;
       case 'falling':
-        applyFalling(rig);
+        applyFalling(rig, time);
         break;
       case 'landed': {
         const t01 = Math.max(0, Math.min(1, 1 - landedTimer / LANDED_DURATION));
-        applyLanded(rig, t01);
+        applyLanded(rig, time, t01);
         break;
       }
       case 'idle':

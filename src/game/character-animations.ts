@@ -117,17 +117,32 @@ export function applyRun(rig: CharacterRig, time: number, smoothing = 0.35): voi
   applyDelta(rig.kneeR, Math.max(0, -sin * 0.85), 0, 0, smoothing);
 }
 
-// ----- Jump / Fall / Land — currently identical to rest. -----
-export function applyJumping(rig: CharacterRig, smoothing = 0.25): void {
+// ----- Jump / Fall / Land -----
+// During airborne states (briefly going off the ground while running, jumping,
+// landing), keep the leg cycle going so the character doesn't appear to glide.
+// Re-uses the same sin-based leg + arm cycle as walking, with knees slightly
+// more bent for visual differentiation.
+function applyAirborneCycle(rig: CharacterRig, time: number, smoothing: number): void {
   applyRestPose(rig, smoothing);
+  const phase = time * 6;
+  const sin = Math.sin(phase);
+  applyArmSwing(rig, sin, smoothing);
+  applyDelta(rig.hipL, -sin * 0.5, 0, 0, smoothing);
+  applyDelta(rig.hipR, sin * 0.5, 0, 0, smoothing);
+  applyDelta(rig.kneeL, 0.25 + Math.max(0, sin * 0.4), 0, 0, smoothing);
+  applyDelta(rig.kneeR, 0.25 + Math.max(0, -sin * 0.4), 0, 0, smoothing);
 }
 
-export function applyFalling(rig: CharacterRig, smoothing = 0.2): void {
-  applyRestPose(rig, smoothing);
+export function applyJumping(rig: CharacterRig, time: number, smoothing = 0.25): void {
+  applyAirborneCycle(rig, time, smoothing);
 }
 
-export function applyLanded(rig: CharacterRig, _t01: number, smoothing = 0.5): void {
-  applyRestPose(rig, smoothing);
+export function applyFalling(rig: CharacterRig, time: number, smoothing = 0.2): void {
+  applyAirborneCycle(rig, time, smoothing);
+}
+
+export function applyLanded(rig: CharacterRig, time: number, _t01: number, smoothing = 0.5): void {
+  applyAirborneCycle(rig, time, smoothing);
 }
 
 // ----- Prospecting — rest pose for now. Iterate once arms-down is dialed in. -----

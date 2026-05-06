@@ -182,58 +182,67 @@ function addClothing(bones: ClothingBones): void {
     metalness: 0.5,
   });
 
-  // Shirt — slim fit, covers torso. spine_02 bone Y points up toward neck.
-  const shirt = new THREE.Mesh(new THREE.CylinderGeometry(0.165, 0.18, 0.46, 16), matShirt);
+  // CylinderGeometry(radiusTop, radiusBottom, length, segments): "top" = +Y,
+  // "bottom" = -Y in cylinder local space. The cylinder is parented to a bone
+  // with no extra rotation, so the cylinder's local Y aligns with the bone's
+  // local Y. For each garment we pick top/bottom radii so the cylinder tapers
+  // anatomically — wider at the chest end, narrower at the waist; wider at
+  // the hip, narrower at the knee; etc.
+
+  // Shirt — torso. spine_02 bone Y points up toward neck. Top = chest, wider;
+  // bottom = waist, narrower.
+  const shirt = new THREE.Mesh(new THREE.CylinderGeometry(0.155, 0.135, 0.46, 18), matShirt);
   shirt.position.y = 0.07;
   bones.spine02.add(shirt);
 
-  // Vest layered on top — slightly larger, shorter (covers upper torso only)
-  const vest = new THREE.Mesh(new THREE.CylinderGeometry(0.185, 0.2, 0.3, 16), matVest);
+  // Vest — sits on chest, doesn't cover the waist. Tapers like the shirt.
+  const vest = new THREE.Mesh(new THREE.CylinderGeometry(0.175, 0.15, 0.3, 18), matVest);
   vest.position.y = 0.12;
   bones.spine02.add(vest);
 
-  // Belt at waist — thin cylinder hugging the body
-  const belt = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.19, 0.05, 18), matBelt);
+  // Belt — thin cylinder at waist (slightly larger than shirt's bottom radius).
+  const belt = new THREE.Mesh(new THREE.CylinderGeometry(0.155, 0.155, 0.05, 18), matBelt);
   belt.position.y = -0.16;
   bones.spine02.add(belt);
 
-  // Belt buckle on the front (+Z bone-local = world -Z after the scene flip)
+  // Belt buckle on the front
   const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.04, 0.018), matBuckle);
-  buckle.position.set(0, -0.16, 0.2);
+  buckle.position.set(0, -0.16, 0.165);
   bones.spine02.add(buckle);
 
-  // Sleeves on upperarms. Closer-fitting cylinder along the bone.
+  // Sleeves — bone Y points from shoulder toward elbow. Top (elbow) narrower.
   const makeSleeve = (bone: THREE.Object3D): void => {
-    const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.062, 0.055, 0.3, 14), matShirt);
+    const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.062, 0.3, 14), matShirt);
     sleeve.position.y = 0.16;
     bone.add(sleeve);
   };
   makeSleeve(bones.upperarmL);
   makeSleeve(bones.upperarmR);
 
-  // Pants on thighs — slim cut, hugs the leg.
+  // Pants on thighs — bone Y points from hip toward knee. Top (knee) narrower
+  // than bottom (hip).
   const makeThighPants = (bone: THREE.Object3D): void => {
-    const pants = new THREE.Mesh(new THREE.CylinderGeometry(0.082, 0.072, 0.42, 14), matPants);
+    const pants = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.092, 0.42, 14), matPants);
     pants.position.y = 0.215;
     bone.add(pants);
   };
   makeThighPants(bones.thighL);
   makeThighPants(bones.thighR);
 
-  // Pants on calves
+  // Pants on calves — bone Y points from knee toward ankle. Top (ankle) narrower.
   const makeCalfPants = (bone: THREE.Object3D): void => {
-    const pants = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.062, 0.4, 14), matPants);
+    const pants = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.072, 0.4, 14), matPants);
     pants.position.y = 0.2;
     bone.add(pants);
   };
   makeCalfPants(bones.calfL);
   makeCalfPants(bones.calfR);
 
-  // Boots on feet — slimmer ellipsoid, less bulk.
+  // Boots — slim ellipsoid, less bulky.
   const makeBoot = (bone: THREE.Object3D): void => {
-    const boot = new THREE.Mesh(new THREE.SphereGeometry(0.08, 14, 10), matBoot);
-    boot.scale.set(1.1, 0.6, 1.7);
-    boot.position.set(0, 0.04, 0.06);
+    const boot = new THREE.Mesh(new THREE.SphereGeometry(0.075, 14, 10), matBoot);
+    boot.scale.set(1.1, 0.6, 1.65);
+    boot.position.set(0, 0.04, 0.05);
     bone.add(boot);
   };
   makeBoot(bones.footL);
