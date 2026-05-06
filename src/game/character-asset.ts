@@ -182,40 +182,38 @@ function addClothing(bones: ClothingBones): void {
     metalness: 0.5,
   });
 
-  // Shirt — covers torso. spine_02 bone Y points up toward neck.
-  const shirt = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.23, 0.55, 16), matShirt);
-  shirt.position.y = 0.05;
+  // Shirt — slim fit, covers torso. spine_02 bone Y points up toward neck.
+  const shirt = new THREE.Mesh(new THREE.CylinderGeometry(0.165, 0.18, 0.46, 16), matShirt);
+  shirt.position.y = 0.07;
   bones.spine02.add(shirt);
 
-  // Vest layered on top, slightly larger and shorter
-  const vest = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.26, 0.46, 16), matVest);
-  vest.position.y = 0.06;
+  // Vest layered on top — slightly larger, shorter (covers upper torso only)
+  const vest = new THREE.Mesh(new THREE.CylinderGeometry(0.185, 0.2, 0.3, 16), matVest);
+  vest.position.y = 0.12;
   bones.spine02.add(vest);
 
-  // Belt at waist — short fat torus-like cylinder sealing the gap to pants
-  const belt = new THREE.Mesh(new THREE.CylinderGeometry(0.245, 0.245, 0.07, 18), matBelt);
-  belt.position.y = -0.2;
+  // Belt at waist — thin cylinder hugging the body
+  const belt = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.19, 0.05, 18), matBelt);
+  belt.position.y = -0.16;
   bones.spine02.add(belt);
 
   // Belt buckle on the front (+Z bone-local = world -Z after the scene flip)
-  const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.05, 0.02), matBuckle);
-  buckle.position.set(0, -0.2, 0.255);
+  const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.04, 0.018), matBuckle);
+  buckle.position.set(0, -0.16, 0.2);
   bones.spine02.add(buckle);
 
-  // Sleeves on upperarms. The bone's rest rotation orients its axes such that the
-  // arm extends along the bone, so a cylinder mesh placed at +0.16 along bone-Y
-  // sits centered on the upper arm.
+  // Sleeves on upperarms. Closer-fitting cylinder along the bone.
   const makeSleeve = (bone: THREE.Object3D): void => {
-    const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.075, 0.32, 14), matShirt);
+    const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.062, 0.055, 0.3, 14), matShirt);
     sleeve.position.y = 0.16;
     bone.add(sleeve);
   };
   makeSleeve(bones.upperarmL);
   makeSleeve(bones.upperarmR);
 
-  // Pants on thighs — bone-Y points toward knee (downward in world after rest rot).
+  // Pants on thighs — slim cut, hugs the leg.
   const makeThighPants = (bone: THREE.Object3D): void => {
-    const pants = new THREE.Mesh(new THREE.CylinderGeometry(0.115, 0.095, 0.43, 14), matPants);
+    const pants = new THREE.Mesh(new THREE.CylinderGeometry(0.082, 0.072, 0.42, 14), matPants);
     pants.position.y = 0.215;
     bone.add(pants);
   };
@@ -224,18 +222,17 @@ function addClothing(bones: ClothingBones): void {
 
   // Pants on calves
   const makeCalfPants = (bone: THREE.Object3D): void => {
-    const pants = new THREE.Mesh(new THREE.CylinderGeometry(0.095, 0.08, 0.4, 14), matPants);
+    const pants = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.062, 0.4, 14), matPants);
     pants.position.y = 0.2;
     bone.add(pants);
   };
   makeCalfPants(bones.calfL);
   makeCalfPants(bones.calfR);
 
-  // Boots on feet. foot bone-Y points downward, and ball bone (child of foot) is
-  // at +Z bone-local (toward toes). Stretched ellipsoid covers the whole foot.
+  // Boots on feet — slimmer ellipsoid, less bulk.
   const makeBoot = (bone: THREE.Object3D): void => {
-    const boot = new THREE.Mesh(new THREE.SphereGeometry(0.1, 14, 10), matBoot);
-    boot.scale.set(1.2, 0.55, 1.7);
+    const boot = new THREE.Mesh(new THREE.SphereGeometry(0.08, 14, 10), matBoot);
+    boot.scale.set(1.1, 0.6, 1.7);
     boot.position.set(0, 0.04, 0.06);
     bone.add(boot);
   };

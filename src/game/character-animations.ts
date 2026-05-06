@@ -70,9 +70,10 @@ export function applyIdle(rig: CharacterRig, _time: number, smoothing = 0.15): v
   applyRestPose(rig, smoothing);
 }
 
-// Arm swing axis when walking. With arm-down on bone-X, perpendicular axes are Y
-// and Z. Z is the empirical guess for forward/back swing in this rig.
-const ARM_SWING_AXIS: 'x' | 'y' | 'z' = 'z';
+// Arm swing axis when walking. With arm-down on bone-X applied, the perpendicular
+// world-X swing axis (which we want for fore/aft motion) lines up with bone-Y in
+// the rig's local frame after the rest rotation.
+const ARM_SWING_AXIS: 'x' | 'y' | 'z' = 'y';
 const ARM_SWING_AMP = 0.5;
 
 function applyArmSwing(rig: CharacterRig, sin: number, smoothing: number): void {
@@ -89,15 +90,19 @@ function applyArmSwing(rig: CharacterRig, sin: number, smoothing: number): void 
 }
 
 // ----- Walk -----
+// Hip and knee values are NEGATED relative to the procedural-rig versions because
+// the gltf.scene's 180° Y-flip (to put the model's face on local -Z) also flips
+// bone-X in world. So +bone-X rotation now produces backward swing in world; we
+// negate so positive `sin` still corresponds to forward swing intent.
 export function applyWalk(rig: CharacterRig, time: number, smoothing = 0.3): void {
   applyRestPose(rig, smoothing);
   const phase = time * 6;
   const sin = Math.sin(phase);
   applyArmSwing(rig, sin, smoothing);
-  applyDelta(rig.hipL, sin * 0.6, 0, 0, smoothing);
-  applyDelta(rig.hipR, -sin * 0.6, 0, 0, smoothing);
-  applyDelta(rig.kneeL, Math.max(0, -sin * 0.5), 0, 0, smoothing);
-  applyDelta(rig.kneeR, Math.max(0, sin * 0.5), 0, 0, smoothing);
+  applyDelta(rig.hipL, -sin * 0.6, 0, 0, smoothing);
+  applyDelta(rig.hipR, sin * 0.6, 0, 0, smoothing);
+  applyDelta(rig.kneeL, Math.max(0, sin * 0.5), 0, 0, smoothing);
+  applyDelta(rig.kneeR, Math.max(0, -sin * 0.5), 0, 0, smoothing);
 }
 
 // ----- Run -----
@@ -106,10 +111,10 @@ export function applyRun(rig: CharacterRig, time: number, smoothing = 0.35): voi
   const phase = time * 9;
   const sin = Math.sin(phase);
   applyArmSwing(rig, sin * 1.6, smoothing);
-  applyDelta(rig.hipL, sin * 0.95, 0, 0, smoothing);
-  applyDelta(rig.hipR, -sin * 0.95, 0, 0, smoothing);
-  applyDelta(rig.kneeL, Math.max(0, -sin * 0.85), 0, 0, smoothing);
-  applyDelta(rig.kneeR, Math.max(0, sin * 0.85), 0, 0, smoothing);
+  applyDelta(rig.hipL, -sin * 0.95, 0, 0, smoothing);
+  applyDelta(rig.hipR, sin * 0.95, 0, 0, smoothing);
+  applyDelta(rig.kneeL, Math.max(0, sin * 0.85), 0, 0, smoothing);
+  applyDelta(rig.kneeR, Math.max(0, -sin * 0.85), 0, 0, smoothing);
 }
 
 // ----- Jump / Fall / Land — currently identical to rest. -----
