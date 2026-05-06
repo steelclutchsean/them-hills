@@ -1,14 +1,34 @@
 import * as THREE from 'three';
 import { RAPIER } from '@/physics/world';
 import type { MoveInput } from '@/input/manager';
+import {
+  applyClassify,
+  applyCollect,
+  applyDig,
+  applyFalling,
+  applyIdle,
+  applyJumping,
+  applyLanded,
+  applyPan,
+  applyRun,
+  applyWalk,
+} from './character-animations';
+import { createCharacterRig, type CharacterRig } from './character-model';
 
-// Movement, jump, gravity, stamina, and a tiny state machine driving placeholder visuals.
-// Three.js group:
-//   - position is set from the Rapier body translation (capsule center)
-//   - rotation.y is the character yaw (lerps toward movement direction)
-//   - sub-mesh handles bob/lean/squash so the group's transform stays clean
+// Movement, jump, gravity, stamina, a state machine for animation selection,
+// and an articulated procedural rig (head/torso/limbs as primitives).
+//
+// The rig spans roughly y ∈ [-0.86, +0.84] from the group origin; the group origin
+// matches the Rapier capsule center, so feet sit a few cm above the capsule's
+// physics bottom — visually grounded under snap-to-ground.
 
 export type CharacterState = 'idle' | 'walking' | 'running' | 'jumping' | 'falling' | 'landed';
+
+/** Optional task overlay; if non-null it overrides movement-state animation. */
+export interface ProspectingActivity {
+  step: 'dig' | 'classify' | 'pan' | 'collect';
+  progress: number;
+}
 
 export interface CharacterOpts {
   world: RAPIER.World;
@@ -26,7 +46,8 @@ export interface Character {
     sprintDown: boolean,
     cameraYaw: number,
   ): void;
-  postStep(dt: number): void;
+  /** activity overrides movement animation when non-null (e.g. during prospecting). */
+  postStep(dt: number, time: number, activity: ProspectingActivity | null): void;
   getPosition(): THREE.Vector3;
   getYaw(): number;
   getState(): CharacterState;
@@ -52,6 +73,7 @@ const STAMINA_MIN_FOR_SPRINT = 0.15;
 const STAMINA_LOCKOUT_THRESHOLD = 0.05;
 
 const TURN_LERP = 0.18;
+const LANDED_DURATION = 0.18;
 
 const CAPSULE_HALF_HEIGHT = 0.5;
 const CAPSULE_RADIUS = 0.4;
@@ -72,28 +94,13 @@ export function createCharacter(opts: CharacterOpts): Character {
   controller.enableAutostep(0.3, 0.2, true);
   controller.enableSnapToGround(0.5);
 
-  // ---- Three.js visuals ----
-  const group = new THREE.Group();
+  // ---- Visual rig ----
+  const rig: CharacterRig = createCharacterRig();
+  const group = rig.group;
   group.position.set(opts.initialPosition.x, opts.initialPosition.y, opts.initialPosition.z);
   group.rotation.y = opts.initialYaw;
 
-  const visualBody = new THREE.Mesh(
-    new THREE.CapsuleGeometry(CAPSULE_RADIUS, CAPSULE_HALF_HEIGHT * 2, 8, 16),
-    new THREE.MeshStandardMaterial({ color: 0xc89b3b, flatShading: true, roughness: 0.7 }),
-  );
-  group.add(visualBody);
-
-  // Forward-facing cone — useful as a placeholder for "which way is the character facing"
-  // until a proper rigged model is sourced in M3.
-  const face = new THREE.Mesh(
-    new THREE.ConeGeometry(0.18, 0.35, 8),
-    new THREE.MeshStandardMaterial({ color: 0xff5555, flatShading: true }),
-  );
-  face.rotation.x = -Math.PI / 2;
-  face.position.set(0, 0.55, -0.55);
-  group.add(face);
-
-  // ---- State ----
+  // ---- Sim state ----
   let yaw = opts.initialYaw;
   let stamina = opts.initialStamina;
   let staminaLocked = false;
@@ -103,7 +110,6 @@ export function createCharacter(opts: CharacterOpts): Character {
   let wasJumpDown = false;
   let state: CharacterState = 'idle';
   let landedTimer = 0;
-  let bobPhase = 0;
 
   const desiredMove = new RAPIER.Vector3(0, 0, 0);
 
@@ -123,26 +129,20 @@ export function createCharacter(opts: CharacterOpts): Character {
     }
     const targetSpeed = moving ? (sprinting ? RUN_SPEED : WALK_SPEED) : 0;
 
-    // Camera-relative basis. Three.js rotation around +Y by θ takes +X → -Z.
-    // cameraForward = (-sin θ, 0, -cos θ); cameraRight = (cos θ, 0, -sin θ).
     const sinY = Math.sin(cameraYaw);
     const cosY = Math.cos(cameraYaw);
     let worldX = 0;
     let worldZ = 0;
     if (moving) {
-      // moveInput.y is positive when pressing back; W (forward) is moveInput.y = -1.
-      // moveInput.x is positive right (D); A is -1.
       const wx = -sinY * -moveInput.y + cosY * moveInput.x;
       const wz = -cosY * -moveInput.y + -sinY * moveInput.x;
       const len = Math.hypot(wx, wz);
       worldX = (wx / len) * targetSpeed;
       worldZ = (wz / len) * targetSpeed;
-      // rotation.y = atan2(-x, -z) so local -Z aligns with world (wx, _, wz).
       const targetYaw = Math.atan2(-wx, -wz);
       yaw = lerpAngle(yaw, targetYaw, TURN_LERP);
     }
 
-    // Edge-triggered jump — released-and-repressed required to re-jump.
     if (jumpDown && !wasJumpDown && grounded) {
       verticalVelocity = JUMP_VELOCITY;
     }
@@ -167,7 +167,6 @@ export function createCharacter(opts: CharacterOpts): Character {
     wasGrounded = grounded;
     grounded = controller.computedGrounded();
 
-    // Stamina
     if (sprinting) {
       stamina = Math.max(0, stamina - STAMINA_DRAIN_PER_SEC * dt);
       if (stamina < STAMINA_LOCKOUT_THRESHOLD) staminaLocked = true;
@@ -176,13 +175,12 @@ export function createCharacter(opts: CharacterOpts): Character {
       if (stamina >= STAMINA_MIN_FOR_SPRINT) staminaLocked = false;
     }
 
-    // State machine
     let next: CharacterState = state;
     if (!grounded) {
       next = verticalVelocity > 0 ? 'jumping' : 'falling';
     } else if (!wasGrounded && (state === 'falling' || state === 'jumping')) {
       next = 'landed';
-      landedTimer = 0.18;
+      landedTimer = LANDED_DURATION;
     } else if (landedTimer > 0) {
       landedTimer -= dt;
       next = landedTimer <= 0 ? 'idle' : 'landed';
@@ -194,36 +192,52 @@ export function createCharacter(opts: CharacterOpts): Character {
     state = next;
   }
 
-  function postStep(dt: number): void {
+  function postStep(_dt: number, time: number, activity: ProspectingActivity | null): void {
     const t = body.translation();
     group.position.set(t.x, t.y, t.z);
     group.rotation.y = yaw;
 
-    // Visual flourishes — placeholder until a proper rigged model lands in M3.
-    if (state === 'walking') {
-      bobPhase += dt * 9;
-      visualBody.position.y = Math.sin(bobPhase) * 0.04;
-    } else if (state === 'running') {
-      bobPhase += dt * 13;
-      visualBody.position.y = Math.sin(bobPhase) * 0.06;
-    } else {
-      bobPhase = 0;
-      visualBody.position.y *= 0.85;
+    // Animation dispatch — task overlay wins over movement state.
+    if (activity) {
+      switch (activity.step) {
+        case 'dig':
+          applyDig(rig, time, activity.progress);
+          break;
+        case 'classify':
+          applyClassify(rig, time, activity.progress);
+          break;
+        case 'pan':
+          applyPan(rig, time, activity.progress);
+          break;
+        case 'collect':
+          applyCollect(rig, time, activity.progress);
+          break;
+      }
+      return;
     }
 
-    if (state === 'running') {
-      visualBody.rotation.x = lerpScalar(visualBody.rotation.x, -0.08, 0.2);
-    } else {
-      visualBody.rotation.x = lerpScalar(visualBody.rotation.x, 0, 0.2);
-    }
-
-    if (state === 'jumping' || state === 'falling') {
-      visualBody.scale.y = lerpScalar(visualBody.scale.y, 1.06, 0.2);
-    } else if (state === 'landed') {
-      const t01 = Math.max(0, Math.min(1, 1 - landedTimer / 0.18));
-      visualBody.scale.y = 0.85 + 0.15 * t01;
-    } else {
-      visualBody.scale.y = lerpScalar(visualBody.scale.y, 1.0, 0.25);
+    switch (state) {
+      case 'walking':
+        applyWalk(rig, time);
+        break;
+      case 'running':
+        applyRun(rig, time);
+        break;
+      case 'jumping':
+        applyJumping(rig);
+        break;
+      case 'falling':
+        applyFalling(rig);
+        break;
+      case 'landed': {
+        const t01 = Math.max(0, Math.min(1, 1 - landedTimer / LANDED_DURATION));
+        applyLanded(rig, t01);
+        break;
+      }
+      case 'idle':
+      default:
+        applyIdle(rig, time);
+        break;
     }
   }
 
@@ -255,8 +269,4 @@ function lerpAngle(a: number, b: number, t: number): number {
   while (diff > Math.PI) diff -= 2 * Math.PI;
   while (diff < -Math.PI) diff += 2 * Math.PI;
   return a + diff * t;
-}
-
-function lerpScalar(a: number, b: number, t: number): number {
-  return a + (b - a) * t;
 }

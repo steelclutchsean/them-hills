@@ -237,8 +237,12 @@ async function bootstrap(): Promise<void> {
       // 4. Physics
       physics.step();
 
-      // 5. Character visuals
-      character.postStep(dt);
+      // 5. Character visuals — pass prospecting activity so animations match the active step
+      const prospectSnap = prospect.getSnapshot();
+      const activity = prospectSnap
+        ? { step: prospectSnap.step, progress: prospectSnap.progress }
+        : null;
+      character.postStep(dt, worldTime, activity);
 
       // 6. Camera position
       cameraRig.placeCamera(character.getPosition(), physics.rapier, character.getColliderHandle());
