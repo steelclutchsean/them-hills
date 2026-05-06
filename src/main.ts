@@ -155,7 +155,7 @@ async function bootstrap(): Promise<void> {
   const spawnZ = persistedPlayer.position.z;
   const groundY = terrain.getHeightAt(spawnX, spawnZ);
   const spawnY = Math.max(persistedPlayer.position.y, groundY + 1.5);
-  const character = createCharacter({
+  const character = await createCharacter({
     world: physics.rapier,
     initialPosition: { x: spawnX, y: spawnY, z: spawnZ },
     initialYaw: persistedPlayer.rotation.yaw,

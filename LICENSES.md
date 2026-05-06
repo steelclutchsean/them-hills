@@ -40,6 +40,14 @@ All current dependencies are MIT-licensed unless noted. Audit on every `npm inst
 - **Models in use:** trees (Common, Pine, Twisted, Dead × 5 each), rocks (Medium × 3, Pebble_Round × 5, Pebble_Square × 6), vegetation (grass, bushes, ferns, plants, flowers, clovers, mushrooms).
 - **Texture sharing:** glTFs in this folder reference shared `Bark_*` and `Leaves_*` PNGs by relative URI. Don't move individual files out of the folder.
 
+### Quaternius Universal Base Characters (Standard / free) — `public/assets/characters/`
+- **License:** [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/)
+- **Source:** https://quaternius.com (Standard free version: subset of full pack)
+- **Author:** [@quaternius](https://www.patreon.com/quaternius)
+- **Models in use:** `Superhero_Male_FullBody.gltf` — fully rigged 65-bone skeleton with eyebrows, eyes, and body sub-meshes. Body texture is the "Superhero" PBR set (base color + normal + roughness).
+- **Note:** Pack ships no bundled animations — locomotion + prospecting motions are hand-coded in `src/game/character-animations.ts`, driving the bones directly.
+- **Female body + hairstyles:** present in source pack but excluded from `public/assets/characters/` to keep deploy size down. Re-extract from the source zip if needed.
+
 ---
 
 ## Textures

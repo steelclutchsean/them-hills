@@ -13,14 +13,14 @@ import {
   applyRun,
   applyWalk,
 } from './character-animations';
-import { createCharacterRig, type CharacterRig } from './character-model';
+import { loadCharacter, type CharacterRig } from './character-asset';
 
 // Movement, jump, gravity, stamina, a state machine for animation selection,
-// and an articulated procedural rig (head/torso/limbs as primitives).
+// and a rigged glTF character (Quaternius "Universal Base Characters"). Animations
+// drive the skeleton bones procedurally — the pack ships no bundled motion clips.
 //
-// The rig spans roughly y ∈ [-0.86, +0.84] from the group origin; the group origin
-// matches the Rapier capsule center, so feet sit a few cm above the capsule's
-// physics bottom — visually grounded under snap-to-ground.
+// The character mesh is centered on the Rapier capsule center so the feet land on
+// the visual ground when the capsule's bottom rests on the heightfield.
 
 export type CharacterState = 'idle' | 'walking' | 'running' | 'jumping' | 'falling' | 'landed';
 
@@ -78,7 +78,7 @@ const LANDED_DURATION = 0.18;
 const CAPSULE_HALF_HEIGHT = 0.5;
 const CAPSULE_RADIUS = 0.4;
 
-export function createCharacter(opts: CharacterOpts): Character {
+export async function createCharacter(opts: CharacterOpts): Promise<Character> {
   // ---- Rapier body + collider ----
   const bodyDesc = RAPIER.RigidBodyDesc.kinematicPositionBased();
   bodyDesc.setTranslation(opts.initialPosition.x, opts.initialPosition.y, opts.initialPosition.z);
@@ -94,8 +94,8 @@ export function createCharacter(opts: CharacterOpts): Character {
   controller.enableAutostep(0.3, 0.2, true);
   controller.enableSnapToGround(0.5);
 
-  // ---- Visual rig ----
-  const rig: CharacterRig = createCharacterRig();
+  // ---- Visual rig (loaded glTF) ----
+  const rig: CharacterRig = await loadCharacter();
   const group = rig.group;
   group.position.set(opts.initialPosition.x, opts.initialPosition.y, opts.initialPosition.z);
   group.rotation.y = opts.initialYaw;
