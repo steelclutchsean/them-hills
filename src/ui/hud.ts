@@ -258,7 +258,7 @@ export function mountHud(root: HTMLElement): MountedHud {
     return el;
   };
 
-  addInfoLine('title').textContent = 'Them Hills — Phase 3.8 (Ranger outfit)';
+  addInfoLine('title').textContent = 'Them Hills — Phase 3.9 (Single skeleton)';
   addInfoLine('device');
   addInfoLine('state');
   addInfoLine('stamina');

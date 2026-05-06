@@ -1,37 +1,29 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
-// Loads two Quaternius glTFs together and treats them as one character:
+// Loads a single Quaternius glTF (Modular Outfits — Ranger) and treats it as the
+// character. Procedural head + hat are parented to the Head bone.
 //
-//   - Male_Ranger.gltf         — Modular Character Outfits pack. 9 skinned meshes:
-//                                body + two belts + arms + bracers + boots + pauldron
-//                                + hood + legs. We hide the Hood (cowboy hat replaces it)
-//                                and keep the rest. Fully clothed, skin-weighted.
-//   - Superhero_Male_FullBody  — Universal Base Characters pack. Provides the
-//                                head + eyes + eyebrows (the existing rigged face).
+// The Ranger outfit ships 9 skinned meshes: body + two belts + arms + bracers +
+// boots + pauldron + hood + legs. The pauldron and hood are hidden at runtime
+// — we use the procedural cowboy hat instead.
 //
-// Both packs share the same 65-bone skeleton structure (Unreal-style names).
-// We load them as two separate scenes inside a single wrapper, then build a
-// CharacterRig where each "joint" tracks bones from BOTH skeletons. animation
-// code sets matching bone rotations on both, so the outfit and the body+head
-// stay perfectly in sync.
-//
-// The Superhero body mesh is still rendered (because the head is part of it),
-// but its material is overridden to a skin tone — so any visible body parts
-// underneath the Peasant outfit read as skin, not as the original superhero
-// suit. The head shows as skin because that's its actual color.
+// The pack does NOT ship a head mesh. Earlier we loaded a second glTF
+// (Universal Base Characters Superhero) for its rigged head + eyes + eyebrows,
+// but that left visible bare-arm skin where the Ranger outfit only has bracers.
+// Now we drop the second skeleton entirely and use a procedural skin-toned head
+// sphere; clean, single-skeleton, no skin gaps. Face details revisitable later.
 
 const OUTFIT_GLTF = '/assets/characters/Male_Ranger.gltf';
-const SUPERHERO_GLTF = '/assets/characters/Superhero_Male_FullBody.gltf';
 
-/** Names of meshes within the outfit glTF that should NOT be rendered. */
+/** Outfit mesh names (substring match) that should NOT be rendered. */
 const HIDDEN_OUTFIT_MESH_KEYWORDS = ['hood', 'pauldron'];
 
 const FEET_OFFSET_Y = -0.9;
 const SKIN_COLOR = 0xe7c19e;
 
 export interface BoneJoint {
-  /** All bones in different skeletons that should animate identically. */
+  /** Bones from one or more skeletons that should animate identically. */
   bones: THREE.Object3D[];
   restX: number;
   restY: number;
@@ -74,102 +66,85 @@ function collectBones(scene: THREE.Object3D): Map<string, THREE.Object3D> {
   return map;
 }
 
-/** Prepare a loaded glTF scene: shift feet to capsule bottom, flip 180° to face -Z. */
-function prepareScene(scene: THREE.Group): void {
-  scene.position.y = FEET_OFFSET_Y;
-  scene.rotation.y = Math.PI;
-  scene.traverse((o) => {
-    if (o instanceof THREE.SkinnedMesh) {
-      o.castShadow = true;
-      o.receiveShadow = true;
-    }
-  });
-}
-
 export async function loadCharacter(): Promise<CharacterRig> {
   const loader = new GLTFLoader();
-  const [outfit, base] = await Promise.all([
-    loader.loadAsync(OUTFIT_GLTF),
-    loader.loadAsync(SUPERHERO_GLTF),
-  ]);
+  const outfit = await loader.loadAsync(OUTFIT_GLTF);
 
-  prepareScene(outfit.scene);
-  prepareScene(base.scene);
+  // Wrapper group (character.ts owns position + yaw of this).
+  const wrapper = new THREE.Group();
+  wrapper.name = 'character_root';
 
-  // Hide outfit pieces we don't want (e.g. hood — replaced by the cowboy hat).
+  // Shift feet to capsule bottom and flip 180° around Y so the model's face
+  // points along local -Z (Three.js camera-default forward).
+  outfit.scene.position.y = FEET_OFFSET_Y;
+  outfit.scene.rotation.y = Math.PI;
+
+  // Hide outfit pieces we don't want (hood, pauldron).
   outfit.scene.traverse((o) => {
     if (!(o instanceof THREE.SkinnedMesh)) return;
+    o.castShadow = true;
+    o.receiveShadow = true;
     const lower = o.name.toLowerCase();
     if (HIDDEN_OUTFIT_MESH_KEYWORDS.some((k) => lower.includes(k))) {
       o.visible = false;
     }
   });
 
-  // Override the Superhero body mesh material to skin tone. The mesh contains
-  // both head and body geometry — flat skin color makes the head look natural
-  // and any body parts not covered by Peasant clothes read as bare skin
-  // rather than the original "superhero suit" texture.
-  base.scene.traverse((o) => {
-    if (!(o instanceof THREE.SkinnedMesh)) return;
-    const matName = Array.isArray(o.material)
-      ? (o.material[0]?.name ?? '')
-      : ((o.material as THREE.Material)?.name ?? '');
-    if (matName.toLowerCase().includes('superhero') || o.name.toLowerCase().includes('superhero')) {
-      o.material = new THREE.MeshStandardMaterial({
-        color: SKIN_COLOR,
-        roughness: 0.85,
-        metalness: 0,
-      });
-    }
-  });
-
-  // Wrapper: character.ts owns position + yaw of this group.
-  const wrapper = new THREE.Group();
-  wrapper.name = 'character_root';
   wrapper.add(outfit.scene);
-  wrapper.add(base.scene);
 
-  // Collect bones from both skeletons and pair them up by name.
-  const outfitBones = collectBones(outfit.scene);
-  const baseBones = collectBones(base.scene);
-
-  const findAll = (name: string): THREE.Object3D[] => {
-    const out: THREE.Object3D[] = [];
-    const a = outfitBones.get(name);
-    const b = baseBones.get(name);
-    if (a) out.push(a);
-    if (b) out.push(b);
-    if (out.length === 0) {
-      throw new Error(`[character-asset] missing bone "${name}" in both skeletons`);
-    }
-    return out;
+  // Locate skeleton bones.
+  const bones = collectBones(outfit.scene);
+  const find = (name: string): THREE.Object3D[] => {
+    const b = bones.get(name);
+    if (!b) throw new Error(`[character-asset] missing bone "${name}"`);
+    return [b];
   };
 
-  // Hat parented to the Head bone of the BASE skeleton (which is what owns the
-  // visible head geometry). Placing it on the base skeleton's bone is fine —
-  // since both skeletons animate identically, the hat moves correctly with the
-  // visible head.
-  const hatHostBone = baseBones.get('Head') ?? outfitBones.get('Head');
-  if (hatHostBone) {
-    const hat = createProspectorHat();
-    hatHostBone.add(hat);
+  // Procedural head + hat on the Head bone.
+  const headBone = bones.get('Head');
+  if (headBone) {
+    headBone.add(createProceduralHead());
+    headBone.add(createProspectorHat());
   }
 
   return {
     group: wrapper,
-    spine: makeJoint(findAll('spine_02')),
-    head: makeJoint(findAll('Head')),
-    shoulderL: makeJoint(findAll('upperarm_l')),
-    shoulderR: makeJoint(findAll('upperarm_r')),
-    elbowL: makeJoint(findAll('lowerarm_l')),
-    elbowR: makeJoint(findAll('lowerarm_r')),
-    handL: makeJoint(findAll('hand_l')),
-    handR: makeJoint(findAll('hand_r')),
-    hipL: makeJoint(findAll('thigh_l')),
-    hipR: makeJoint(findAll('thigh_r')),
-    kneeL: makeJoint(findAll('calf_l')),
-    kneeR: makeJoint(findAll('calf_r')),
+    spine: makeJoint(find('spine_02')),
+    head: makeJoint(find('Head')),
+    shoulderL: makeJoint(find('upperarm_l')),
+    shoulderR: makeJoint(find('upperarm_r')),
+    elbowL: makeJoint(find('lowerarm_l')),
+    elbowR: makeJoint(find('lowerarm_r')),
+    handL: makeJoint(find('hand_l')),
+    handR: makeJoint(find('hand_r')),
+    hipL: makeJoint(find('thigh_l')),
+    hipR: makeJoint(find('thigh_r')),
+    kneeL: makeJoint(find('calf_l')),
+    kneeR: makeJoint(find('calf_r')),
   };
+}
+
+// Procedural skin-toned head — slightly oval sphere with no painted features.
+// Sits on top of the Head bone; the cowboy hat covers most of the upper portion
+// from typical 3rd-person camera distance. We can revisit detail (eyes, mouth,
+// beard) later or swap in a proper rigged head asset.
+function createProceduralHead(): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'procedural_head';
+
+  const matSkin = new THREE.MeshStandardMaterial({
+    color: SKIN_COLOR,
+    flatShading: false,
+    roughness: 0.85,
+  });
+
+  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.105, 18, 14), matSkin);
+  skull.scale.set(1.0, 1.08, 0.95);
+  skull.position.y = 0.05;
+  skull.castShadow = true;
+  group.add(skull);
+
+  return group;
 }
 
 // Procedural prospector hat. Sits on top of the Head bone — local Y is upward

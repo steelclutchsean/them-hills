@@ -2,7 +2,7 @@
 // Every PR that bumps CURRENT_SAVE_VERSION must add a migrator and a fixture test.
 
 export const CURRENT_SAVE_VERSION = 1;
-export const BUILD_VERSION = '0.0.16-phase3.8';
+export const BUILD_VERSION = '0.0.17-phase3.9';
 
 // ---------- Top-level shape ----------
 
