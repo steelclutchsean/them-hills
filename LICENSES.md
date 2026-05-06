@@ -44,9 +44,16 @@ All current dependencies are MIT-licensed unless noted. Audit on every `npm inst
 - **License:** [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/)
 - **Source:** https://quaternius.com (Standard free version: subset of full pack)
 - **Author:** [@quaternius](https://www.patreon.com/quaternius)
-- **Models in use:** `Superhero_Male_FullBody.gltf` — fully rigged 65-bone skeleton with eyebrows, eyes, and body sub-meshes. Body texture is the "Superhero" PBR set (base color + normal + roughness).
-- **Note:** Pack ships no bundled animations — locomotion + prospecting motions are hand-coded in `src/game/character-animations.ts`, driving the bones directly.
-- **Female body + hairstyles:** present in source pack but excluded from `public/assets/characters/` to keep deploy size down. Re-extract from the source zip if needed.
+- **Models in use:** `Superhero_Male_FullBody.gltf` — fully rigged 65-bone skeleton with eyebrows, eyes, and body sub-meshes. Used for the head + face only (body is hidden under the Peasant outfit).
+- **Note:** Pack ships no bundled animations — locomotion + prospecting motions are hand-coded in `src/game/character-animations.ts`.
+- **Female body + hairstyles:** present in source pack but excluded from `public/assets/characters/` to keep deploy size down. Re-extract from source zip if needed.
+
+### Quaternius Modular Character Outfits — Fantasy (Standard / free) — `public/assets/characters/`
+- **License:** [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/)
+- **Source:** https://quaternius.com (Standard free version)
+- **Author:** [@quaternius](https://www.patreon.com/quaternius)
+- **Models in use:** `Male_Peasant.gltf` — fully clothed, skin-weighted male peasant outfit (body + arms + legs + feet meshes, no head). Shares the same 65-bone skeleton as the Universal Base Characters pack, so the two are loaded side-by-side and driven by the same bone animations. Textures: `T_Peasant_BaseColor.png`, `T_Peasant_Normal.png`, `T_Peasant_ORM.png`, plus shared `T_Regular_Male_*` skin textures for the forearms / hands.
+- **Other outfits in source pack:** Female_Peasant, Male_Ranger, Female_Ranger plus modular parts. Excluded from deploy to keep size down.
 
 ---
 

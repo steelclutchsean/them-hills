@@ -1,36 +1,35 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
-// Loads the rigged Quaternius "Universal Base Characters" male body and exposes its
-// skeleton bones via a CharacterRig that captures each bone's REST rotation at load.
-// Animations apply rotation DELTAS on top of rest, so the rig's natural T-pose
-// posture is preserved and animation curves stack correctly.
+// Loads two Quaternius glTFs together and treats them as one character:
 //
-// Bone naming (Unreal-style):
-//   root → pelvis → spine_01 → spine_02 → spine_03 → neck_01 → Head
-//   spine_03 → clavicle_l/r → upperarm_l/r → lowerarm_l/r → hand_l/r → fingers
-//   pelvis → thigh_l/r → calf_l/r → foot_l/r → ball_l/r
+//   - Male_Peasant.gltf        — Modular Character Outfits pack. 4 skinned meshes
+//                                (body, arms, legs, feet) — fully clothed,
+//                                form-fitting because each piece is hand-modeled
+//                                and skin-weighted. NO head mesh.
+//   - Superhero_Male_FullBody  — Universal Base Characters pack. Provides the
+//                                head + eyes + eyebrows (the existing rigged face).
 //
-// Pack ships NO bundled animations — see character-animations.ts for the procedural
-// motion library.
+// Both packs share the same 65-bone skeleton structure (Unreal-style names).
+// We load them as two separate scenes inside a single wrapper, then build a
+// CharacterRig where each "joint" tracks bones from BOTH skeletons. animation
+// code sets matching bone rotations on both, so the outfit and the body+head
+// stay perfectly in sync.
+//
+// The Superhero body mesh is still rendered (because the head is part of it),
+// but its material is overridden to a skin tone — so any visible body parts
+// underneath the Peasant outfit read as skin, not as the original superhero
+// suit. The head shows as skin because that's its actual color.
 
-const CHARACTER_GLTF = '/assets/characters/Superhero_Male_FullBody.gltf';
+const PEASANT_GLTF = '/assets/characters/Male_Peasant.gltf';
+const SUPERHERO_GLTF = '/assets/characters/Superhero_Male_FullBody.gltf';
 
-// The rigged mesh's origin sits at the character's feet; the Rapier capsule we attach
-// it to has its center 0.9m above the capsule bottom. Shift the scene down so the
-// feet land at the capsule bottom rather than at the capsule center.
 const FEET_OFFSET_Y = -0.9;
-
-// Solid color override for the body. The pack's "Superhero" texture is muscular
-// bare chest + briefs; we override it with a clearly-not-skin color so the
-// character reads as "wearing dark workwear" rather than "shirtless." Deep navy
-// denim is far enough from skin tone that any remaining muscle definition reads
-// as fabric folds, not flesh.
-const CLOTHES_COLOR = 0x1f2a3a;
 const SKIN_COLOR = 0xe7c19e;
 
 export interface BoneJoint {
-  bone: THREE.Object3D;
+  /** All bones in different skeletons that should animate identically. */
+  bones: THREE.Object3D[];
   restX: number;
   restY: number;
   restZ: number;
@@ -52,222 +51,114 @@ export interface CharacterRig {
   kneeR: BoneJoint;
 }
 
-function makeJoint(bone: THREE.Object3D): BoneJoint {
+function makeJoint(bones: THREE.Object3D[]): BoneJoint {
+  const ref = bones[0];
+  if (!ref) throw new Error('[character-asset] makeJoint requires at least one bone');
   return {
-    bone,
-    restX: bone.rotation.x,
-    restY: bone.rotation.y,
-    restZ: bone.rotation.z,
+    bones,
+    restX: ref.rotation.x,
+    restY: ref.rotation.y,
+    restZ: ref.rotation.z,
   };
+}
+
+function collectBones(scene: THREE.Object3D): Map<string, THREE.Object3D> {
+  const map = new Map<string, THREE.Object3D>();
+  scene.traverse((o) => {
+    const isBone = (o as THREE.Object3D & { isBone?: boolean }).isBone === true;
+    if (isBone) map.set(o.name, o);
+  });
+  return map;
+}
+
+/** Prepare a loaded glTF scene: shift feet to capsule bottom, flip 180° to face -Z. */
+function prepareScene(scene: THREE.Group): void {
+  scene.position.y = FEET_OFFSET_Y;
+  scene.rotation.y = Math.PI;
+  scene.traverse((o) => {
+    if (o instanceof THREE.SkinnedMesh) {
+      o.castShadow = true;
+      o.receiveShadow = true;
+    }
+  });
 }
 
 export async function loadCharacter(): Promise<CharacterRig> {
   const loader = new GLTFLoader();
-  const gltf = await loader.loadAsync(CHARACTER_GLTF);
+  const [peasant, base] = await Promise.all([
+    loader.loadAsync(PEASANT_GLTF),
+    loader.loadAsync(SUPERHERO_GLTF),
+  ]);
 
-  // Wrapper group: character.ts owns position + yaw. The loaded scene is shifted
-  // down so the character's feet land at the wrapper's local y = -0.9 (capsule bottom).
-  // Also rotated 180° around Y because this rig was authored with the model's face
-  // on local +Z, but Three.js movement convention has forward = -Z (camera default).
-  // Without the flip, pressing W walked the character backward.
-  const wrapper = new THREE.Group();
-  wrapper.name = 'character_root';
-  gltf.scene.position.y = FEET_OFFSET_Y;
-  gltf.scene.rotation.y = Math.PI;
-  wrapper.add(gltf.scene);
+  prepareScene(peasant.scene);
+  prepareScene(base.scene);
 
-  // Override body material with a solid clothing color. Eyes + hair textures stay.
-  // We match against material name "MI_Superhero_Male" rather than mesh name —
-  // the mesh node is named "SuperHero_Male" but the material that gets rendered
-  // has the MI_ prefix; matching by material name is more reliable.
-  gltf.scene.traverse((o) => {
+  // Override the Superhero body mesh material to skin tone. The mesh contains
+  // both head and body geometry — flat skin color makes the head look natural
+  // and any body parts not covered by Peasant clothes read as bare skin
+  // rather than the original "superhero suit" texture.
+  base.scene.traverse((o) => {
     if (!(o instanceof THREE.SkinnedMesh)) return;
-    o.castShadow = true;
-    o.receiveShadow = true;
     const matName = Array.isArray(o.material)
       ? (o.material[0]?.name ?? '')
       : ((o.material as THREE.Material)?.name ?? '');
-    const isBody =
-      matName.toLowerCase().includes('superhero') ||
-      o.name.toLowerCase().includes('superhero') ||
-      o.name.toLowerCase().includes('male');
-    if (isBody) {
+    if (matName.toLowerCase().includes('superhero') || o.name.toLowerCase().includes('superhero')) {
       o.material = new THREE.MeshStandardMaterial({
-        color: CLOTHES_COLOR,
-        roughness: 0.88,
+        color: SKIN_COLOR,
+        roughness: 0.85,
         metalness: 0,
       });
-      console.log(`[character-asset] overrode body material on mesh "${o.name}"`);
     }
   });
 
-  // Find skeleton bones by name.
-  const bones = new Map<string, THREE.Object3D>();
-  gltf.scene.traverse((o) => {
-    const isBone = (o as THREE.Object3D & { isBone?: boolean }).isBone === true;
-    if (isBone) bones.set(o.name, o);
-  });
+  // Wrapper: character.ts owns position + yaw of this group.
+  const wrapper = new THREE.Group();
+  wrapper.name = 'character_root';
+  wrapper.add(peasant.scene);
+  wrapper.add(base.scene);
 
-  const find = (name: string): THREE.Object3D => {
-    const b = bones.get(name);
-    if (!b) throw new Error(`[character-asset] missing bone "${name}"`);
-    return b;
+  // Collect bones from both skeletons and pair them up by name.
+  const peasantBones = collectBones(peasant.scene);
+  const baseBones = collectBones(base.scene);
+
+  const findAll = (name: string): THREE.Object3D[] => {
+    const out: THREE.Object3D[] = [];
+    const a = peasantBones.get(name);
+    const b = baseBones.get(name);
+    if (a) out.push(a);
+    if (b) out.push(b);
+    if (out.length === 0) {
+      throw new Error(`[character-asset] missing bone "${name}" in both skeletons`);
+    }
+    return out;
   };
 
-  // Procedural clothing layered on top of the rigged body. The pieces are rigid
-  // (not skinned) but they're parented to the corresponding bones, so they move
-  // with the character during animation. Won't deform smoothly across joints
-  // (some clipping at hip/knee/shoulder during extreme poses), but reads clearly
-  // as clothing rather than painted skin.
-  const headBone = find('Head');
-  const spine02 = find('spine_02');
-  const thighL = find('thigh_l');
-  const thighR = find('thigh_r');
-  const calfL = find('calf_l');
-  const calfR = find('calf_r');
-  const upperarmL = find('upperarm_l');
-  const upperarmR = find('upperarm_r');
-  const footL = find('foot_l');
-  const footR = find('foot_r');
-
-  const hat = createProspectorHat();
-  headBone.add(hat);
-  addClothing({ spine02, thighL, thighR, calfL, calfR, upperarmL, upperarmR, footL, footR });
+  // Hat parented to the Head bone of the BASE skeleton (which is what owns the
+  // visible head geometry). Placing it on the base skeleton's bone is fine —
+  // since both skeletons animate identically, the hat moves correctly with the
+  // visible head.
+  const hatHostBone = baseBones.get('Head') ?? peasantBones.get('Head');
+  if (hatHostBone) {
+    const hat = createProspectorHat();
+    hatHostBone.add(hat);
+  }
 
   return {
     group: wrapper,
-    spine: makeJoint(spine02),
-    head: makeJoint(headBone),
-    shoulderL: makeJoint(upperarmL),
-    shoulderR: makeJoint(upperarmR),
-    elbowL: makeJoint(find('lowerarm_l')),
-    elbowR: makeJoint(find('lowerarm_r')),
-    handL: makeJoint(find('hand_l')),
-    handR: makeJoint(find('hand_r')),
-    hipL: makeJoint(thighL),
-    hipR: makeJoint(thighR),
-    kneeL: makeJoint(calfL),
-    kneeR: makeJoint(calfR),
+    spine: makeJoint(findAll('spine_02')),
+    head: makeJoint(findAll('Head')),
+    shoulderL: makeJoint(findAll('upperarm_l')),
+    shoulderR: makeJoint(findAll('upperarm_r')),
+    elbowL: makeJoint(findAll('lowerarm_l')),
+    elbowR: makeJoint(findAll('lowerarm_r')),
+    handL: makeJoint(findAll('hand_l')),
+    handR: makeJoint(findAll('hand_r')),
+    hipL: makeJoint(findAll('thigh_l')),
+    hipR: makeJoint(findAll('thigh_r')),
+    kneeL: makeJoint(findAll('calf_l')),
+    kneeR: makeJoint(findAll('calf_r')),
   };
 }
-
-interface ClothingBones {
-  spine02: THREE.Object3D;
-  thighL: THREE.Object3D;
-  thighR: THREE.Object3D;
-  calfL: THREE.Object3D;
-  calfR: THREE.Object3D;
-  upperarmL: THREE.Object3D;
-  upperarmR: THREE.Object3D;
-  footL: THREE.Object3D;
-  footR: THREE.Object3D;
-}
-
-// Adds a layered prospector outfit (shirt + vest + belt + pants + boots + sleeves)
-// as rigid meshes parented to specific skeleton bones. Each cylinder's local Y axis
-// aligns with its bone's local Y, so cylinders are oriented along the limb naturally.
-//
-// Bone-local +Z corresponds to the front of the model in MODEL space (where the
-// face was sculpted). After the wrapper's 180° flip, that's world -Z = where the
-// camera sees the character's chest.
-function addClothing(bones: ClothingBones): void {
-  const matShirt = new THREE.MeshStandardMaterial({ color: 0xa8442d, roughness: 0.88 });
-  const matVest = new THREE.MeshStandardMaterial({ color: 0x4a3826, roughness: 0.92 });
-  const matPants = new THREE.MeshStandardMaterial({ color: 0x1f2a4e, roughness: 0.88 });
-  const matBoot = new THREE.MeshStandardMaterial({ color: 0x2a1a14, roughness: 0.7 });
-  const matBelt = new THREE.MeshStandardMaterial({ color: 0x141014, roughness: 0.85 });
-  const matBuckle = new THREE.MeshStandardMaterial({
-    color: 0xd4a647,
-    roughness: 0.4,
-    metalness: 0.5,
-  });
-
-  // CylinderGeometry(radiusTop, radiusBottom, length, segments): "top" = +Y,
-  // "bottom" = -Y in cylinder local space. The cylinder is parented to a bone
-  // with no extra rotation, so the cylinder's local Y aligns with the bone's
-  // local Y. For each garment we pick top/bottom radii so the cylinder tapers
-  // anatomically — wider at the chest end, narrower at the waist; wider at
-  // the hip, narrower at the knee; etc.
-
-  // Shirt — torso. spine_02 bone Y points up toward neck. Top = chest, wider;
-  // bottom = waist, narrower.
-  const shirt = new THREE.Mesh(new THREE.CylinderGeometry(0.155, 0.135, 0.46, 18), matShirt);
-  shirt.position.y = 0.07;
-  bones.spine02.add(shirt);
-
-  // Vest — sits on chest, doesn't cover the waist. Tapers like the shirt.
-  const vest = new THREE.Mesh(new THREE.CylinderGeometry(0.175, 0.15, 0.3, 18), matVest);
-  vest.position.y = 0.12;
-  bones.spine02.add(vest);
-
-  // Belt — thin cylinder at waist (slightly larger than shirt's bottom radius).
-  const belt = new THREE.Mesh(new THREE.CylinderGeometry(0.155, 0.155, 0.05, 18), matBelt);
-  belt.position.y = -0.16;
-  bones.spine02.add(belt);
-
-  // Belt buckle on the front
-  const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.04, 0.018), matBuckle);
-  buckle.position.set(0, -0.16, 0.165);
-  bones.spine02.add(buckle);
-
-  // Sleeves — bone Y points from shoulder toward elbow. Top (elbow) narrower.
-  const makeSleeve = (bone: THREE.Object3D): void => {
-    const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.062, 0.3, 14), matShirt);
-    sleeve.position.y = 0.16;
-    bone.add(sleeve);
-  };
-  makeSleeve(bones.upperarmL);
-  makeSleeve(bones.upperarmR);
-
-  // Pants on thighs — bone Y points from hip toward knee. Top (knee) narrower
-  // than bottom (hip).
-  const makeThighPants = (bone: THREE.Object3D): void => {
-    const pants = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.092, 0.42, 14), matPants);
-    pants.position.y = 0.215;
-    bone.add(pants);
-  };
-  makeThighPants(bones.thighL);
-  makeThighPants(bones.thighR);
-
-  // Pants on calves — bone Y points from knee toward ankle. Top (ankle) narrower.
-  const makeCalfPants = (bone: THREE.Object3D): void => {
-    const pants = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.072, 0.4, 14), matPants);
-    pants.position.y = 0.2;
-    bone.add(pants);
-  };
-  makeCalfPants(bones.calfL);
-  makeCalfPants(bones.calfR);
-
-  // Boots — slim ellipsoid, less bulky.
-  const makeBoot = (bone: THREE.Object3D): void => {
-    const boot = new THREE.Mesh(new THREE.SphereGeometry(0.075, 14, 10), matBoot);
-    boot.scale.set(1.1, 0.6, 1.65);
-    boot.position.set(0, 0.04, 0.05);
-    bone.add(boot);
-  };
-  makeBoot(bones.footL);
-  makeBoot(bones.footR);
-
-  // Cast shadows on all clothing pieces (no-op until shadowMap.enabled)
-  for (const bone of [
-    bones.spine02,
-    bones.thighL,
-    bones.thighR,
-    bones.calfL,
-    bones.calfR,
-    bones.upperarmL,
-    bones.upperarmR,
-    bones.footL,
-    bones.footR,
-  ]) {
-    bone.traverse((o) => {
-      if (o instanceof THREE.Mesh) o.castShadow = true;
-    });
-  }
-}
-
-// Suppress "unused import" if we ever expose the skin tone.
-void SKIN_COLOR;
 
 // Procedural prospector hat. Sits on top of the Head bone — local Y is upward
 // from the head bone's origin (which is roughly at the base of the skull).

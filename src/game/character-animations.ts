@@ -32,9 +32,16 @@ function lerp(a: number, b: number, t: number): number {
 }
 
 function applyDelta(j: BoneJoint, dx: number, dy: number, dz: number, t: number): void {
-  j.bone.rotation.x = lerp(j.bone.rotation.x, j.restX + dx, t);
-  j.bone.rotation.y = lerp(j.bone.rotation.y, j.restY + dy, t);
-  j.bone.rotation.z = lerp(j.bone.rotation.z, j.restZ + dz, t);
+  // Drive every paired bone (Peasant + Superhero skeletons share names) so the
+  // outfit and the body+head animate identically.
+  const tx = j.restX + dx;
+  const ty = j.restY + dy;
+  const tz = j.restZ + dz;
+  for (const bone of j.bones) {
+    bone.rotation.x = lerp(bone.rotation.x, tx, t);
+    bone.rotation.y = lerp(bone.rotation.y, ty, t);
+    bone.rotation.z = lerp(bone.rotation.z, tz, t);
+  }
 }
 
 function armDownDelta(side: 'L' | 'R'): { x: number; y: number; z: number } {

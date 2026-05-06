@@ -258,7 +258,7 @@ export function mountHud(root: HTMLElement): MountedHud {
     return el;
   };
 
-  addInfoLine('title').textContent = 'Them Hills — Phase 3.6 (Arm swing fix)';
+  addInfoLine('title').textContent = 'Them Hills — Phase 3.7 (Peasant outfit)';
   addInfoLine('device');
   addInfoLine('state');
   addInfoLine('stamina');
