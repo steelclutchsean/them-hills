@@ -74,17 +74,20 @@ export function applyIdle(rig: CharacterRig, _time: number, smoothing = 0.15): v
 // world-X swing axis (which we want for fore/aft motion) lines up with bone-Y in
 // the rig's local frame after the rest rotation.
 const ARM_SWING_AXIS: 'x' | 'y' | 'z' = 'y';
-const ARM_SWING_AMP = 0.5;
+const ARM_SWING_AMP = 0.25;
 
 function applyArmSwing(rig: CharacterRig, sin: number, smoothing: number): void {
-  // Compose arm-down baseline + forward/back swing into one delta per shoulder
+  // Compose arm-down baseline + forward/back swing into one delta per shoulder.
+  // L and R use the SAME swing sign because the rig's bone-Y axes are already
+  // mirrored (L Y is +Y-mostly, R Y is -Y-mostly). Same code value + opposite
+  // axes = arms swing in OPPOSITE world directions, which is the natural gait.
   const dL = { x: 0, y: 0, z: 0 };
   const dR = { x: 0, y: 0, z: 0 };
   dL[ARM_DOWN_AXIS] = ARM_DOWN_L;
   dR[ARM_DOWN_AXIS] = ARM_DOWN_R;
   const swing = sin * ARM_SWING_AMP;
   dL[ARM_SWING_AXIS] += swing;
-  dR[ARM_SWING_AXIS] -= swing;
+  dR[ARM_SWING_AXIS] += swing;
   applyDelta(rig.shoulderL, dL.x, dL.y, dL.z, smoothing);
   applyDelta(rig.shoulderR, dR.x, dR.y, dR.z, smoothing);
 }
