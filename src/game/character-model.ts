@@ -1,31 +1,29 @@
 import * as THREE from 'three';
 
-// Procedural articulated character — primitive geometry, painterly flat-shaded.
-// Reads as "a stylized prospector" from a 3rd-person camera distance.
+// Procedural articulated character — built from rounded geometry (capsules / spheres /
+// tapered cylinders) instead of axis-aligned boxes. This is intentionally NOT a final
+// asset; it's the highest quality we can get from Three.js primitives without textures
+// or hand-modeled meshes. The next quality jump is a rigged glTF character.
 //
-// Forward convention: the character's FRONT faces local **-Z** (Three.js camera
-// default forward). All forward-facing details (boot toes, vest face, belt buckle,
-// hat buckle, all face features) are positioned on the -Z side.
+// Forward convention: character forward = local **-Z**. All forward-facing details
+// (boot toes, vest pocket, belt buckle, hat buckle, all face features) are on -Z.
 //
-// Hierarchy (each named entry is an Object3D pivot that animations rotate):
+// Hierarchy:
 //
 //   group (origin = capsule center, matches Rapier body translation)
-//   └── spine                    (pelvis pivot; anchor for body bob/lean)
-//       ├── torso/vest/belt/suspenders/buckle (no animation pivots)
-//       ├── neck cylinder
+//   └── spine                    (pelvis pivot)
+//       ├── torso (tapered cylinder), vest, belt (torus), buckle, suspenders, vest pocket
+//       ├── neck (capsule)
 //       ├── head                 (neck pivot)
-//       │   ├── skull, nose, eyes, beard, hat, hat band+buckle, brim
-//       │   ├── eyebrowL, eyebrowR  (animatable — focused/raised)
-//       │   └── mouth                (animatable — open/closed)
-//       ├── shoulderL, shoulderR
-//       │   └── upperArm + shoulder pad → elbowL/R
-//       │       └── lowerArm (rolled-sleeve skin) → handL/R
-//       │           └── palm + thumb
-//       └── hipL, hipR
-//           └── upperLeg → kneeL/R
-//               └── lowerLeg + boot upper + boot sole
-//
-// Sides: "L" pivots are on +X (character's own left when facing -Z).
+//       │   ├── skull (oval sphere), hair tuft, ears
+//       │   ├── eyes (sphere whites + sphere pupils)
+//       │   ├── eyebrowL/R (cylinder pivots, animatable)
+//       │   ├── nose (cone), mouth (cylinder pivot, scalable), beard (stretched sphere)
+//       │   └── hat: crown (tapered cyl), band (cyl), buckle (box), brim (cyl)
+//       ├── shoulderL/R (capsule arms with rounded shoulder + elbow)
+//       │   └── elbow → lower arm capsule (skin, rolled sleeve) → hand (flattened sphere)
+//       └── hipL/R (capsule legs with rounded knee)
+//           └── knee → lower leg capsule + boot ankle/foot/sole (sphere ellipsoids)
 
 export interface CharacterRig {
   group: THREE.Group;
@@ -48,9 +46,10 @@ export interface CharacterRig {
   kneeR: THREE.Object3D;
 }
 
-// Color palette — single source of truth.
 const COLORS = {
   skin: 0xe7c19e,
+  skinShade: 0xd4ad8a,
+  hair: 0x6a3520,
   beard: 0x8a4a2a,
   eyebrow: 0x4a2a18,
   eyeWhite: 0xfafaee,
@@ -73,186 +72,232 @@ const COLORS = {
 const flatMat = (color: number, roughness = 0.85): THREE.MeshStandardMaterial =>
   new THREE.MeshStandardMaterial({ color, flatShading: true, roughness });
 
+// Smooth-shaded material for organic shapes (face, beard, hair). Skips flatShading
+// so spheres look round instead of faceted.
+const smoothMat = (color: number, roughness = 0.85): THREE.MeshStandardMaterial =>
+  new THREE.MeshStandardMaterial({ color, flatShading: false, roughness });
+
 export function createCharacterRig(): CharacterRig {
   const group = new THREE.Group();
 
-  // Materials (one instance each, shared across meshes that use the same color)
-  const matSkin = flatMat(COLORS.skin, 0.85);
-  const matBeard = flatMat(COLORS.beard, 0.95);
-  const matEyebrow = flatMat(COLORS.eyebrow, 0.9);
-  const matEyeWhite = flatMat(COLORS.eyeWhite, 0.4);
-  const matEyePupil = flatMat(COLORS.eyePupil, 0.5);
+  const matSkin = smoothMat(COLORS.skin, 0.85);
+  const matHair = smoothMat(COLORS.hair, 0.95);
+  const matBeard = smoothMat(COLORS.beard, 0.95);
+  const matEyebrow = smoothMat(COLORS.eyebrow, 0.9);
+  const matEyeWhite = smoothMat(COLORS.eyeWhite, 0.4);
+  const matEyePupil = smoothMat(COLORS.eyePupil, 0.5);
   const matMouth = flatMat(COLORS.mouth, 0.9);
-  const matShirt = flatMat(COLORS.shirt, 0.85);
-  const matVest = flatMat(COLORS.vest, 0.9);
+  const matShirt = flatMat(COLORS.shirt, 0.9);
+  const matVest = flatMat(COLORS.vest, 0.92);
   const matVestPocket = flatMat(COLORS.vestPocket, 0.95);
-  const matPants = flatMat(COLORS.pants, 0.85);
-  const matPantsKnee = flatMat(COLORS.pantsKnee, 0.9);
-  const matBootUpper = flatMat(COLORS.bootUpper, 0.7);
+  const matPants = flatMat(COLORS.pants, 0.88);
+  const matPantsKnee = flatMat(COLORS.pantsKnee, 0.92);
+  const matBootUpper = smoothMat(COLORS.bootUpper, 0.7);
   const matBootSole = flatMat(COLORS.bootSole, 0.9);
   const matBelt = flatMat(COLORS.belt, 0.85);
-  const matBuckle = flatMat(COLORS.buckle, 0.4);
+  const matBuckle = smoothMat(COLORS.buckle, 0.4);
   const matHat = flatMat(COLORS.hat, 0.8);
   const matHatBand = flatMat(COLORS.hatBand, 0.85);
   const matSuspender = flatMat(COLORS.suspender, 0.85);
 
-  // ---- Spine (group origin; legs go down to ~ -0.86, head/hat to ~ +0.84) ----
+  // ---- Spine ----
   const spine = new THREE.Object3D();
   group.add(spine);
 
-  // ---- Torso (chest shirt, then vest layered slightly larger) ----
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.55, 0.28), matShirt);
+  // ---- Torso (tapered cylinder, narrower at shoulders) ----
+  const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.2, 0.55, 18), matShirt);
   torso.position.y = 0.27;
   spine.add(torso);
 
-  const vest = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.3), matVest);
-  vest.position.set(0, 0.27, 0); // vest wraps the chest evenly
+  // Vest layered slightly larger
+  const vest = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.23, 0.5, 18), matVest);
+  vest.position.y = 0.27;
   spine.add(vest);
 
-  // Vest pocket on the front (-Z) side
-  const vestPocket = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.12, 0.02), matVestPocket);
-  vestPocket.position.set(0.13, 0.32, -0.16);
+  // Vest pocket on the front-right
+  const vestPocket = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 0.015), matVestPocket);
+  vestPocket.position.set(0.1, 0.32, -0.205);
   spine.add(vestPocket);
 
-  // Suspenders running over shoulders (front strips)
+  // Suspender straps running over shoulders (front)
   const makeSuspender = (xSign: 1 | -1): void => {
-    const s = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.55, 0.02), matSuspender);
-    s.position.set(xSign * 0.13, 0.27, -0.155);
+    const s = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.5, 6), matSuspender);
+    s.position.set(xSign * 0.1, 0.3, -0.205);
+    s.rotation.x = -0.05;
     spine.add(s);
   };
   makeSuspender(1);
   makeSuspender(-1);
 
-  // Belt around waist
-  const belt = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.06, 0.32), matBelt);
-  belt.position.y = 0.03;
+  // Belt = torus around waist
+  const belt = new THREE.Mesh(new THREE.TorusGeometry(0.21, 0.022, 8, 24), matBelt);
+  belt.rotation.x = Math.PI / 2;
+  belt.scale.set(1, 1.05, 1); // slightly oval (front-back compressed)
+  belt.position.y = 0.035;
   spine.add(belt);
 
-  // Belt buckle (front -Z)
-  const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.05, 0.02), matBuckle);
-  buckle.position.set(0, 0.03, -0.165);
+  // Belt buckle
+  const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.045, 0.018), matBuckle);
+  buckle.position.set(0, 0.035, -0.215);
   spine.add(buckle);
 
   // ---- Neck ----
-  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.08, 0.08, 8), matSkin);
-  neck.position.y = 0.56;
+  const neck = new THREE.Mesh(new THREE.CapsuleGeometry(0.06, 0.04, 4, 12), matSkin);
+  neck.position.y = 0.55;
   spine.add(neck);
 
   // ---- Head ----
   const head = new THREE.Object3D();
-  head.position.y = 0.65;
+  head.position.y = 0.66;
   spine.add(head);
 
-  const skull = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.3, 0.26), matSkin);
+  // Skull — slightly oval (taller than wide; narrower front-to-back)
+  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.14, 20, 16), matSkin);
+  skull.scale.set(1.0, 1.08, 0.95);
   head.add(skull);
 
-  // Face features anchored to -Z side (front of skull). Skull halfDepth = 0.13,
-  // so feature surfaces sit just outside the skull (z ≈ -0.13).
+  // Ears
+  const makeEar = (xSign: 1 | -1): void => {
+    const ear = new THREE.Mesh(new THREE.SphereGeometry(0.025, 8, 6), matSkin);
+    ear.position.set(xSign * 0.135, 0, 0.005);
+    ear.scale.set(0.55, 1.5, 0.85);
+    head.add(ear);
+  };
+  makeEar(1);
+  makeEar(-1);
+
+  // Hair tuft sticking out at the back below the hat brim
+  const hairBack = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 8), matHair);
+  hairBack.position.set(0, 0.02, 0.13);
+  hairBack.scale.set(1.6, 0.6, 0.7);
+  head.add(hairBack);
+
+  // Sideburn-like hair tufts at temples
+  const makeSideburn = (xSign: 1 | -1): void => {
+    const sb = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 6), matHair);
+    sb.position.set(xSign * 0.13, -0.02, 0.06);
+    sb.scale.set(0.5, 1.6, 0.6);
+    head.add(sb);
+  };
+  makeSideburn(1);
+  makeSideburn(-1);
+
+  // Face features sit just outside the front of the skull (skull radius * scale ≈ 0.133).
   const FACE_Z = -0.135;
 
-  // Eyes: white spheres slightly recessed, dark pupils slightly forward of those.
+  // Eyes — white sphere + slightly forward dark pupil
   const makeEye = (xSign: 1 | -1): void => {
-    const eyeWhite = new THREE.Mesh(new THREE.SphereGeometry(0.025, 8, 8), matEyeWhite);
-    eyeWhite.position.set(xSign * 0.062, 0.045, FACE_Z + 0.005);
+    const eyeWhite = new THREE.Mesh(new THREE.SphereGeometry(0.022, 12, 10), matEyeWhite);
+    eyeWhite.position.set(xSign * 0.052, 0.025, FACE_Z + 0.01);
     head.add(eyeWhite);
-    const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.013, 6, 6), matEyePupil);
-    pupil.position.set(xSign * 0.062, 0.045, FACE_Z - 0.012);
+    const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.012, 8, 6), matEyePupil);
+    pupil.position.set(xSign * 0.052, 0.025, FACE_Z - 0.005);
     head.add(pupil);
   };
   makeEye(1);
   makeEye(-1);
 
-  // Eyebrows — pivot Object3Ds so animations can tilt them (focus / surprise).
+  // Eyebrows — thin curved cylinders, animatable
   const makeEyebrow = (xSign: 1 | -1): THREE.Object3D => {
     const pivot = new THREE.Object3D();
-    pivot.position.set(xSign * 0.062, 0.085, FACE_Z);
+    pivot.position.set(xSign * 0.052, 0.06, FACE_Z + 0.005);
     head.add(pivot);
-    const m = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.014, 0.02), matEyebrow);
-    pivot.add(m);
+    const brow = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.05, 8), matEyebrow);
+    brow.rotation.z = Math.PI / 2;
+    pivot.add(brow);
     return pivot;
   };
   const eyebrowL = makeEyebrow(1);
   const eyebrowR = makeEyebrow(-1);
 
-  // Nose (small bump)
-  const nose = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.05, 0.04), matSkin);
-  nose.position.set(0, -0.005, FACE_Z - 0.012);
+  // Nose — small cone protruding -Z
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.022, 0.05, 10), matSkin);
+  nose.rotation.x = -Math.PI / 2;
+  nose.position.set(0, -0.005, FACE_Z - 0.022);
   head.add(nose);
 
-  // Mouth pivot — animated by scaling y (open/close).
+  // Mouth — thin curved cylinder, animatable via scale
   const mouth = new THREE.Object3D();
-  mouth.position.set(0, -0.07, FACE_Z - 0.005);
+  mouth.position.set(0, -0.05, FACE_Z + 0.005);
   head.add(mouth);
-  const mouthMesh = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.01, 0.012), matMouth);
+  const mouthMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, 0.05, 8), matMouth);
+  mouthMesh.rotation.z = Math.PI / 2;
   mouth.add(mouthMesh);
 
-  // Beard (covers chin, shapes lower face)
-  const beard = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.1, 0.12), matBeard);
-  beard.position.set(0, -0.105, -0.085);
+  // Beard — stretched sphere covering chin/jaw
+  const beard = new THREE.Mesh(new THREE.SphereGeometry(0.1, 14, 10), matBeard);
+  beard.scale.set(1.25, 0.85, 0.95);
+  beard.position.set(0, -0.085, -0.05);
   head.add(beard);
 
-  // ---- Hat ----
-  const hatCrown = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.12, 12), matHat);
+  // Mustache — small stretched sphere just below nose
+  const mustache = new THREE.Mesh(new THREE.SphereGeometry(0.04, 10, 6), matBeard);
+  mustache.scale.set(1.5, 0.4, 0.6);
+  mustache.position.set(0, -0.03, FACE_Z - 0.005);
+  head.add(mustache);
+
+  // Hat — slightly tapered crown
+  const hatCrown = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.14, 0.11, 18), matHat);
   hatCrown.position.y = 0.16;
   head.add(hatCrown);
 
-  const hatBand = new THREE.Mesh(new THREE.CylinderGeometry(0.183, 0.183, 0.025, 12), matHatBand);
+  // Hat band wrapping the crown
+  const hatBand = new THREE.Mesh(new THREE.CylinderGeometry(0.142, 0.142, 0.022, 18), matHatBand);
   hatBand.position.y = 0.108;
   head.add(hatBand);
 
-  const hatBuckle = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.025, 0.02), matBuckle);
-  hatBuckle.position.set(0, 0.108, -0.18);
+  // Hat band buckle (front)
+  const hatBuckle = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.022, 0.018), matBuckle);
+  hatBuckle.position.set(0, 0.108, -0.14);
   head.add(hatBuckle);
 
-  const hatBrim = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.04, 16), matHat);
-  hatBrim.position.y = 0.1;
+  // Hat brim (slightly upturned at edges via shallower cone)
+  const hatBrim = new THREE.Mesh(new THREE.CylinderGeometry(0.225, 0.245, 0.022, 24), matHat);
+  hatBrim.position.y = 0.097;
   head.add(hatBrim);
 
-  // ---- Arms ----
-  // Hand thumb is on the body-side: L hand (at +X) has thumb on -X side; R hand mirrored.
+  // ---- Arms (capsules with rounded ends) ----
   const arm = (
     xSign: 1 | -1,
   ): { shoulder: THREE.Object3D; elbow: THREE.Object3D; hand: THREE.Object3D } => {
     const shoulder = new THREE.Object3D();
-    shoulder.position.set(xSign * 0.28, 0.5, 0);
+    shoulder.position.set(xSign * 0.27, 0.5, 0);
     spine.add(shoulder);
 
-    // Shoulder pad makes the cylinder upper arm read more like a sleeve cap.
-    const pad = new THREE.Mesh(new THREE.SphereGeometry(0.085, 8, 6), matShirt);
-    pad.position.y = -0.02;
-    shoulder.add(pad);
-
-    const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.06, 0.32, 10), matShirt);
-    upper.position.y = -0.16;
+    // Upper arm — capsule with rounded shoulder end
+    const upper = new THREE.Mesh(new THREE.CapsuleGeometry(0.062, 0.18, 6, 14), matShirt);
+    upper.position.y = -0.13;
     shoulder.add(upper);
 
     const elbow = new THREE.Object3D();
-    elbow.position.y = -0.32;
+    elbow.position.y = -0.27;
     shoulder.add(elbow);
 
-    // Lower arm = rolled-up sleeve = skin
-    const lower = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.3, 10), matSkin);
-    lower.position.y = -0.15;
+    // Lower arm = rolled sleeve = skin
+    const lower = new THREE.Mesh(new THREE.CapsuleGeometry(0.052, 0.18, 6, 14), matSkin);
+    lower.position.y = -0.13;
     elbow.add(lower);
 
     const hand = new THREE.Object3D();
-    hand.position.y = -0.3;
+    hand.position.y = -0.27;
     elbow.add(hand);
 
-    const palm = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.13, 0.09), matSkin);
+    // Hand — flattened, slightly elongated sphere (no individual fingers)
+    const palm = new THREE.Mesh(new THREE.SphereGeometry(0.06, 14, 12), matSkin);
+    palm.scale.set(1.0, 1.2, 0.85);
     hand.add(palm);
 
-    // Thumb on inner side
-    const thumb = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.06, 0.04), matSkin);
-    thumb.position.set(-xSign * 0.06, 0.02, 0);
+    // Inner-side thumb bump
+    const thumb = new THREE.Mesh(new THREE.SphereGeometry(0.025, 8, 6), matSkin);
+    thumb.position.set(-xSign * 0.05, 0.015, 0);
+    thumb.scale.set(0.7, 1.4, 0.7);
     hand.add(thumb);
 
-    // Slight outward rest pose so arms don't clip torso
+    // Slight outward rest pose
     shoulder.rotation.z = xSign * -0.06;
 
     return { shoulder, elbow, hand };
   };
-
   const armL = arm(1);
   const armR = arm(-1);
 
@@ -262,39 +307,49 @@ export function createCharacterRig(): CharacterRig {
     hip.position.set(xSign * 0.1, 0, 0);
     spine.add(hip);
 
-    const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.08, 0.4, 10), matPants);
+    // Upper leg — capsule
+    const upper = new THREE.Mesh(new THREE.CapsuleGeometry(0.085, 0.27, 6, 14), matPants);
     upper.position.y = -0.2;
     hip.add(upper);
 
-    // Knee patch on the front (-Z)
-    const kneePatch = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.08, 0.04), matPantsKnee);
-    kneePatch.position.set(0, -0.39, -0.06);
+    // Knee patch (slightly darker oval on the front)
+    const kneePatch = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 8), matPantsKnee);
+    kneePatch.scale.set(1.1, 0.6, 0.4);
+    kneePatch.position.set(0, -0.39, -0.07);
     hip.add(kneePatch);
 
     const knee = new THREE.Object3D();
     knee.position.y = -0.4;
     hip.add(knee);
 
-    const lower = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.07, 0.36, 10), matPants);
-    lower.position.y = -0.18;
+    // Lower leg — capsule
+    const lower = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.18, 6, 14), matPants);
+    lower.position.y = -0.13;
     knee.add(lower);
 
-    // Boot — toes pointing -Z (forward).
-    const bootUpper = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.1, 0.22), matBootUpper);
-    bootUpper.position.set(0, -0.4, -0.05);
-    knee.add(bootUpper);
+    // Boot ankle (cylinder) where pant tucks into boot
+    const ankle = new THREE.Mesh(new THREE.CylinderGeometry(0.082, 0.085, 0.08, 14), matBootUpper);
+    ankle.position.y = -0.25;
+    knee.add(ankle);
 
-    const bootSole = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.025, 0.24), matBootSole);
-    bootSole.position.set(0, -0.45, -0.05);
-    knee.add(bootSole);
+    // Foot — stretched ellipsoid, toes pointing -Z (forward)
+    const foot = new THREE.Mesh(new THREE.SphereGeometry(0.08, 14, 10), matBootUpper);
+    foot.scale.set(1.3, 0.7, 1.6);
+    foot.position.set(0, -0.32, -0.04);
+    knee.add(foot);
+
+    // Sole — flat ellipsoid below the foot
+    const sole = new THREE.Mesh(new THREE.SphereGeometry(0.08, 14, 6), matBootSole);
+    sole.scale.set(1.4, 0.18, 1.7);
+    sole.position.set(0, -0.385, -0.04);
+    knee.add(sole);
 
     return { hip, knee };
   };
-
   const legL = leg(1);
   const legR = leg(-1);
 
-  // Cast shadows on character (no-op until renderer.shadowMap.enabled — harmless)
+  // Cast shadows (no-op until renderer.shadowMap.enabled — harmless)
   group.traverse((obj) => {
     if (obj instanceof THREE.Mesh) {
       obj.castShadow = true;
