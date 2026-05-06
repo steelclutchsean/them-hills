@@ -8,7 +8,10 @@ import type { Terrain } from './terrain';
 const STREAM_CENTER_X = 10;
 const STREAM_HALF_WIDTH = 2.5;
 const STREAM_HALF_LENGTH = 14.25;
-const STREAM_WATER_OFFSET = 0.05;
+// Water sits above the carved channel floor so the player wades in to roughly
+// mid-shin (~30 cm) at the center; banks (uncarved terrain) rise above this so
+// the water visually fits inside the channel.
+const STREAM_WATER_OFFSET = 0.32;
 
 const SITE_COUNT = 20;
 const SITE_INTERACT_RADIUS = 1.5;
