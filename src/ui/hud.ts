@@ -14,6 +14,7 @@ export interface HudUpdate {
   stamina: number;
   inventory: GoldStash;
   spotPricePerOzt: number;
+  spotPriceSource: 'live' | 'cached' | 'baseline';
   /** Compass bearing in degrees (0=N, 90=E, 180=S, 270=W). */
   bearingDeg: number;
   /** Bottom-center prompt — shown while idle near an interactable. */
@@ -258,7 +259,7 @@ export function mountHud(root: HTMLElement): MountedHud {
     return el;
   };
 
-  addInfoLine('title').textContent = 'Them Hills — Phase 3.9 (Single skeleton)';
+  addInfoLine('title').textContent = 'Them Hills — Phase 4 (Spot price API)';
   addInfoLine('device');
   addInfoLine('state');
   addInfoLine('stamina');
@@ -272,6 +273,8 @@ export function mountHud(root: HTMLElement): MountedHud {
   addInvLine('invNugget');
   addInvLine('invTotal');
   addInvLine('invValue');
+  addInvLine('invSpacer').innerHTML = '&nbsp;';
+  addInvLine('invSpot');
 
   let frameCount = 0;
   let lastFpsTime = performance.now();
@@ -313,6 +316,16 @@ export function mountHud(root: HTMLElement): MountedHud {
       lines.invTotal!.textContent = `Total:  ${totalG.toFixed(3)} g`;
       const dollarEst = (totalG / GRAMS_PER_OZT) * s.spotPricePerOzt * ASSAYER_MULT;
       lines.invValue!.textContent = `≈ $${dollarEst.toFixed(2)} (Assayer)`;
+
+      // Live spot price + source indicator (live = green dot, cached = yellow,
+      // baseline = gray). Updated by the spot-price service every 15 min.
+      const sourceLabel =
+        s.spotPriceSource === 'live'
+          ? '● live'
+          : s.spotPriceSource === 'cached'
+            ? '◐ cached'
+            : '○ baseline';
+      lines.invSpot!.textContent = `Spot: $${s.spotPricePerOzt.toFixed(2)}/oz  ${sourceLabel}`;
 
       // Prompt
       if (s.prompt) {

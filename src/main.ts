@@ -1,3 +1,4 @@
+import { createSpotPriceService } from '@/economy/spot-price';
 import { ASSETS } from '@/game/assets';
 import { bearingFromYaw, createCameraRig } from '@/game/camera-rig';
 import { createCharacter } from '@/game/character';
@@ -33,6 +34,24 @@ async function bootstrap(): Promise<void> {
     console.log('[save] No existing save — starting fresh');
   }
   const persistedPlayer = gameStore.getState().save.player;
+
+  // ---- Spot price service ----
+  // Real-time gold spot price via CoinGecko PAXG. 15-minute refresh, falls
+  // back through cached → baseline if the network or API fails.
+  const econInit = gameStore.getState().save.economy.spotPrice;
+  const spotService = createSpotPriceService({
+    baseline: econInit.baseline,
+    initialCurrent: econInit.current,
+    initialFetchedAt: econInit.lastFetchedAt,
+    sessionCap: econInit.sessionCap,
+    onUpdate: ({ price, source, fetchedAt }) => {
+      gameStore.getState().setSpotPrice(price, source);
+      console.log(
+        `[spot-price] ${source} = $${price.toFixed(2)}/ozt (fetched ${new Date(fetchedAt).toISOString()})`,
+      );
+    },
+  });
+  spotService.start();
 
   // ---- Renderer ----
   const renderer = createRenderer(canvas);
@@ -312,6 +331,7 @@ async function bootstrap(): Promise<void> {
         stamina: character.getStamina(),
         inventory: save.inventory.carry.gold,
         spotPricePerOzt: save.economy.spotPrice.current,
+        spotPriceSource: save.economy.spotPrice.source,
         bearingDeg: bearingFromYaw(cameraRig.getYaw()),
         prompt: promptInfo,
         prospect: prospect.getSnapshot(),

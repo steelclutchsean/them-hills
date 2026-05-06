@@ -26,6 +26,9 @@ export interface GameStateStore {
 
   /** Increment the lifetime pan counter; returns the new value (used as RNG component). */
   incrementPanCount(): number;
+
+  /** Update the current gold spot price + source label, append to short history. */
+  setSpotPrice(price: number, source: 'live' | 'cached' | 'baseline'): void;
 }
 
 export const gameStore = createStore<GameStateStore>((set, get) => ({
@@ -170,5 +173,30 @@ export const gameStore = createStore<GameStateStore>((set, get) => ({
       };
     });
     return next;
+  },
+
+  setSpotPrice(price, source) {
+    set((state) => {
+      const prev = state.save.economy;
+      const sample = { gameTime: state.save.world.gameTime, price };
+      // Keep at most ~24 in-game hours of samples — at 15-min refresh that's
+      // 96 entries. Trim aggressively so the save blob doesn't grow unbounded.
+      const history = [...prev.spotPriceHistory, sample].slice(-96);
+      return {
+        save: {
+          ...state.save,
+          economy: {
+            ...prev,
+            spotPrice: {
+              ...prev.spotPrice,
+              current: price,
+              lastFetchedAt: Date.now(),
+              source,
+            },
+            spotPriceHistory: history,
+          },
+        },
+      };
+    });
   },
 }));
