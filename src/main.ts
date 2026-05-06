@@ -1,6 +1,8 @@
+import { ASSETS } from '@/game/assets';
 import { bearingFromYaw, createCameraRig } from '@/game/camera-rig';
 import { createCharacter } from '@/game/character';
 import { createProspectingController } from '@/game/prospecting';
+import { scatterAssets } from '@/game/scatter';
 import { createStream } from '@/game/stream';
 import { createTerrain } from '@/game/terrain';
 import { createGameLoop } from '@/engine/loop';
@@ -45,6 +47,108 @@ async function bootstrap(): Promise<void> {
   // ---- Stream + sites ----
   const stream = createStream(terrain);
   renderer.scene.add(stream.group);
+
+  // ---- Environment scatter (async, non-blocking) ----
+  // Trees and rocks fill in over a few seconds while the player gets oriented.
+  // None of these have physics colliders yet — visual only — so the camera
+  // ray-cast and the character controller are unaffected.
+  const STREAM_X = 10;
+  const inStreamZone = (x: number, z: number): boolean =>
+    x > STREAM_X - 4 && x < STREAM_X + 4 && z > -17 && z < 17;
+  const inSpawnClearing = (x: number, z: number): boolean => Math.hypot(x, z) < 5;
+  const reject = (x: number, z: number): boolean => inStreamZone(x, z) || inSpawnClearing(x, z);
+
+  const populate = Promise.all([
+    scatterAssets(
+      renderer.scene,
+      terrain,
+      {
+        count: 50,
+        models: [
+          ...ASSETS.trees.common,
+          ...ASSETS.trees.pine,
+          ...ASSETS.trees.twisted,
+          ...ASSETS.trees.dead,
+        ],
+        scale: { min: 0.7, max: 1.4 },
+        reject,
+      },
+      0xa1,
+    ),
+    scatterAssets(
+      renderer.scene,
+      terrain,
+      {
+        count: 25,
+        models: ASSETS.rocks.medium,
+        scale: { min: 0.6, max: 1.6 },
+        yOffset: -0.05,
+        reject,
+      },
+      0xa2,
+    ),
+    scatterAssets(
+      renderer.scene,
+      terrain,
+      {
+        count: 40,
+        models: [...ASSETS.rocks.pebbleRound, ...ASSETS.rocks.pebbleSquare],
+        scale: { min: 0.5, max: 1.1 },
+        yOffset: -0.02,
+        sampleXZ: (rng) => {
+          const sign = rng.next() < 0.5 ? -1 : 1;
+          return {
+            x: STREAM_X + sign * rng.range(2.7, 4.8),
+            z: rng.range(-16.5, 16.5),
+          };
+        },
+      },
+      0xa3,
+    ),
+    scatterAssets(
+      renderer.scene,
+      terrain,
+      {
+        count: 80,
+        models: ASSETS.vegetation.grass,
+        scale: { min: 0.6, max: 1.2 },
+        reject,
+      },
+      0xa4,
+    ),
+    scatterAssets(
+      renderer.scene,
+      terrain,
+      {
+        count: 25,
+        models: [
+          ...ASSETS.vegetation.bushes,
+          ...ASSETS.vegetation.ferns,
+          ...ASSETS.vegetation.plants,
+        ],
+        scale: { min: 0.6, max: 1.2 },
+        reject,
+      },
+      0xa5,
+    ),
+    scatterAssets(
+      renderer.scene,
+      terrain,
+      {
+        count: 30,
+        models: [...ASSETS.vegetation.flowers, ...ASSETS.vegetation.mushrooms],
+        scale: { min: 0.7, max: 1.3 },
+        reject,
+      },
+      0xa6,
+    ),
+  ]);
+  populate
+    .then((results) => {
+      const total = results.reduce((sum, r) => sum + r.placed, 0);
+      console.log(`[scatter] environment populated (${total} instances)`);
+    })
+    .catch((err) => console.error('[scatter] failed', err));
 
   // ---- Character ----
   const spawnX = persistedPlayer.position.x;

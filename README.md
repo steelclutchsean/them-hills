@@ -79,16 +79,30 @@ You should see:
 │   ├── state/         # Zustand store (vanilla)
 │   ├── ui/            # DOM-based HUD/menus
 │   ├── audio/         # (Phase 6)
-│   ├── game/          # terrain, character, camera-rig (Phase 1+)
+│   ├── game/          # terrain, character, camera-rig, stream, prospecting,
+│   │                  # assets (glTF loader + registry), scatter (Phase 1+)
 │   ├── assets/        # (sourced/created during M3)
 │   └── main.ts        # entry point
 ├── index.html
+├── public/
+│   └── assets/
+│       └── megakit/   # Quaternius Stylized Nature CC0 pack (vendored)
 ├── package.json
 ├── tsconfig.json
 ├── vite.config.ts
 ├── eslint.config.js
 └── design docs (*.md)
 ```
+
+## Assets
+
+The current repo vendors the Quaternius Stylized Nature MegaKit (CC0, ~48 MB) under `public/assets/megakit/`. See `LICENSES.md` for attribution and the full list of models in use.
+
+Future plan:
+- Continue using CC0 packs for bulk environment props
+- Build Them-Hills-specific assets (gold pan, sluice box, dredge, hero NPCs) directly in code or via AI generation + cleanup
+- All custom assets will live under `public/assets/them-hills/` once they exist
+- A bigger asset set may eventually move to Git LFS (currently inline; review at M3)
 
 ---
 

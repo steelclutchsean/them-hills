@@ -32,7 +32,13 @@ All current dependencies are MIT-licensed unless noted. Audit on every `npm inst
 
 *Format: `path/to/asset` — License — Source — Author/Attribution*
 
-(none yet — populated during M3 asset-sourcing sprint)
+### Quaternius Stylized Nature MegaKit (Standard / free) — `public/assets/megakit/`
+- **License:** [CC0 1.0 Universal (Public Domain Dedication)](https://creativecommons.org/publicdomain/zero/1.0/)
+- **Source:** https://quaternius.com (Standard free version: 68 of 116 models)
+- **Author:** [@quaternius](https://www.patreon.com/quaternius)
+- **Attribution:** Not legally required under CC0; included here as good practice and to credit the artist.
+- **Models in use:** trees (Common, Pine, Twisted, Dead × 5 each), rocks (Medium × 3, Pebble_Round × 5, Pebble_Square × 6), vegetation (grass, bushes, ferns, plants, flowers, clovers, mushrooms).
+- **Texture sharing:** glTFs in this folder reference shared `Bark_*` and `Leaves_*` PNGs by relative URI. Don't move individual files out of the folder.
 
 ---
 
