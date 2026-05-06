@@ -2,46 +2,89 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 // Loads the rigged Quaternius "Universal Base Characters" male body and exposes its
-// skeleton bones via the same CharacterRig shape that drove the procedural rig — so
-// the existing animation library can drive the real character with minimal changes.
+// skeleton bones via a CharacterRig that captures each bone's REST rotation at load.
+// Animations apply rotation DELTAS on top of rest, so the rig's natural T-pose
+// posture is preserved and animation curves stack correctly.
 //
-// Bone naming in this pack is Unreal-style:
+// Bone naming (Unreal-style):
 //   root → pelvis → spine_01 → spine_02 → spine_03 → neck_01 → Head
 //   spine_03 → clavicle_l/r → upperarm_l/r → lowerarm_l/r → hand_l/r → fingers
 //   pelvis → thigh_l/r → calf_l/r → foot_l/r → ball_l/r
 //
-// The pack ships NO bundled animations — we drive the bones with the same
-// sin-based locomotion + step animations from character-animations.ts.
+// Pack ships NO bundled animations — see character-animations.ts for the procedural
+// motion library.
 
 const CHARACTER_GLTF = '/assets/characters/Superhero_Male_FullBody.gltf';
 
+// The rigged mesh's origin sits at the character's feet; the Rapier capsule we attach
+// it to has its center 0.9m above the capsule bottom. Shift the scene down so the
+// feet land at the capsule bottom rather than at the capsule center.
+const FEET_OFFSET_Y = -0.9;
+
+// Solid color override for the body — the pack's "Superhero" PBR texture is a
+// muscular bare chest + briefs which doesn't fit a prospector. We replace the body
+// material with a single earth-brown so the character reads as "fully clothed in
+// workwear." Layered prospector vest/pants would be the next quality jump.
+const SHIRT_COLOR = 0x6a4530;
+const SKIN_COLOR = 0xe7c19e;
+
+export interface BoneJoint {
+  bone: THREE.Object3D;
+  restX: number;
+  restY: number;
+  restZ: number;
+}
+
 export interface CharacterRig {
-  /** Wrapper group; character.ts sets position (body translation) and rotation.y (yaw). */
   group: THREE.Group;
-  /** Mid-spine bone — animations use this for body lean. */
-  spine: THREE.Object3D;
-  head: THREE.Object3D;
-  shoulderL: THREE.Object3D;
-  shoulderR: THREE.Object3D;
-  elbowL: THREE.Object3D;
-  elbowR: THREE.Object3D;
-  handL: THREE.Object3D;
-  handR: THREE.Object3D;
-  hipL: THREE.Object3D;
-  hipR: THREE.Object3D;
-  kneeL: THREE.Object3D;
-  kneeR: THREE.Object3D;
+  spine: BoneJoint;
+  head: BoneJoint;
+  shoulderL: BoneJoint;
+  shoulderR: BoneJoint;
+  elbowL: BoneJoint;
+  elbowR: BoneJoint;
+  handL: BoneJoint;
+  handR: BoneJoint;
+  hipL: BoneJoint;
+  hipR: BoneJoint;
+  kneeL: BoneJoint;
+  kneeR: BoneJoint;
+}
+
+function makeJoint(bone: THREE.Object3D): BoneJoint {
+  return {
+    bone,
+    restX: bone.rotation.x,
+    restY: bone.rotation.y,
+    restZ: bone.rotation.z,
+  };
 }
 
 export async function loadCharacter(): Promise<CharacterRig> {
   const loader = new GLTFLoader();
   const gltf = await loader.loadAsync(CHARACTER_GLTF);
 
-  // Wrapper group: character.ts owns its position / rotation. The loaded scene
-  // is a child so we don't disturb its internal transforms.
-  const group = new THREE.Group();
-  group.name = 'character_root';
-  group.add(gltf.scene);
+  // Wrapper group: character.ts owns position + yaw. The loaded scene is shifted
+  // down so the character's feet land at the wrapper's local y = -0.9 (capsule bottom).
+  const wrapper = new THREE.Group();
+  wrapper.name = 'character_root';
+  gltf.scene.position.y = FEET_OFFSET_Y;
+  wrapper.add(gltf.scene);
+
+  // Override body material with a solid clothing color. Eyes + hair textures stay.
+  gltf.scene.traverse((o) => {
+    if (!(o instanceof THREE.SkinnedMesh)) return;
+    o.castShadow = true;
+    o.receiveShadow = true;
+    const lower = o.name.toLowerCase();
+    if (lower.includes('superhero') || lower === 'superhero_male' || lower.includes('male')) {
+      o.material = new THREE.MeshStandardMaterial({
+        color: SHIRT_COLOR,
+        roughness: 0.85,
+        metalness: 0,
+      });
+    }
+  });
 
   // Find skeleton bones by name.
   const bones = new Map<string, THREE.Object3D>();
@@ -56,35 +99,30 @@ export async function loadCharacter(): Promise<CharacterRig> {
     return b;
   };
 
-  // Add procedural prospector hat parented to the Head bone so it follows head movement.
+  // Hat parented to Head bone — moves with the head naturally.
   const headBone = find('Head');
   const hat = createProspectorHat();
   headBone.add(hat);
 
-  // Make sure all skinned meshes cast shadows (no-op until shadowMap.enabled).
-  gltf.scene.traverse((o) => {
-    if (o instanceof THREE.Mesh) {
-      o.castShadow = true;
-      o.receiveShadow = true;
-    }
-  });
-
   return {
-    group,
-    spine: find('spine_02'),
-    head: headBone,
-    shoulderL: find('upperarm_l'),
-    shoulderR: find('upperarm_r'),
-    elbowL: find('lowerarm_l'),
-    elbowR: find('lowerarm_r'),
-    handL: find('hand_l'),
-    handR: find('hand_r'),
-    hipL: find('thigh_l'),
-    hipR: find('thigh_r'),
-    kneeL: find('calf_l'),
-    kneeR: find('calf_r'),
+    group: wrapper,
+    spine: makeJoint(find('spine_02')),
+    head: makeJoint(headBone),
+    shoulderL: makeJoint(find('upperarm_l')),
+    shoulderR: makeJoint(find('upperarm_r')),
+    elbowL: makeJoint(find('lowerarm_l')),
+    elbowR: makeJoint(find('lowerarm_r')),
+    handL: makeJoint(find('hand_l')),
+    handR: makeJoint(find('hand_r')),
+    hipL: makeJoint(find('thigh_l')),
+    hipR: makeJoint(find('thigh_r')),
+    kneeL: makeJoint(find('calf_l')),
+    kneeR: makeJoint(find('calf_r')),
   };
 }
+
+// Suppress "unused import" if we ever expose the skin tone.
+void SKIN_COLOR;
 
 // Procedural prospector hat. Sits on top of the Head bone — local Y is upward
 // from the head bone's origin (which is roughly at the base of the skull).
@@ -109,22 +147,18 @@ function createProspectorHat(): THREE.Group {
   const hat = new THREE.Group();
   hat.name = 'prospector_hat';
 
-  // Crown — slightly tapered cylinder
   const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.14, 0.11, 18), matHat);
   crown.position.y = 0.21;
   hat.add(crown);
 
-  // Hat band wrapping the crown
   const band = new THREE.Mesh(new THREE.CylinderGeometry(0.142, 0.142, 0.022, 18), matBand);
   band.position.y = 0.158;
   hat.add(band);
 
-  // Buckle on the front (-Z side)
   const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.022, 0.018), matBuckle);
   buckle.position.set(0, 0.158, -0.14);
   hat.add(buckle);
 
-  // Wide brim, slightly conical
   const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.225, 0.245, 0.022, 24), matHat);
   brim.position.y = 0.147;
   hat.add(brim);

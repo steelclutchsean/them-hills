@@ -1,7 +1,7 @@
 {
   "name": "them-hills",
   "private": true,
-  "version": "0.0.8-phase3.0",
+  "version": "0.0.9-phase3.1",
   "type": "module",
   "description": "A 3D third-person RPG/sim about modern-day gold prospecting. Three.js, browser-first.",
   "engines": {
