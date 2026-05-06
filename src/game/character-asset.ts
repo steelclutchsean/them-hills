@@ -3,10 +3,10 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 // Loads two Quaternius glTFs together and treats them as one character:
 //
-//   - Male_Peasant.gltf        — Modular Character Outfits pack. 4 skinned meshes
-//                                (body, arms, legs, feet) — fully clothed,
-//                                form-fitting because each piece is hand-modeled
-//                                and skin-weighted. NO head mesh.
+//   - Male_Ranger.gltf         — Modular Character Outfits pack. 9 skinned meshes:
+//                                body + two belts + arms + bracers + boots + pauldron
+//                                + hood + legs. We hide the Hood (cowboy hat replaces it)
+//                                and keep the rest. Fully clothed, skin-weighted.
 //   - Superhero_Male_FullBody  — Universal Base Characters pack. Provides the
 //                                head + eyes + eyebrows (the existing rigged face).
 //
@@ -21,8 +21,11 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 // underneath the Peasant outfit read as skin, not as the original superhero
 // suit. The head shows as skin because that's its actual color.
 
-const PEASANT_GLTF = '/assets/characters/Male_Peasant.gltf';
+const OUTFIT_GLTF = '/assets/characters/Male_Ranger.gltf';
 const SUPERHERO_GLTF = '/assets/characters/Superhero_Male_FullBody.gltf';
+
+/** Names of meshes within the outfit glTF that should NOT be rendered. */
+const HIDDEN_OUTFIT_MESH_KEYWORDS = ['hood', 'pauldron'];
 
 const FEET_OFFSET_Y = -0.9;
 const SKIN_COLOR = 0xe7c19e;
@@ -85,13 +88,22 @@ function prepareScene(scene: THREE.Group): void {
 
 export async function loadCharacter(): Promise<CharacterRig> {
   const loader = new GLTFLoader();
-  const [peasant, base] = await Promise.all([
-    loader.loadAsync(PEASANT_GLTF),
+  const [outfit, base] = await Promise.all([
+    loader.loadAsync(OUTFIT_GLTF),
     loader.loadAsync(SUPERHERO_GLTF),
   ]);
 
-  prepareScene(peasant.scene);
+  prepareScene(outfit.scene);
   prepareScene(base.scene);
+
+  // Hide outfit pieces we don't want (e.g. hood — replaced by the cowboy hat).
+  outfit.scene.traverse((o) => {
+    if (!(o instanceof THREE.SkinnedMesh)) return;
+    const lower = o.name.toLowerCase();
+    if (HIDDEN_OUTFIT_MESH_KEYWORDS.some((k) => lower.includes(k))) {
+      o.visible = false;
+    }
+  });
 
   // Override the Superhero body mesh material to skin tone. The mesh contains
   // both head and body geometry — flat skin color makes the head look natural
@@ -114,16 +126,16 @@ export async function loadCharacter(): Promise<CharacterRig> {
   // Wrapper: character.ts owns position + yaw of this group.
   const wrapper = new THREE.Group();
   wrapper.name = 'character_root';
-  wrapper.add(peasant.scene);
+  wrapper.add(outfit.scene);
   wrapper.add(base.scene);
 
   // Collect bones from both skeletons and pair them up by name.
-  const peasantBones = collectBones(peasant.scene);
+  const outfitBones = collectBones(outfit.scene);
   const baseBones = collectBones(base.scene);
 
   const findAll = (name: string): THREE.Object3D[] => {
     const out: THREE.Object3D[] = [];
-    const a = peasantBones.get(name);
+    const a = outfitBones.get(name);
     const b = baseBones.get(name);
     if (a) out.push(a);
     if (b) out.push(b);
@@ -137,7 +149,7 @@ export async function loadCharacter(): Promise<CharacterRig> {
   // visible head geometry). Placing it on the base skeleton's bone is fine —
   // since both skeletons animate identically, the hat moves correctly with the
   // visible head.
-  const hatHostBone = baseBones.get('Head') ?? peasantBones.get('Head');
+  const hatHostBone = baseBones.get('Head') ?? outfitBones.get('Head');
   if (hatHostBone) {
     const hat = createProspectorHat();
     hatHostBone.add(hat);

@@ -52,8 +52,11 @@ All current dependencies are MIT-licensed unless noted. Audit on every `npm inst
 - **License:** [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/)
 - **Source:** https://quaternius.com (Standard free version)
 - **Author:** [@quaternius](https://www.patreon.com/quaternius)
-- **Models in use:** `Male_Peasant.gltf` — fully clothed, skin-weighted male peasant outfit (body + arms + legs + feet meshes, no head). Shares the same 65-bone skeleton as the Universal Base Characters pack, so the two are loaded side-by-side and driven by the same bone animations. Textures: `T_Peasant_BaseColor.png`, `T_Peasant_Normal.png`, `T_Peasant_ORM.png`, plus shared `T_Regular_Male_*` skin textures for the forearms / hands.
-- **Other outfits in source pack:** Female_Peasant, Male_Ranger, Female_Ranger plus modular parts. Excluded from deploy to keep size down.
+- **Models in use:**
+  - `Male_Ranger.gltf` — fully clothed male ranger outfit, 9 skinned meshes (body, two belts, arms, bracers, boots, pauldron, hood, legs). Hood and pauldron are loaded but hidden at runtime — we use the procedural cowboy hat instead. Shares the same 65-bone skeleton as the Universal Base Characters pack.
+  - `Male_Peasant.gltf` — also extracted; available as a fallback outfit but not currently rendered.
+- **Textures:** `T_Ranger_*.png`, `T_Peasant_*.png`, plus shared `T_Regular_Male_*` skin textures from the Universal Base Characters pack.
+- **Other outfits in source pack:** Female_Peasant, Female_Ranger plus modular parts. Excluded from deploy to keep size down.
 
 ---
 
