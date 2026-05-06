@@ -1,0 +1,7 @@
+node_modules/
+dist/
+package-lock.json
+.github/
+
+# Design docs are hand-formatted (tables, intentional line breaks, etc.)
+*.md
