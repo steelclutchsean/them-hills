@@ -258,7 +258,7 @@ export function mountHud(root: HTMLElement): MountedHud {
     return el;
   };
 
-  addInfoLine('title').textContent = 'Them Hills — Phase 2.7 (Heightmap fix)';
+  addInfoLine('title').textContent = 'Them Hills — Phase 2.8 (Character detail)';
   addInfoLine('device');
   addInfoLine('state');
   addInfoLine('stamina');
