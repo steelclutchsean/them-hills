@@ -21,11 +21,12 @@ const CHARACTER_GLTF = '/assets/characters/Superhero_Male_FullBody.gltf';
 // feet land at the capsule bottom rather than at the capsule center.
 const FEET_OFFSET_Y = -0.9;
 
-// Solid color override for the body — the pack's "Superhero" PBR texture is a
-// muscular bare chest + briefs which doesn't fit a prospector. We replace the body
-// material with a single earth-brown so the character reads as "fully clothed in
-// workwear." Layered prospector vest/pants would be the next quality jump.
-const SHIRT_COLOR = 0x6a4530;
+// Solid color override for the body. The pack's "Superhero" texture is muscular
+// bare chest + briefs; we override it with a clearly-not-skin color so the
+// character reads as "wearing dark workwear" rather than "shirtless." Deep navy
+// denim is far enough from skin tone that any remaining muscle definition reads
+// as fabric folds, not flesh.
+const CLOTHES_COLOR = 0x1f2a3a;
 const SKIN_COLOR = 0xe7c19e;
 
 export interface BoneJoint {
@@ -72,17 +73,27 @@ export async function loadCharacter(): Promise<CharacterRig> {
   wrapper.add(gltf.scene);
 
   // Override body material with a solid clothing color. Eyes + hair textures stay.
+  // We match against material name "MI_Superhero_Male" rather than mesh name —
+  // the mesh node is named "SuperHero_Male" but the material that gets rendered
+  // has the MI_ prefix; matching by material name is more reliable.
   gltf.scene.traverse((o) => {
     if (!(o instanceof THREE.SkinnedMesh)) return;
     o.castShadow = true;
     o.receiveShadow = true;
-    const lower = o.name.toLowerCase();
-    if (lower.includes('superhero') || lower === 'superhero_male' || lower.includes('male')) {
+    const matName = Array.isArray(o.material)
+      ? (o.material[0]?.name ?? '')
+      : ((o.material as THREE.Material)?.name ?? '');
+    const isBody =
+      matName.toLowerCase().includes('superhero') ||
+      o.name.toLowerCase().includes('superhero') ||
+      o.name.toLowerCase().includes('male');
+    if (isBody) {
       o.material = new THREE.MeshStandardMaterial({
-        color: SHIRT_COLOR,
-        roughness: 0.85,
+        color: CLOTHES_COLOR,
+        roughness: 0.88,
         metalness: 0,
       });
+      console.log(`[character-asset] overrode body material on mesh "${o.name}"`);
     }
   });
 
