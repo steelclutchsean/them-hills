@@ -1,7 +1,15 @@
+import {
+  ALL_CATEGORIES,
+  EQUIPMENT,
+  computeYieldMultiplier,
+  getNextUpgrade,
+  type EquipmentCategory,
+} from '@/economy/equipment';
 import { createSpotPriceService } from '@/economy/spot-price';
 import { ASSETS } from '@/game/assets';
 import { bearingFromYaw, createCameraRig } from '@/game/camera-rig';
 import { createCharacter } from '@/game/character';
+import { createGeneralStore } from '@/game/general-store';
 import { createProspectingController } from '@/game/prospecting';
 import { scatterAssets } from '@/game/scatter';
 import { createStream } from '@/game/stream';
@@ -70,6 +78,9 @@ async function bootstrap(): Promise<void> {
 
   // ---- Vendors ----
   const vendors = createVendors(renderer.scene, (x, z) => terrain.getHeightAt(x, z));
+
+  // ---- General Store ----
+  const generalStore = createGeneralStore(renderer.scene, (x, z) => terrain.getHeightAt(x, z));
 
   // ---- Environment scatter (async, non-blocking) ----
   // Trees and rocks fill in over a few seconds while the player gets oriented.
@@ -219,6 +230,14 @@ async function bootstrap(): Promise<void> {
   // the sale, PAUSE leaves without selling.
   let activeVendor: Vendor | null = null;
 
+  // Active General Store session. When true, the upgrade UI is open. The
+  // player can cycle through tool categories with TOOL_NEXT/TOOL_PREV and
+  // buy with INTERACT. PAUSE leaves.
+  let storeOpen = false;
+  let storeSelectionIdx = 0;
+  let toolNextWasDown = false;
+  let toolPrevWasDown = false;
+
   // ---- Save snapshot helper ----
   function buildSaveSnapshot(): SaveV1 {
     const base = gameStore.getState().serialize();
@@ -256,10 +275,19 @@ async function bootstrap(): Promise<void> {
       // 2. Determine whether character can move (locked during any session)
       const prospecting = prospect.isActive();
       const inVendorSession = activeVendor !== null;
-      const inSession = prospecting || inVendorSession;
+      const inStoreSession = storeOpen;
+      const inSession = prospecting || inVendorSession || inStoreSession;
       const moveInput = inSession ? { x: 0, y: 0 } : input.getMoveInput();
       const jumpDown = inSession ? false : input.isActive('JUMP');
       const sprintDown = inSession ? false : input.isActive('SPRINT');
+
+      // Edge-detection for store-cycle inputs (only used inside store session)
+      const toolNextDown = input.isActive('TOOL_NEXT');
+      const toolNextJustPressed = toolNextDown && !toolNextWasDown;
+      toolNextWasDown = toolNextDown;
+      const toolPrevDown = input.isActive('TOOL_PREV');
+      const toolPrevJustPressed = toolPrevDown && !toolPrevWasDown;
+      toolPrevWasDown = toolPrevDown;
 
       // 3. Character intent
       character.preStep(dt, moveInput, jumpDown, sprintDown, cameraRig.getYaw());
@@ -277,12 +305,12 @@ async function bootstrap(): Promise<void> {
       // 6. Camera position
       cameraRig.placeCamera(character.getPosition(), physics.rapier, character.getColliderHandle());
 
-      // 7. Proximity: vendors take priority over panning sites (they're spatially
-      // separated in the world but if they ever overlap, we want vendor wins).
+      // 7. Proximity: precedence is vendor > general store > panning site.
       const charPos = character.getPosition();
       const nearestVendor = !inSession ? vendors.findNearest(charPos) : null;
+      const nearStore = !inSession && nearestVendor === null && generalStore.isPlayerNear(charPos);
       const nearestSite =
-        !inSession && nearestVendor === null ? stream.findNearestSite(charPos) : null;
+        !inSession && nearestVendor === null && !nearStore ? stream.findNearestSite(charPos) : null;
 
       stream.update(
         worldTime,
@@ -290,12 +318,43 @@ async function bootstrap(): Promise<void> {
         prospecting ? (prospect.getSnapshot()?.siteId ?? null) : (nearestSite?.site.id ?? null),
       );
       vendors.update(worldTime, activeVendor?.id ?? nearestVendor?.vendor.id ?? null);
+      generalStore.update(worldTime, storeOpen || nearStore);
 
       // 8. Site richness regen
       gameStore.getState().regenSites(dt, worldTime);
 
-      // 9. Session state machine — vendor → prospecting → idle.
-      if (inVendorSession) {
+      // 9. Session state machine — store → vendor → prospecting → idle.
+      if (inStoreSession) {
+        if (pauseJustPressed) {
+          storeOpen = false;
+          console.log('[store] left general store');
+        } else {
+          if (toolNextJustPressed) {
+            storeSelectionIdx = (storeSelectionIdx + 1) % ALL_CATEGORIES.length;
+          }
+          if (toolPrevJustPressed) {
+            storeSelectionIdx =
+              (storeSelectionIdx - 1 + ALL_CATEGORIES.length) % ALL_CATEGORIES.length;
+          }
+          if (interactJustPressed) {
+            const category = ALL_CATEGORIES[storeSelectionIdx]!;
+            const ownedTier = gameStore.getState().save.equipment.ownedTiers[category];
+            const next = getNextUpgrade(category, ownedTier);
+            if (next && !next.questGated) {
+              const ok = gameStore
+                .getState()
+                .purchaseUpgrade(category, next.cost, next.toTier, worldTime);
+              if (ok) {
+                console.log(
+                  `[store] purchased ${category} ${next.label} for $${next.cost.toFixed(2)}`,
+                );
+              } else {
+                console.log(`[store] insufficient funds for ${category} ${next.label}`);
+              }
+            }
+          }
+        }
+      } else if (inVendorSession) {
         if (pauseJustPressed) {
           console.log(`[vendor] left ${activeVendor!.id}`);
           activeVendor = null;
@@ -336,18 +395,25 @@ async function bootstrap(): Promise<void> {
       } else if (nearestVendor && interactJustPressed) {
         activeVendor = nearestVendor.vendor;
         console.log(`[vendor] opened ${activeVendor.id}`);
+      } else if (nearStore && interactJustPressed) {
+        storeOpen = true;
+        console.log('[store] opened general store');
       } else if (nearestSite && interactJustPressed) {
         const site = gameStore.getState().getOrCreateSite(nearestSite.site.id);
         const actionCount = gameStore.getState().incrementPanCount();
         const firstEver = actionCount === 1;
+        const yieldMultiplier = computeYieldMultiplier(
+          gameStore.getState().save.equipment.ownedTiers,
+        );
         prospect.start({
           siteId: nearestSite.site.id,
           siteRichness: site.richnessRemaining,
           actionCount,
           firstEver,
+          yieldMultiplier,
         });
         console.log(
-          `[prospect] start ${nearestSite.site.id} (richness=${site.richnessRemaining.toFixed(2)}, firstEver=${firstEver})`,
+          `[prospect] start ${nearestSite.site.id} (richness=${site.richnessRemaining.toFixed(2)}, firstEver=${firstEver}, yieldMult=${yieldMultiplier.toFixed(2)})`,
         );
       }
 
@@ -363,9 +429,11 @@ async function bootstrap(): Promise<void> {
         ? null
         : nearestVendor
           ? { text: `Sell at ${nearestVendor.vendor.name}`, glyph: interactGlyph }
-          : nearestSite
-            ? { text: 'Prospect', glyph: interactGlyph }
-            : null;
+          : nearStore
+            ? { text: 'Open General Store', glyph: interactGlyph }
+            : nearestSite
+              ? { text: 'Prospect', glyph: interactGlyph }
+              : null;
 
       let vendorOverlay: ReturnType<typeof buildVendorOverlay> | null = null;
       if (activeVendor) {
@@ -373,6 +441,15 @@ async function bootstrap(): Promise<void> {
           activeVendor,
           save.inventory.carry.gold,
           save.economy.spotPrice.current,
+        );
+      }
+
+      let storeOverlay: ReturnType<typeof buildStoreOverlay> | null = null;
+      if (storeOpen) {
+        storeOverlay = buildStoreOverlay(
+          save.equipment.ownedTiers,
+          save.wallet.balance,
+          storeSelectionIdx,
         );
       }
 
@@ -390,6 +467,7 @@ async function bootstrap(): Promise<void> {
         bearingDeg: bearingFromYaw(cameraRig.getYaw()),
         prompt: promptInfo,
         vendor: vendorOverlay,
+        store: storeOverlay,
         prospect: prospect.getSnapshot(),
       });
     },
@@ -450,6 +528,43 @@ function buildVendorOverlay(
     grossDollars: gross,
     canSell: totalG > 1e-6,
   };
+}
+
+// Snapshot of the General Store UI for the HUD: one row per category showing
+// owned tier, next-upgrade cost (if any), and an "AFFORD" flag.
+function buildStoreOverlay(
+  ownedTiers: Record<EquipmentCategory, number>,
+  walletBalance: number,
+  selectionIdx: number,
+): {
+  rows: {
+    category: EquipmentCategory;
+    displayName: string;
+    ownedTier: number;
+    nextLabel: string;
+    nextCost: number | null;
+    affordable: boolean;
+    questGated: boolean;
+  }[];
+  selectedIndex: number;
+  walletBalance: number;
+} {
+  const rows = ALL_CATEGORIES.map((category) => {
+    const ownedTier = ownedTiers[category];
+    const next = getNextUpgrade(category, ownedTier);
+    const nextCost = next ? next.cost : null;
+    const affordable = next !== null && !next.questGated && walletBalance >= next.cost;
+    return {
+      category,
+      displayName: EQUIPMENT[category].displayName,
+      ownedTier,
+      nextLabel: next ? next.label : 'Maxed',
+      nextCost,
+      affordable,
+      questGated: next?.questGated === true,
+    };
+  });
+  return { rows, selectedIndex: selectionIdx, walletBalance };
 }
 
 bootstrap().catch((e: unknown) => {

@@ -49,6 +49,18 @@ export interface GameStateStore {
     spotPricePerOzt: number,
     gameTime: number,
   ): { earned: number; gramsByQuality: GoldStash };
+
+  /**
+   * Spend wallet cash to upgrade a tool tier. Returns true if purchase
+   * succeeded, false if insufficient funds. Caller is responsible for
+   * passing valid tier transitions; the mutator just trusts the inputs.
+   */
+  purchaseUpgrade(
+    category: keyof SaveV1['equipment']['ownedTiers'],
+    cost: number,
+    newTier: number,
+    gameTime: number,
+  ): boolean;
 }
 
 export const gameStore = createStore<GameStateStore>((set, get) => ({
@@ -239,6 +251,44 @@ export const gameStore = createStore<GameStateStore>((set, get) => ({
       };
     });
     return { earned, gramsByQuality };
+  },
+
+  purchaseUpgrade(category, cost, newTier, gameTime) {
+    const balance = get().save.wallet.balance;
+    if (balance < cost) return false;
+    set((state) => {
+      const tx: Transaction = {
+        id: `tx_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+        timestamp: gameTime,
+        type: 'purchase',
+        amount: -cost,
+        vendorId: 'general_store',
+        details: { itemPurchased: `${category}_t${newTier}` },
+      };
+      return {
+        save: {
+          ...state.save,
+          wallet: {
+            ...state.save.wallet,
+            balance: state.save.wallet.balance - cost,
+            lifetimeSpending: state.save.wallet.lifetimeSpending + cost,
+            recentTransactions: [...state.save.wallet.recentTransactions.slice(-49), tx],
+          },
+          equipment: {
+            ...state.save.equipment,
+            ownedTiers: {
+              ...state.save.equipment.ownedTiers,
+              [category]: newTier,
+            },
+          },
+          progression: {
+            ...state.save.progression,
+            firstUpgradeCompleted: true,
+          },
+        },
+      };
+    });
+    return true;
   },
 
   setSpotPrice(price, source) {

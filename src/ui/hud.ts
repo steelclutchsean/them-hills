@@ -29,6 +29,20 @@ export interface HudUpdate {
     grossDollars: number;
     canSell: boolean;
   } | null;
+  /** Center overlay — shown while at the General Store; lists upgrade options. */
+  store: {
+    rows: {
+      category: string;
+      displayName: string;
+      ownedTier: number;
+      nextLabel: string;
+      nextCost: number | null;
+      affordable: boolean;
+      questGated: boolean;
+    }[];
+    selectedIndex: number;
+    walletBalance: number;
+  } | null;
 }
 
 export interface MountedHud {
@@ -202,9 +216,24 @@ const STYLE = `
   }
   .hud-info[hidden], .hud-inventory[hidden],
   .hud-prompt[hidden], .hud-prospect[hidden],
-  .hud-compass[hidden], .hud-vendor[hidden] { display: none; }
+  .hud-compass[hidden], .hud-vendor[hidden], .hud-store[hidden] { display: none; }
   .hud-vendor { border-color: rgba(212, 166, 71, 0.7); }
   .hud-vendor .step-label { color: #d4a647; }
+  .hud-store {
+    width: 520px;
+    border-color: rgba(74, 140, 42, 0.7);
+    text-align: left;
+  }
+  .hud-store .store-title { font-weight: 600; color: #8fc466; margin-bottom: 8px; text-align: center; letter-spacing: 0.1em; text-transform: uppercase; font-size: 12px; }
+  .hud-store .store-row { padding: 4px 8px; border-radius: 4px; display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+  .hud-store .store-row.selected { background: rgba(74, 140, 42, 0.18); outline: 1px solid rgba(74, 140, 42, 0.45); }
+  .hud-store .store-name { color: #fff; }
+  .hud-store .store-owned { color: rgba(255,255,255,0.5); margin-left: 8px; }
+  .hud-store .store-next { color: rgba(255,255,255,0.85); flex: 1; text-align: right; }
+  .hud-store .store-next.locked { color: rgba(255,255,255,0.35); font-style: italic; }
+  .hud-store .store-next.cant-afford { color: #b87a4a; }
+  .hud-store .store-next.affordable { color: #8fc466; }
+  .hud-store .store-footer { margin-top: 10px; font-size: 12px; color: rgba(255,255,255,0.6); text-align: center; }
 `;
 
 function injectStyle(): void {
@@ -260,6 +289,11 @@ export function mountHud(root: HTMLElement): MountedHud {
   vendor.hidden = true;
   document.body.appendChild(vendor);
 
+  const store = document.createElement('div');
+  store.className = 'hud-prospect hud-store';
+  store.hidden = true;
+  document.body.appendChild(store);
+
   const lines: Record<string, HTMLDivElement> = {};
   const addInfoLine = (key: string): HTMLDivElement => {
     const el = document.createElement('div');
@@ -274,7 +308,7 @@ export function mountHud(root: HTMLElement): MountedHud {
     return el;
   };
 
-  addInfoLine('title').textContent = 'Them Hills — Phase 5a (Sell flow)';
+  addInfoLine('title').textContent = 'Them Hills — Phase 5b (Equipment progression)';
   addInfoLine('device');
   addInfoLine('state');
   addInfoLine('stamina');
@@ -420,6 +454,46 @@ export function mountHud(root: HTMLElement): MountedHud {
         vendor.appendChild(msg);
       } else {
         vendor.hidden = true;
+      }
+
+      // General Store overlay
+      if (s.store) {
+        store.hidden = false;
+        store.innerHTML = '';
+
+        const title = document.createElement('div');
+        title.className = 'store-title';
+        title.textContent = `General Store — Wallet $${s.store.walletBalance.toFixed(2)}`;
+        store.appendChild(title);
+
+        s.store.rows.forEach((r, idx) => {
+          const row = document.createElement('div');
+          row.className = `store-row ${idx === s.store!.selectedIndex ? 'selected' : ''}`;
+          const left = document.createElement('span');
+          left.innerHTML = `<span class="store-name">${r.displayName}</span><span class="store-owned">T${r.ownedTier}</span>`;
+          row.appendChild(left);
+          const right = document.createElement('span');
+          if (r.nextCost === null) {
+            right.className = 'store-next locked';
+            right.textContent = r.nextLabel;
+          } else if (r.questGated) {
+            right.className = 'store-next locked';
+            right.textContent = `${r.nextLabel}`;
+          } else {
+            right.className = `store-next ${r.affordable ? 'affordable' : 'cant-afford'}`;
+            right.textContent = `${r.nextLabel}  $${r.nextCost.toFixed(2)}`;
+          }
+          row.appendChild(right);
+          store.appendChild(row);
+        });
+
+        const footer = document.createElement('div');
+        footer.className = 'store-footer';
+        const glyph = glyphFor(s.device, s.gamepadGlyph, 'INTERACT');
+        footer.textContent = `[ / ] cycle    [${glyph}] buy    [Esc] leave`;
+        store.appendChild(footer);
+      } else {
+        store.hidden = true;
       }
     },
   };

@@ -48,6 +48,8 @@ export interface ProspectingController {
     siteRichness: number;
     actionCount: number;
     firstEver: boolean;
+    /** Geometric mean of active tool tier multipliers (T1=1.00 baseline). */
+    yieldMultiplier: number;
   }): boolean;
   update(dt: number, isInteractDown: boolean): ProspectingResult | null;
   cancel(): void;
@@ -58,6 +60,7 @@ interface Session {
   siteRichness: number;
   actionCount: number;
   firstEver: boolean;
+  yieldMultiplier: number;
   step: StepKind;
   progress: number;
   panTaps: number;
@@ -95,7 +98,7 @@ export function createProspectingController(): ProspectingController {
 
     const skillBonus = 0.6 + rng.next() * 0.4; // 0.6..1.0
     const richnessFactor = 0.2 + 0.8 * session.siteRichness;
-    let totalGrams = BASE_YIELD_GRAMS * richnessFactor * skillBonus;
+    let totalGrams = BASE_YIELD_GRAMS * richnessFactor * skillBonus * session.yieldMultiplier;
 
     // Rig the very first prospect ever: at least one visible flake.
     if (session.firstEver && totalGrams < 0.05) {
@@ -122,13 +125,14 @@ export function createProspectingController(): ProspectingController {
   return {
     isActive: () => session !== null,
     getSnapshot: snapshot,
-    start({ siteId, siteRichness, actionCount, firstEver }) {
+    start({ siteId, siteRichness, actionCount, firstEver, yieldMultiplier }) {
       if (session !== null) return false;
       session = {
         siteId,
         siteRichness: Math.max(0, Math.min(1, siteRichness)),
         actionCount,
         firstEver,
+        yieldMultiplier,
         step: 'dig',
         progress: 0,
         panTaps: 0,
