@@ -12,7 +12,10 @@ import { RAPIER } from '@/physics/world';
 // the character sinking into the visual ground (because the Rapier-reported height
 // at world (x, z) was actually the height at world (z, x)).
 
-const SUBDIVS = 64;
+// Mesh subdivision (smooth shading + 128² grid → smooth-flowing hills, no
+// faceting). The Rapier heightfield uses the same density; queries are O(1)
+// regardless so the cost is just the heights array.
+const SUBDIVS = 128;
 const N = SUBDIVS + 1;
 const EXTENT_X = 200;
 const EXTENT_Z = 200;
@@ -110,6 +113,88 @@ function generateHeights(channels: readonly ChannelConfig[]): Float32Array {
   return heights;
 }
 
+// Color palette for vertex tinting. Per-vertex color picks among these based
+// on the local slope and proximity to a stream.
+const COLOR_MEADOW = new THREE.Color(0x4d6c3a);
+const COLOR_HILL = new THREE.Color(0x617d44);
+const COLOR_CLIFF = new THREE.Color(0x6b5a3e);
+const COLOR_SAND = new THREE.Color(0x9b8e63);
+
+function paintVertexColors(
+  geom: THREE.BufferGeometry,
+  heights: Float32Array,
+  channels: readonly ChannelConfig[],
+): void {
+  const positions = geom.attributes.position;
+  if (!positions) return;
+  const count = positions.count;
+  const colors = new Float32Array(count * 3);
+
+  // Slope at each vertex: forward-difference height across one cell in X and Z.
+  // The N×N grid lets us compute steepness directly from the heights array.
+  const cellX = EXTENT_X / SUBDIVS;
+  const cellZ = EXTENT_Z / SUBDIVS;
+  const tmp = new THREE.Color();
+
+  for (let iy = 0; iy < N; iy++) {
+    for (let ix = 0; ix < N; ix++) {
+      const meshIdx = iy * N + ix;
+      const ixR = Math.min(ix + 1, SUBDIVS);
+      const iyD = Math.min(iy + 1, SUBDIVS);
+      const h = heights[heightIdx(ix, iy)]! * HEIGHT_SCALE;
+      const hR = heights[heightIdx(ixR, iy)]! * HEIGHT_SCALE;
+      const hD = heights[heightIdx(ix, iyD)]! * HEIGHT_SCALE;
+      const dx = (hR - h) / cellX;
+      const dz = (hD - h) / cellZ;
+      const slope = Math.hypot(dx, dz);
+
+      // Sand/silt near stream banks (within 1.4× channel halfWidth from any
+      // channel centerline). Looks like exposed riverbed.
+      let sandFactor = 0;
+      const u = ix / SUBDIVS - 0.5;
+      const v = iy / SUBDIVS - 0.5;
+      const wx = u * EXTENT_X;
+      const wz = v * EXTENT_Z;
+      for (const ch of channels) {
+        let dCross: number;
+        let dAlong: number;
+        if (ch.orientation === 'NS') {
+          dCross = Math.abs(wx - ch.centerX);
+          dAlong = Math.abs(wz - ch.centerZ);
+        } else {
+          dCross = Math.abs(wz - ch.centerZ);
+          dAlong = Math.abs(wx - ch.centerX);
+        }
+        if (dAlong < ch.halfLength + 2 && dCross < ch.halfWidth * 1.6) {
+          // Smooth ramp from 1 at bank up to 0 at 1.6×halfWidth out
+          const t = Math.max(0, (dCross - ch.halfWidth) / (ch.halfWidth * 0.6));
+          sandFactor = Math.max(sandFactor, 1 - Math.min(1, t));
+        }
+      }
+
+      // Base color blends meadow → hill with elevation, then folds in cliff
+      // tint with slope, and finally sand tint near stream banks.
+      const elevationT = Math.min(1, Math.max(0, h / 4 + 0.3));
+      tmp.copy(COLOR_MEADOW).lerp(COLOR_HILL, elevationT);
+      const cliffT = Math.min(1, Math.max(0, (slope - 0.45) / 0.4));
+      tmp.lerp(COLOR_CLIFF, cliffT);
+      tmp.lerp(COLOR_SAND, sandFactor * 0.65);
+
+      // Tiny per-vertex jitter for texture variation
+      const jitter = (((ix * 1103) ^ (iy * 524287)) % 100) / 1000 - 0.05;
+      tmp.r = Math.max(0, Math.min(1, tmp.r + jitter));
+      tmp.g = Math.max(0, Math.min(1, tmp.g + jitter));
+      tmp.b = Math.max(0, Math.min(1, tmp.b + jitter));
+
+      colors[meshIdx * 3 + 0] = tmp.r;
+      colors[meshIdx * 3 + 1] = tmp.g;
+      colors[meshIdx * 3 + 2] = tmp.b;
+    }
+  }
+
+  geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+}
+
 export function createTerrain(world: RAPIER.World, channels: readonly ChannelConfig[]): Terrain {
   const heights = generateHeights(channels);
 
@@ -129,11 +214,16 @@ export function createTerrain(world: RAPIER.World, channels: readonly ChannelCon
   positions.needsUpdate = true;
   geom.computeVertexNormals();
 
+  paintVertexColors(geom, heights, channels);
+
   const mesh = new THREE.Mesh(
     geom,
     new THREE.MeshStandardMaterial({
-      color: 0x4a6a3a,
-      flatShading: true,
+      // White base + vertexColors lets per-vertex color drive the surface
+      // hue without being multiplied against a constant tint.
+      color: 0xffffff,
+      vertexColors: true,
+      flatShading: false,
       roughness: 0.95,
       metalness: 0,
     }),

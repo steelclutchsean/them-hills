@@ -21,6 +21,7 @@ import {
   type DialogueSession,
 } from '@/game/dialogue';
 import { createGeneralStore } from '@/game/general-store';
+import { createGrassField } from '@/game/grass-field';
 import { createHeadlamp } from '@/game/headlamp';
 import { createInn } from '@/game/inn';
 import { createMineEntrance } from '@/game/mine';
@@ -156,6 +157,15 @@ async function bootstrap(): Promise<void> {
   const initialEpoch = Math.floor(gameStore.getState().save.world.gameTime / SITE_EPOCH_SEC);
   streams.setEpoch(initialEpoch);
 
+  // ---- Grass field (instanced blades) ----
+  const grass = createGrassField(terrain, {
+    count: 5000,
+    extent: 95,
+    reject: (x, z) => streams.isInStreamZone(x, z, 0.5),
+    seed: 0xa9,
+  });
+  renderer.scene.add(grass.mesh);
+
   // ---- Vendors ----
   const vendors = createVendors(renderer.scene, (x, z) => terrain.getHeightAt(x, z));
 
@@ -199,7 +209,7 @@ async function bootstrap(): Promise<void> {
       renderer.scene,
       terrain,
       {
-        count: 50,
+        count: 140,
         models: [
           ...ASSETS.trees.common,
           ...ASSETS.trees.pine,
@@ -215,7 +225,7 @@ async function bootstrap(): Promise<void> {
       renderer.scene,
       terrain,
       {
-        count: 25,
+        count: 70,
         models: ASSETS.rocks.medium,
         scale: { min: 0.6, max: 1.6 },
         yOffset: -0.05,
@@ -245,7 +255,7 @@ async function bootstrap(): Promise<void> {
       renderer.scene,
       terrain,
       {
-        count: 80,
+        count: 220,
         models: ASSETS.vegetation.grass,
         scale: { min: 0.6, max: 1.2 },
         reject,
@@ -256,7 +266,7 @@ async function bootstrap(): Promise<void> {
       renderer.scene,
       terrain,
       {
-        count: 25,
+        count: 90,
         models: [
           ...ASSETS.vegetation.bushes,
           ...ASSETS.vegetation.ferns,
@@ -271,7 +281,7 @@ async function bootstrap(): Promise<void> {
       renderer.scene,
       terrain,
       {
-        count: 30,
+        count: 110,
         models: [...ASSETS.vegetation.flowers, ...ASSETS.vegetation.mushrooms],
         scale: { min: 0.7, max: 1.3 },
         reject,
@@ -488,7 +498,7 @@ async function bootstrap(): Promise<void> {
       gameStore.getState().tickMeters(dt, inStreamWater);
       streams.setEpoch(Math.floor(worldTime / SITE_EPOCH_SEC));
 
-      // 9. Site richness regen + weather + sky + headlamp
+      // 9. Site richness regen + weather + sky + headlamp + grass
       gameStore.getState().regenSites(dt, worldTime);
       weather.update(worldTime, dt, charPos);
       sky.update(worldTime, weather.getView());
@@ -497,6 +507,13 @@ async function bootstrap(): Promise<void> {
         skyHour: getSkyHour(worldTime),
         weather: weather.getView(),
         gearTier: gameStore.getState().save.equipment.ownedTiers.gear,
+      });
+      grass.update({
+        time: worldTime,
+        sunColor: renderer.sun.color,
+        sunIntensity: renderer.sun.intensity,
+        ambientColor: renderer.ambient.color,
+        ambientIntensity: renderer.ambient.intensity,
       });
 
       // 10. Session state machine — dialogue → store → vendor → prospecting → camp → idle.
