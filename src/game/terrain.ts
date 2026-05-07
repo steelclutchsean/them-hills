@@ -137,18 +137,20 @@ const TERRAIN_VS = /* glsl */ `
   }
 `;
 
-// Procedural surface texture. Three octaves of value-noise (large patches,
-// medium speckle, fine grain) blend with the per-vertex base palette and a
-// dirt tint so the terrain reads as textured ground. Lighting is a simple
-// lambert sun plus ambient; intensity comes from the same sky controller
-// that drives the rest of the world so dawn/dusk/storms tint the ground
-// correctly.
+// Diffuse texture sampled in world space — repeats every (1 / uTileScale)
+// meters. We sample at two scales and blend them by a low-frequency hash to
+// hide the obvious tiling repetition. Per-vertex vColor (meadow / hill /
+// cliff / sand from paintVertexColors) tints the result so the carved bank
+// areas still read as exposed soil even with the same forest texture
+// underneath.
 const TERRAIN_FS = /* glsl */ `
   uniform vec3 uSunDir;
   uniform vec3 uSunColor;
   uniform float uSunIntensity;
   uniform vec3 uAmbientColor;
   uniform float uAmbientIntensity;
+  uniform sampler2D uDiffuse;
+  uniform float uTileScale;
   varying vec3 vWorld;
   varying vec3 vNormal;
   varying vec3 vColor;
@@ -166,47 +168,30 @@ const TERRAIN_FS = /* glsl */ `
     float d = hash(i + vec2(1.0, 1.0));
     return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
   }
-  float fbm(vec2 p) {
-    float v = 0.0;
-    float amp = 0.5;
-    for (int i = 0; i < 4; i++) {
-      v += amp * noise(p);
-      p *= 2.13;
-      amp *= 0.5;
-    }
-    return v;
-  }
 
   void main() {
-    vec3 base = vColor;
     vec2 worldXZ = vWorld.xz;
 
-    // Three noise scales: 0.3 = ~3m blobs (patches), 1.7 = ~60cm speckle,
-    // 5.0 = high-frequency grain that makes near-camera ground feel solid.
-    float n1 = fbm(worldXZ * 0.3);
-    float n2 = noise(worldXZ * 1.7);
-    float n3 = noise(worldXZ * 5.0);
-    float n4 = noise(worldXZ * 12.0);
+    // Sample the diffuse at two scales — primary at uTileScale, large-scale
+    // at 1/4 size + offset — then blend by a slow noise so the player sees
+    // a continuously-changing surface rather than a visible tiling grid.
+    vec2 uvSmall = worldXZ * uTileScale;
+    vec2 uvLarge = worldXZ * (uTileScale * 0.25) + vec2(0.37, 0.81);
+    vec3 texSmall = texture2D(uDiffuse, uvSmall).rgb;
+    vec3 texLarge = texture2D(uDiffuse, uvLarge).rgb;
+    float blend = noise(worldXZ * 0.04);
+    vec3 tex = mix(texSmall, texLarge, blend * 0.5);
 
-    // Modulate the base palette: dim some patches, brighten others, drop
-    // muddy/dirt patches into the lower-noise wells.
-    vec3 lighter = base * 1.25 + vec3(0.04, 0.05, 0.02);
-    vec3 darker  = base * 0.65;
-    vec3 dirty   = vec3(0.32, 0.24, 0.16);
-    base = mix(darker, base, smoothstep(0.30, 0.70, n1));
-    base = mix(base, lighter, smoothstep(0.55, 0.85, n2) * 0.55);
-    float dirtMask = smoothstep(0.55, 0.78, n1) * smoothstep(0.45, 0.70, n2);
-    base = mix(base, dirty, dirtMask * 0.45);
+    // Tint by per-vertex color. vColor sits roughly in (0.3..0.6) per
+    // channel so multiplying by 2.0 puts neutral around 1.0; that way
+    // meadow vertices keep the texture mostly intact, sand/cliff vertices
+    // pull the texture warmer or browner.
+    vec3 base = tex * vColor * 2.1;
 
-    // Fine grain for per-pixel variation — keeps it from looking like a flat
-    // sticker close-up. Very subtle.
-    base *= 0.88 + 0.18 * n3 + 0.06 * n4;
-
-    // Slope-aware darkening — steep faces sit in shadow more, which both
-    // adds depth to hills and reinforces the rock-tinted vertex colors on
-    // the cliffs.
+    // Slope-aware darkening — steep faces sit in shadow more, which adds
+    // depth to hills and reinforces the rock-tinted vertex colors on cliffs.
     float upDot = clamp(vNormal.y, 0.0, 1.0);
-    base *= mix(0.6, 1.0, upDot);
+    base *= mix(0.55, 1.0, upDot);
 
     // Lambert sun + ambient. Sun direction is updated each frame so dawn /
     // dusk tilt is accurate.
@@ -320,10 +305,20 @@ export function createTerrain(world: RAPIER.World, channels: readonly ChannelCon
 
   paintVertexColors(geom, heights, channels);
 
-  // Custom procedural terrain shader. Per-vertex color (meadow / hill / cliff
-  // / sand) supplies the macro palette; the fragment shader breaks up each
-  // tile with multi-octave noise, dirt patches, and fine grain so the surface
-  // reads as textured ground rather than solid plastic.
+  // Polyhaven forest-ground 4K diffuse, tiled in world space. Anisotropic
+  // filtering keeps the close-camera texture sharp at oblique angles.
+  // colorSpace=SRGB because Three.js renders linear; the JPG is in sRGB.
+  const textureLoader = new THREE.TextureLoader();
+  const diffuseTex = textureLoader.load('assets/textures/forrest_ground_01_diff_4k.jpg');
+  diffuseTex.wrapS = THREE.RepeatWrapping;
+  diffuseTex.wrapT = THREE.RepeatWrapping;
+  diffuseTex.colorSpace = THREE.SRGBColorSpace;
+  diffuseTex.anisotropy = 8;
+
+  // Custom terrain shader. Per-vertex color (meadow / hill / cliff / sand)
+  // tints the diffuse texture so stream banks still read sandy and cliffs
+  // still read brown. The texture is sampled at two scales and blended by
+  // a slow noise to hide the visible tiling repeat.
   const terrainMat = new THREE.ShaderMaterial({
     uniforms: {
       uSunDir: { value: new THREE.Vector3(0.5, 1, 0.3).normalize() },
@@ -331,6 +326,9 @@ export function createTerrain(world: RAPIER.World, channels: readonly ChannelCon
       uSunIntensity: { value: 1.0 },
       uAmbientColor: { value: new THREE.Color(0xffffff) },
       uAmbientIntensity: { value: 0.5 },
+      uDiffuse: { value: diffuseTex },
+      // 0.25 = one tile per 4 world meters. Smaller = larger tiles.
+      uTileScale: { value: 0.25 },
     },
     vertexShader: TERRAIN_VS,
     fragmentShader: TERRAIN_FS,
