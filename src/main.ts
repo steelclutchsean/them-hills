@@ -104,26 +104,29 @@ async function bootstrap(): Promise<void> {
   const physics = await createPhysicsWorld();
 
   // ---- Streams (config-driven; the terrain reads matching channel carves) ----
+  // Both streams now span most of the 200m map (halfLength 90 → 180m visible)
+  // so the fog hides the ends and the water reads as endless. They cross at
+  // (centerX of NS, centerZ of EW), forming a natural confluence.
   const STREAM_CONFIGS: StreamConfig[] = [
     {
       id: 'coyote_creek',
       displayName: 'Coyote Creek',
-      centerX: 10,
+      centerX: 22,
       centerZ: 0,
       halfWidth: 2.5,
-      halfLength: 14.25,
+      halfLength: 90,
       orientation: 'NS',
-      siteCount: 20,
+      siteCount: 28,
     },
     {
       id: 'buckeye_run',
       displayName: 'Buckeye Run',
-      centerX: 5,
-      centerZ: -35,
+      centerX: 0,
+      centerZ: -55,
       halfWidth: 2.4,
-      halfLength: 18,
+      halfLength: 90,
       orientation: 'EW',
-      siteCount: 15,
+      siteCount: 24,
       shallowColor: 0x9bcfb5,
       deepColor: 0x355c4a,
       foamColor: 0xeaf5e8,
@@ -146,6 +149,12 @@ async function bootstrap(): Promise<void> {
   const streamList = STREAM_CONFIGS.map((cfg) => createStream(terrain, cfg));
   for (const s of streamList) renderer.scene.add(s.group);
   const streams = createStreamRegistry(streamList);
+
+  // Site respawn: every 12 in-game hours, all streams regenerate fresh sites
+  // at new positions. SKY_SECONDS_PER_DAY/2 real-seconds = one epoch.
+  const SITE_EPOCH_SEC = SKY_SECONDS_PER_DAY / 2;
+  const initialEpoch = Math.floor(gameStore.getState().save.world.gameTime / SITE_EPOCH_SEC);
+  streams.setEpoch(initialEpoch);
 
   // ---- Vendors ----
   const vendors = createVendors(renderer.scene, (x, z) => terrain.getHeightAt(x, z));
@@ -457,9 +466,10 @@ async function bootstrap(): Promise<void> {
       mine.update(worldTime, nearMine);
       camp.update(worldTime, nearCamp);
 
-      // 8. Survival meter drain (or thirst regen if standing in any stream)
+      // 8. Survival meter drain + stream-site epoch check
       const inStreamWater = streams.isPlayerInAnyStream(charPos);
       gameStore.getState().tickMeters(dt, inStreamWater);
+      streams.setEpoch(Math.floor(worldTime / SITE_EPOCH_SEC));
 
       // 9. Site richness regen + weather + sky + headlamp
       gameStore.getState().regenSites(dt, worldTime);

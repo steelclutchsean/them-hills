@@ -42,7 +42,30 @@ function heightIdx(ix: number, iy: number): number {
   return iy + ix * N;
 }
 
+/** Pure terrain noise — no flattening, no carve. Used for both vertex sampling
+ * and per-channel "natural at center" sampling for the carve target. */
+function rawHeight(x: number, z: number): number {
+  return (
+    Math.sin(x * 0.06) * 0.4 +
+    Math.cos(z * 0.05) * 0.35 +
+    Math.sin(x * 0.21 + z * 0.13) * 0.12 +
+    Math.cos(x * 0.07 - z * 0.09) * 0.08
+  );
+}
+
 function generateHeights(channels: readonly ChannelConfig[]): Float32Array {
+  // Pre-compute each channel's target floor in normalized space. The target
+  // is "natural-at-center minus carve depth", so the carve guarantees the
+  // riverbed reaches a known elevation everywhere along the centerline —
+  // which lets the flat water plane stay at a uniform Y above the floor for
+  // the entire stream length. (The earlier subtract-fixed-depth approach
+  // produced a sloped floor under a flat water plane, so the player got
+  // submerged whenever the natural terrain dipped below the water level.)
+  const targets = channels.map((ch) => {
+    const naturalAtCenter = rawHeight(ch.centerX, ch.centerZ);
+    return naturalAtCenter - ch.depth / HEIGHT_SCALE;
+  });
+
   const heights = new Float32Array(N * N);
   for (let iy = 0; iy < N; iy++) {
     for (let ix = 0; ix < N; ix++) {
@@ -50,19 +73,21 @@ function generateHeights(channels: readonly ChannelConfig[]): Float32Array {
       const v = iy / SUBDIVS - 0.5;
       const x = u * EXTENT_X;
       const z = v * EXTENT_Z;
-      const h =
-        Math.sin(x * 0.06) * 0.4 +
-        Math.cos(z * 0.05) * 0.35 +
-        Math.sin(x * 0.21 + z * 0.13) * 0.12 +
-        Math.cos(x * 0.07 - z * 0.09) * 0.08;
+      const h = rawHeight(x, z);
       const distFromOrigin = Math.hypot(x, z);
       const flattening = Math.max(0, 1 - distFromOrigin / 30);
       let scaled = h * (1 - 0.7 * flattening);
 
-      // Stream channel carves: smooth U-shape, deepest at center, fades to 0
-      // at banks. Multiple channels stack additively where they overlap (a
-      // confluence is naturally deeper than either upstream branch).
-      for (const ch of channels) {
+      // Pull the vertex toward each channel's target floor by a smooth U-shape
+      // factor. At the centerline (t=0) the carve fully matches the target
+      // (in either direction — pulling natural mountains down OR natural
+      // valleys up); at the banks (t=1) it leaves the natural height untouched.
+      // Bidirectional pull guarantees a uniform target depth along the
+      // centerline, so the flat water plane sits at a consistent height above
+      // the floor for the entire stream.
+      for (let i = 0; i < channels.length; i++) {
+        const ch = channels[i]!;
+        const target = targets[i]!;
         let dCross: number;
         let dAlong: number;
         if (ch.orientation === 'NS') {
@@ -74,8 +99,8 @@ function generateHeights(channels: readonly ChannelConfig[]): Float32Array {
         }
         if (dAlong < ch.halfLength && dCross < ch.halfWidth) {
           const t = dCross / ch.halfWidth;
-          const carveDepthMeters = (1 - t * t) * ch.depth;
-          scaled -= carveDepthMeters / HEIGHT_SCALE;
+          const shape = 1 - t * t;
+          scaled = scaled + (target - scaled) * shape;
         }
       }
 
