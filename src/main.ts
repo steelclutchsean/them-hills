@@ -8,6 +8,7 @@ import {
 import { createSpotPriceService } from '@/economy/spot-price';
 import { buildTrackerView } from '@/quests/quests';
 import { ASSETS } from '@/game/assets';
+import { placeBoulders } from '@/game/boulders';
 import { bearingFromYaw, createCameraRig } from '@/game/camera-rig';
 import { createCamp } from '@/game/camp';
 import { createCharacter } from '@/game/character';
@@ -196,6 +197,16 @@ async function bootstrap(): Promise<void> {
   // should already be open at boot — otherwise the boards block the way back
   // out for someone who unlocked it last session.
   mine.tryUnlock(gameStore.getState().save.equipment.ownedTiers.shovel);
+
+  // ---- Boulders (along stream banks, in-stream, near mine) ----
+  const boulders = placeBoulders({
+    scene: renderer.scene,
+    terrain,
+    streams: STREAM_CONFIGS,
+    minePos: mine.position,
+    seed: 0xb0,
+  });
+  console.log(`[boulders] placed ${boulders.count} boulders`);
 
   // ---- Headlamp ----
   const headlamp = createHeadlamp(renderer.scene);
