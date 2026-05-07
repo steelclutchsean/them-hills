@@ -130,6 +130,73 @@ export const INNKEEPER_DIALOGUE: DialogueTree = {
   },
 };
 
+export const OLD_PETE_DIALOGUE: DialogueTree = {
+  root: {
+    speaker: 'Old Pete',
+    body: "Aye, fresh blood. Hills don't give up their gold easy, but they don't lie about what they've got, either.",
+    options: [
+      {
+        text: 'You sound like you know the streams...',
+        action: { kind: 'goto', nodeId: 'questOffer' },
+        visible: (save) => isQuestOfferable(save, 'pete_picker'),
+      },
+      {
+        text: "I've got the 5g of picker you wanted.",
+        action: { kind: 'turnInQuest', questId: 'pete_picker' },
+        visible: (save) =>
+          isQuestActive(save, 'pete_picker') && isQuestObjectivesMet(save, 'pete_picker'),
+      },
+      {
+        text: 'Still chasing that picker.',
+        action: { kind: 'goto', nodeId: 'questCheckIn' },
+        visible: (save) =>
+          isQuestActive(save, 'pete_picker') && !isQuestObjectivesMet(save, 'pete_picker'),
+      },
+      { text: 'How long you been out here?', action: { kind: 'goto', nodeId: 'bio' } },
+      { text: 'Goodbye.', action: { kind: 'leave' } },
+    ],
+  },
+  questOffer: {
+    speaker: 'Old Pete',
+    body: "Picker gold's the real sign — bigger than flake, smaller than nugget. Scrape together 5 grams of picker-quality and I'll see you square. Eighty bucks. Honest work for an honest pan.",
+    options: [
+      {
+        text: "I'll bring you 5g of picker.",
+        action: { kind: 'acceptQuest', questId: 'pete_picker' },
+      },
+      { text: 'Maybe later.', action: { kind: 'goto', nodeId: 'root' } },
+    ],
+  },
+  questCheckIn: {
+    speaker: 'Old Pete',
+    body: "Picker's the trick. You'll know it by the heft — washes different in the pan than flake does. Keep at it.",
+    options: [{ text: 'Right.', action: { kind: 'goto', nodeId: 'root' } }],
+  },
+  questAccepted: {
+    speaker: 'Old Pete',
+    body: "Good. Don't bring me flake. I want picker.",
+    options: [{ text: 'Understood.', action: { kind: 'leave' } }],
+  },
+  questComplete: {
+    speaker: 'Old Pete',
+    body: "Aye, that's picker alright. Heft to it. Here's your eighty — and a tip: try the upper bend at first light. You'll see what I mean.",
+    options: [{ text: 'Much obliged.', action: { kind: 'leave' } }],
+  },
+  bio: {
+    speaker: 'Old Pete',
+    body: "Long enough that I knew this stretch before they paved the highway. Came looking for color and never quite gave up looking. Just enough finds to keep the dream warm, ain't it?",
+    options: [
+      { text: 'How long, exactly?', action: { kind: 'goto', nodeId: 'bioMore' } },
+      { text: 'Back to the streams.', action: { kind: 'goto', nodeId: 'root' } },
+    ],
+  },
+  bioMore: {
+    speaker: 'Old Pete',
+    body: 'Long enough that the trees are taller than they used to be. Leave it at that, partner.',
+    options: [{ text: 'All right.', action: { kind: 'goto', nodeId: 'root' } }],
+  },
+};
+
 export function startDialogue(treeId: string, tree: DialogueTree): DialogueSession {
   return {
     treeId,

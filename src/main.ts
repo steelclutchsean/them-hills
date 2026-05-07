@@ -13,6 +13,7 @@ import { createCamp } from '@/game/camp';
 import { createCharacter } from '@/game/character';
 import {
   INNKEEPER_DIALOGUE,
+  OLD_PETE_DIALOGUE,
   getCurrentNode,
   resolveBody,
   resolveOptions,
@@ -21,6 +22,7 @@ import {
 } from '@/game/dialogue';
 import { createGeneralStore } from '@/game/general-store';
 import { createInn } from '@/game/inn';
+import { createOldPete } from '@/game/old-pete';
 import { createProspectingController } from '@/game/prospecting';
 import { scatterAssets } from '@/game/scatter';
 import { SKY_SECONDS_PER_DAY, createSkyController, formatClock, getSkyHour } from '@/game/sky';
@@ -144,6 +146,9 @@ async function bootstrap(): Promise<void> {
 
   // ---- Inn ----
   const inn = createInn(renderer.scene, (x, z) => terrain.getHeightAt(x, z));
+
+  // ---- Old Pete ----
+  const oldPete = createOldPete(renderer.scene, (x, z) => terrain.getHeightAt(x, z));
 
   // ---- Environment scatter (async, non-blocking) ----
   // Trees and rocks fill in over a few seconds while the player gets oriented.
@@ -375,20 +380,27 @@ async function bootstrap(): Promise<void> {
       // 6. Camera position
       cameraRig.placeCamera(character.getPosition(), physics.rapier, character.getColliderHandle());
 
-      // 7. Proximity: precedence is vendor > general store > inn > camp > panning site.
+      // 7. Proximity: precedence is vendor > general store > inn > Pete > camp > panning site.
       const charPos = character.getPosition();
       const nearestVendor = !inSession ? vendors.findNearest(charPos) : null;
       const nearStore = !inSession && nearestVendor === null && generalStore.isPlayerNear(charPos);
       const nearInn =
         !inSession && nearestVendor === null && !nearStore && inn.isPlayerNear(charPos);
+      const nearPete =
+        !inSession &&
+        nearestVendor === null &&
+        !nearStore &&
+        !nearInn &&
+        oldPete.isPlayerNear(charPos);
       const nearCamp =
         !inSession &&
         nearestVendor === null &&
         !nearStore &&
         !nearInn &&
+        !nearPete &&
         camp.isPlayerNear(charPos);
       const nearestSite =
-        !inSession && nearestVendor === null && !nearStore && !nearInn && !nearCamp
+        !inSession && nearestVendor === null && !nearStore && !nearInn && !nearPete && !nearCamp
           ? streams.findNearestSite(charPos)
           : null;
 
@@ -400,6 +412,7 @@ async function bootstrap(): Promise<void> {
       vendors.update(worldTime, activeVendor?.id ?? nearestVendor?.vendor.id ?? null);
       generalStore.update(worldTime, storeOpen || nearStore);
       inn.update(worldTime, dialogue !== null || nearInn);
+      oldPete.update(worldTime, (dialogue !== null && dialogue.treeId === 'old_pete') || nearPete);
       camp.update(worldTime, nearCamp);
 
       // 8. Survival meter drain (or thirst regen if standing in any stream)
@@ -554,6 +567,9 @@ async function bootstrap(): Promise<void> {
       } else if (nearInn && interactJustPressed) {
         dialogue = startDialogue('innkeeper', INNKEEPER_DIALOGUE);
         console.log('[dialogue] opened innkeeper');
+      } else if (nearPete && interactJustPressed) {
+        dialogue = startDialogue('old_pete', OLD_PETE_DIALOGUE);
+        console.log('[dialogue] opened old_pete');
       } else if (nearCamp && interactJustPressed) {
         gameStore.getState().restAtCamp();
         worldTime += CAMP_REST_TIME_ADVANCE;
@@ -595,11 +611,13 @@ async function bootstrap(): Promise<void> {
             ? { text: 'Open General Store', glyph: interactGlyph }
             : nearInn
               ? { text: 'Talk to Innkeeper', glyph: interactGlyph }
-              : nearCamp
-                ? { text: 'Rest at Camp (4h)', glyph: interactGlyph }
-                : nearestSite
-                  ? { text: 'Prospect', glyph: interactGlyph }
-                  : null;
+              : nearPete
+                ? { text: 'Talk to Old Pete', glyph: interactGlyph }
+                : nearCamp
+                  ? { text: 'Rest at Camp (4h)', glyph: interactGlyph }
+                  : nearestSite
+                    ? { text: 'Prospect', glyph: interactGlyph }
+                    : null;
 
       let vendorOverlay: ReturnType<typeof buildVendorOverlay> | null = null;
       if (activeVendor) {

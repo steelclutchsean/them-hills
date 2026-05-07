@@ -57,8 +57,8 @@ export interface HudUpdate {
     options: { text: string; enabled: boolean; hint?: string }[];
     selectedIndex: number;
   } | null;
-  /** Persistent corner banner — current active quest + objective progress. */
-  questTracker: QuestProgressView | null;
+  /** Persistent corner banner — list of all active quests + their objective progress. */
+  questTracker: QuestProgressView[];
 }
 
 export interface MountedHud {
@@ -403,7 +403,7 @@ export function mountHud(root: HTMLElement): MountedHud {
     return el;
   };
 
-  addInfoLine('title').textContent = 'Them Hills — Phase 9a (Two streams)';
+  addInfoLine('title').textContent = 'Them Hills — Phase 8c (Old Pete + picker quest)';
   addInfoLine('clock');
   addInfoLine('device');
   addInfoLine('state');
@@ -598,32 +598,36 @@ export function mountHud(root: HTMLElement): MountedHud {
         dialogue.hidden = true;
       }
 
-      // Active quest tracker
-      if (s.questTracker) {
+      // Active quest tracker — one block per active quest, in acceptance order
+      if (s.questTracker.length > 0) {
         questTracker.hidden = false;
         questTracker.innerHTML = '';
 
         const header = document.createElement('div');
         header.className = 'qt-header';
-        header.textContent = s.questTracker.allComplete
-          ? 'Quest — Ready to turn in'
-          : 'Active Quest';
+        const anyComplete = s.questTracker.some((q) => q.allComplete);
+        header.textContent = anyComplete
+          ? `Active Quests (${s.questTracker.length}) — ready to turn in`
+          : `Active Quests (${s.questTracker.length})`;
         questTracker.appendChild(header);
 
-        const title = document.createElement('div');
-        title.className = 'qt-title';
-        title.textContent = s.questTracker.title;
-        questTracker.appendChild(title);
+        s.questTracker.forEach((q, qIdx) => {
+          const title = document.createElement('div');
+          title.className = 'qt-title';
+          if (qIdx > 0) title.style.marginTop = '8px';
+          title.textContent = q.allComplete ? `${q.title} ✓` : q.title;
+          questTracker.appendChild(title);
 
-        s.questTracker.objectives.forEach((o) => {
-          const obj = document.createElement('div');
-          obj.className = `qt-obj ${o.complete ? 'complete' : ''}`;
-          obj.textContent = `▸ ${o.description}`;
-          questTracker.appendChild(obj);
-          const prog = document.createElement('div');
-          prog.className = 'qt-progress';
-          prog.textContent = `${o.progress.toFixed(2)} / ${o.target.toFixed(2)}`;
-          questTracker.appendChild(prog);
+          q.objectives.forEach((o) => {
+            const obj = document.createElement('div');
+            obj.className = `qt-obj ${o.complete ? 'complete' : ''}`;
+            obj.textContent = `▸ ${o.description}`;
+            questTracker.appendChild(obj);
+            const prog = document.createElement('div');
+            prog.className = 'qt-progress';
+            prog.textContent = `${o.progress.toFixed(2)} / ${o.target.toFixed(2)}`;
+            questTracker.appendChild(prog);
+          });
         });
       } else {
         questTracker.hidden = true;

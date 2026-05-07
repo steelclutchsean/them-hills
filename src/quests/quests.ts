@@ -52,6 +52,23 @@ export const QUESTS: Record<string, QuestDef> = {
     ],
     reward: { dollars: 30 },
   },
+  pete_picker: {
+    id: 'pete_picker',
+    title: "Pete's Last Picker",
+    giverNpc: 'old_pete',
+    description:
+      'Old Pete wants 5 grams of picker-quality gold — bigger than flake, smaller than nugget. $80 reward.',
+    objectives: [
+      {
+        id: 'collect_5g_picker',
+        description: 'Collect 5g of picker gold',
+        target: 5.0,
+        type: 'collectGold',
+        param: 'picker',
+      },
+    ],
+    reward: { dollars: 80 },
+  },
 };
 
 export function getQuestDef(questId: string): QuestDef | null {
@@ -96,31 +113,36 @@ export interface QuestProgressView {
   allComplete: boolean;
 }
 
-/** Build a UI-friendly summary of the player's currently-tracked quest, if any. */
-export function buildTrackerView(save: SaveV1): QuestProgressView | null {
+/**
+ * Build UI-friendly summaries of all active quests, in stable acceptance
+ * order (object-key insertion order).
+ */
+export function buildTrackerView(save: SaveV1): QuestProgressView[] {
   const ids = Object.keys(save.quests.active);
-  if (ids.length === 0) return null;
-  // For now, just show the first active quest. Multi-quest UI comes later.
-  const id = ids[0]!;
-  const active = save.quests.active[id]!;
-  const def = getQuestDef(id);
-  if (!def) return null;
-  const objectives = def.objectives.map((o) => {
-    const state = active.objectives[o.id] ?? { progress: 0, complete: false };
-    return {
-      id: o.id,
-      description: o.description,
-      progress: state.progress,
-      target: o.target,
-      complete: state.complete,
-    };
-  });
-  return {
-    questId: id,
-    title: def.title,
-    objectives,
-    allComplete: objectives.every((o) => o.complete),
-  };
+  if (ids.length === 0) return [];
+  const out: QuestProgressView[] = [];
+  for (const id of ids) {
+    const active = save.quests.active[id]!;
+    const def = getQuestDef(id);
+    if (!def) continue;
+    const objectives = def.objectives.map((o) => {
+      const state = active.objectives[o.id] ?? { progress: 0, complete: false };
+      return {
+        id: o.id,
+        description: o.description,
+        progress: state.progress,
+        target: o.target,
+        complete: state.complete,
+      };
+    });
+    out.push({
+      questId: id,
+      title: def.title,
+      objectives,
+      allComplete: objectives.every((o) => o.complete),
+    });
+  }
+  return out;
 }
 
 /**
