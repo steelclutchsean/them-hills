@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { WeatherView } from './weather';
 
 // Day/night cycle. The world clock advances 1:1 with real time (worldTime
 // is real-seconds), but the *sky hour* runs faster: 1 real-minute = 1.2
@@ -6,6 +7,10 @@ import * as THREE from 'three';
 //
 // Survival drain rates intentionally stay in real-time domain (see
 // survival.ts) — they're tuned for player session pacing, not sky time.
+//
+// The optional `weather` argument to update() applies a gray tint after the
+// time-of-day palette is computed: overcast and rain shift colors toward a
+// muted gray and dim the sun. Clear weather is a no-op.
 
 export const SKY_SECONDS_PER_DAY = 1200;
 const START_HOUR_OFFSET = 8; // start the world at 08:00, not midnight
@@ -177,9 +182,11 @@ function interpolate(hour: number): SkyPalette {
 }
 
 export interface SkyController {
-  update(worldTime: number): void;
+  update(worldTime: number, weather?: WeatherView): void;
   getHour(): number;
 }
+
+const WEATHER_TINT = new THREE.Color(0x6a7080);
 
 export function createSkyController(opts: {
   scene: THREE.Scene;
@@ -190,13 +197,32 @@ export function createSkyController(opts: {
   const { scene, ambient, sun, renderer } = opts;
   let lastHour = START_HOUR_OFFSET;
 
-  function update(worldTime: number): void {
+  function update(worldTime: number, weather?: WeatherView): void {
     const hour = getSkyHour(worldTime);
     lastHour = hour;
     const p = interpolate(hour);
 
     _bg.set(p.bg);
     _fog.set(p.fog);
+
+    let sunIntensity = p.sunIntensity;
+    let ambientIntensity = p.ambientIntensity;
+
+    // Weather tint — pull colors toward a muted gray and dim the lights
+    // proportional to weather state and intensity.
+    if (weather && weather.state !== 'clear' && weather.intensity > 0) {
+      const baseTint = weather.state === 'rain' ? 0.6 : 0.4;
+      const t = baseTint * weather.intensity;
+      _bg.lerp(WEATHER_TINT, t);
+      _fog.lerp(WEATHER_TINT, t);
+      _sunCol.set(p.sunColor);
+      _sunCol.lerp(WEATHER_TINT, t * 0.5);
+      sun.color.copy(_sunCol);
+      sunIntensity *= 1 - t * 0.7;
+      ambientIntensity *= 1 - t * 0.3;
+    } else {
+      sun.color.set(p.sunColor);
+    }
 
     if (scene.background instanceof THREE.Color) {
       scene.background.copy(_bg);
@@ -208,10 +234,9 @@ export function createSkyController(opts: {
     }
     renderer.setClearColor(_bg);
 
-    sun.color.set(p.sunColor);
-    sun.intensity = p.sunIntensity;
+    sun.intensity = sunIntensity;
     ambient.color.set(p.ambientColor);
-    ambient.intensity = p.ambientIntensity;
+    ambient.intensity = ambientIntensity;
 
     // Sun arc: 0° at sunrise (east horizon), 90° at noon (overhead),
     // 180° at sunset (west horizon), 270° at midnight (below ground).

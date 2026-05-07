@@ -3,6 +3,7 @@ import type { GamepadGlyphStyle } from '@/input/gamepad';
 import type { ActionState, InputDevice } from '@/input/manager';
 import type { CharacterState } from '@/game/character';
 import type { ProspectingSnapshot } from '@/game/prospecting';
+import type { WeatherView } from '@/game/weather';
 import type { QuestProgressView } from '@/quests/quests';
 import type { GoldStash } from '@/save/schema';
 
@@ -19,6 +20,8 @@ export interface HudUpdate {
   inStreamWater: boolean;
   /** "HH:MM" clock string from the day-night cycle. */
   clockText: string;
+  /** Current weather state + intensity. */
+  weather: WeatherView;
   inventory: GoldStash;
   walletBalance: number;
   spotPricePerOzt: number;
@@ -403,8 +406,9 @@ export function mountHud(root: HTMLElement): MountedHud {
     return el;
   };
 
-  addInfoLine('title').textContent = 'Them Hills — Phase 8c (Old Pete + picker quest)';
+  addInfoLine('title').textContent = 'Them Hills — Phase 7b (Weather)';
   addInfoLine('clock');
+  addInfoLine('weather');
   addInfoLine('device');
   addInfoLine('state');
   addInfoLine('stamina');
@@ -431,6 +435,16 @@ export function mountHud(root: HTMLElement): MountedHud {
   return {
     update(s) {
       lines.clock!.textContent = `Time: ${s.clockText}`;
+      const wPct = (s.weather.intensity * 100).toFixed(0);
+      const wIcon =
+        s.weather.state === 'clear'
+          ? '☀'
+          : s.weather.state === 'overcast'
+            ? '☁'
+            : s.weather.state === 'rain'
+              ? '☂'
+              : '◐';
+      lines.weather!.textContent = `Weather: ${wIcon} ${s.weather.state} (${wPct}%)`;
       const padInfo = s.gamepadGlyph === 'unknown' ? 'no pad' : `pad: ${s.gamepadGlyph}`;
       lines.device!.textContent = `Input: ${s.device} (${padInfo})`;
       lines.state!.textContent = `State: ${s.characterState}`;

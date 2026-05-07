@@ -29,6 +29,7 @@ import { SKY_SECONDS_PER_DAY, createSkyController, formatClock, getSkyHour } fro
 import { createStream, createStreamRegistry, type StreamConfig } from '@/game/stream';
 import { CAMP_REST_TIME_ADVANCE, computeSurvivalYieldFactor } from '@/game/survival';
 import { createTerrain, type ChannelConfig } from '@/game/terrain';
+import { createWeatherController } from '@/game/weather';
 import { createVendors, type Vendor } from '@/game/vendor';
 import { createGameLoop } from '@/engine/loop';
 import { createRenderer } from '@/engine/renderer';
@@ -86,6 +87,15 @@ async function bootstrap(): Promise<void> {
     ambient: renderer.ambient,
     sun: renderer.sun,
     renderer: renderer.renderer,
+  });
+
+  // ---- Weather ----
+  const weatherInit = gameStore.getState().save.world.weather;
+  const weather = createWeatherController({
+    scene: renderer.scene,
+    initialState: weatherInit.state,
+    initialIntensity: weatherInit.intensity,
+    lastChangedAt: weatherInit.lastChangedAt,
   });
 
   // ---- Physics ----
@@ -316,6 +326,7 @@ async function bootstrap(): Promise<void> {
   function buildSaveSnapshot(): SaveV1 {
     const base = gameStore.getState().serialize();
     const charSer = character.serialize();
+    const weatherView = weather.getView();
     return {
       ...base,
       player: {
@@ -324,7 +335,15 @@ async function bootstrap(): Promise<void> {
         rotation: charSer.rotation,
         meters: { ...base.player.meters, stamina: charSer.stamina },
       },
-      world: { ...base.world, gameTime: worldTime },
+      world: {
+        ...base.world,
+        gameTime: worldTime,
+        weather: {
+          state: weatherView.state,
+          intensity: weatherView.intensity,
+          lastChangedAt: worldTime,
+        },
+      },
     };
   }
 
@@ -419,9 +438,10 @@ async function bootstrap(): Promise<void> {
       const inStreamWater = streams.isPlayerInAnyStream(charPos);
       gameStore.getState().tickMeters(dt, inStreamWater);
 
-      // 9. Site richness regen + sky cycle
+      // 9. Site richness regen + weather + sky
       gameStore.getState().regenSites(dt, worldTime);
-      sky.update(worldTime);
+      weather.update(worldTime, dt, charPos);
+      sky.update(worldTime, weather.getView());
 
       // 10. Session state machine — dialogue → store → vendor → prospecting → camp → idle.
       if (inDialogueSession) {
@@ -655,6 +675,7 @@ async function bootstrap(): Promise<void> {
         thirst: save.player.meters.thirst,
         inStreamWater,
         clockText: formatClock(getSkyHour(worldTime)),
+        weather: weather.getView(),
         inventory: save.inventory.carry.gold,
         walletBalance: save.wallet.balance,
         spotPricePerOzt: save.economy.spotPrice.current,

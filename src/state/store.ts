@@ -10,6 +10,7 @@ import {
   type SiteState,
   type Transaction,
   type VendorId,
+  type WeatherState,
 } from '@/save/schema';
 import {
   HUNGER_DRAIN_PER_SEC,
@@ -100,6 +101,13 @@ export interface GameStateStore {
    * Returns earned dollars, or 0 if the quest isn't currently active.
    */
   turnInQuest(questId: string, gameTime: number): number;
+
+  /**
+   * Persist the weather snapshot. Called every autosave so the visual state
+   * survives reloads; not called every frame (the controller's intensity
+   * tweens live in memory between saves).
+   */
+  setWeather(state: WeatherState, intensity: number, gameTime: number): void;
 }
 
 export const gameStore = createStore<GameStateStore>((set, get) => ({
@@ -480,6 +488,18 @@ export const gameStore = createStore<GameStateStore>((set, get) => ({
       };
     });
     return reward;
+  },
+
+  setWeather(state, intensity, gameTime) {
+    set((s) => ({
+      save: {
+        ...s.save,
+        world: {
+          ...s.save.world,
+          weather: { state, intensity, lastChangedAt: gameTime },
+        },
+      },
+    }));
   },
 
   setSpotPrice(price, source) {
