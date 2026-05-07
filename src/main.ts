@@ -524,13 +524,13 @@ async function bootstrap(): Promise<void> {
                 }
               } else if (action.kind === 'acceptQuest') {
                 gameStore.getState().acceptQuest(action.questId, worldTime);
-                dialogue!.currentNodeId = 'questAccepted';
+                dialogue!.currentNodeId = action.acceptedNode ?? 'questAccepted';
                 dialogue!.selectionIdx = 0;
                 console.log(`[quest] accepted ${action.questId}`);
               } else if (action.kind === 'turnInQuest') {
                 const reward = gameStore.getState().turnInQuest(action.questId, worldTime);
                 if (reward > 0) {
-                  dialogue!.currentNodeId = 'questComplete';
+                  dialogue!.currentNodeId = action.completeNode ?? 'questComplete';
                   dialogue!.selectionIdx = 0;
                   console.log(`[quest] turned in ${action.questId} for $${reward.toFixed(2)}`);
                 }

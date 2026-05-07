@@ -408,7 +408,7 @@ export function mountHud(root: HTMLElement): MountedHud {
     return el;
   };
 
-  addInfoLine('title').textContent = 'Them Hills — Phase 10a (Mine entrance + headlamp)';
+  addInfoLine('title').textContent = 'Them Hills — Phase 8d (sellDollars + Pete loyalty)';
   addInfoLine('clock');
   addInfoLine('weather');
   addInfoLine('device');

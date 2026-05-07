@@ -69,6 +69,23 @@ export const QUESTS: Record<string, QuestDef> = {
     ],
     reward: { dollars: 80 },
   },
+  pete_assayer_loyalty: {
+    id: 'pete_assayer_loyalty',
+    title: 'Square with the Assayer',
+    giverNpc: 'old_pete',
+    description:
+      "Old Pete wants you to do honest business — sell $200 worth at the Assayer (not the Pawn Shop). Builds your reputation. $50 finder's fee.",
+    objectives: [
+      {
+        id: 'sell_200_assayer',
+        description: 'Sell $200 at the Assayer',
+        target: 200,
+        type: 'sellDollars',
+        param: 'assayer',
+      },
+    ],
+    reward: { dollars: 50 },
+  },
 };
 
 export function getQuestDef(questId: string): QuestDef | null {
@@ -143,6 +160,35 @@ export function buildTrackerView(save: SaveV1): QuestProgressView[] {
     });
   }
   return out;
+}
+
+/**
+ * Update an active quest's sellDollars objectives based on a vendor sale.
+ * Returns the new ActiveQuest record and whether anything changed.
+ *
+ * `vendorId` is the literal vendor that processed the sale (e.g. 'assayer').
+ * An objective with param='any' matches any vendor; otherwise the param
+ * must equal the vendorId for progress to advance.
+ */
+export function applyDollarsToQuestObjectives(
+  active: ActiveQuest,
+  questDef: QuestDef,
+  amount: number,
+  vendorId: string,
+): { updated: ActiveQuest; anyChanged: boolean } {
+  let anyChanged = false;
+  const newObjectives: Record<string, ObjectiveState> = { ...active.objectives };
+  for (const obj of questDef.objectives) {
+    if (obj.type !== 'sellDollars') continue;
+    const cur = newObjectives[obj.id] ?? { progress: 0, complete: false };
+    if (cur.complete) continue;
+    if (obj.param && obj.param !== 'any' && obj.param !== vendorId) continue;
+    if (amount <= 0) continue;
+    const next = Math.min(obj.target, cur.progress + amount);
+    newObjectives[obj.id] = { progress: next, complete: next >= obj.target };
+    anyChanged = true;
+  }
+  return { updated: { ...active, objectives: newObjectives }, anyChanged };
 }
 
 /**

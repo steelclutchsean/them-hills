@@ -1,5 +1,10 @@
 import type { SaveV1 } from '@/save/schema';
-import { isQuestActive, isQuestObjectivesMet, isQuestOfferable } from '@/quests/quests';
+import {
+  isQuestActive,
+  isQuestCompleted,
+  isQuestObjectivesMet,
+  isQuestOfferable,
+} from '@/quests/quests';
 
 // Dialogue infrastructure. Each NPC defines a tree of nodes; nodes have a
 // speaker, body line, and one or more options. Selecting an option triggers
@@ -12,8 +17,8 @@ export type DialogueAction =
   | { kind: 'goto'; nodeId: string }
   | { kind: 'leave' }
   | { kind: 'restAtInn'; cost: number }
-  | { kind: 'acceptQuest'; questId: string }
-  | { kind: 'turnInQuest'; questId: string };
+  | { kind: 'acceptQuest'; questId: string; acceptedNode?: string }
+  | { kind: 'turnInQuest'; questId: string; completeNode?: string };
 
 export interface DialogueOption {
   text: string;
@@ -152,6 +157,33 @@ export const OLD_PETE_DIALOGUE: DialogueTree = {
         visible: (save) =>
           isQuestActive(save, 'pete_picker') && !isQuestObjectivesMet(save, 'pete_picker'),
       },
+      // Vendor-loyalty quest. Visible only after the picker quest is fully
+      // completed, so it acts as a follow-up arc rather than a parallel
+      // grind.
+      {
+        text: "There's something else I could do for you?",
+        action: { kind: 'goto', nodeId: 'loyaltyOffer' },
+        visible: (save) =>
+          isQuestCompleted(save, 'pete_picker') && isQuestOfferable(save, 'pete_assayer_loyalty'),
+      },
+      {
+        text: "I've squared $200 with the Assayer.",
+        action: {
+          kind: 'turnInQuest',
+          questId: 'pete_assayer_loyalty',
+          completeNode: 'loyaltyComplete',
+        },
+        visible: (save) =>
+          isQuestActive(save, 'pete_assayer_loyalty') &&
+          isQuestObjectivesMet(save, 'pete_assayer_loyalty'),
+      },
+      {
+        text: 'Still working on the Assayer thing.',
+        action: { kind: 'goto', nodeId: 'loyaltyCheckIn' },
+        visible: (save) =>
+          isQuestActive(save, 'pete_assayer_loyalty') &&
+          !isQuestObjectivesMet(save, 'pete_assayer_loyalty'),
+      },
       { text: 'How long you been out here?', action: { kind: 'goto', nodeId: 'bio' } },
       { text: 'Goodbye.', action: { kind: 'leave' } },
     ],
@@ -180,6 +212,36 @@ export const OLD_PETE_DIALOGUE: DialogueTree = {
   questComplete: {
     speaker: 'Old Pete',
     body: "Aye, that's picker alright. Heft to it. Here's your eighty — and a tip: try the upper bend at first light. You'll see what I mean.",
+    options: [{ text: 'Much obliged.', action: { kind: 'leave' } }],
+  },
+  loyaltyOffer: {
+    speaker: 'Old Pete',
+    body: "Now that I trust you to know picker from flake — listen. Sell $200 worth at the Assayer. Not the pawn shop. Pawn shop's a fast hand-off, sure, but the Assayer's where the real prospectors square up. Build that reputation. Bring it back to me and I'll throw you fifty for the trouble.",
+    options: [
+      {
+        text: "I'll square $200 with the Assayer.",
+        action: {
+          kind: 'acceptQuest',
+          questId: 'pete_assayer_loyalty',
+          acceptedNode: 'loyaltyAccepted',
+        },
+      },
+      { text: 'Maybe later.', action: { kind: 'goto', nodeId: 'root' } },
+    ],
+  },
+  loyaltyCheckIn: {
+    speaker: 'Old Pete',
+    body: "Two hundred at the Assayer. Pawn shop don't count. Keep at it.",
+    options: [{ text: 'Right.', action: { kind: 'goto', nodeId: 'root' } }],
+  },
+  loyaltyAccepted: {
+    speaker: 'Old Pete',
+    body: "Good. Tell Mick I sent you — he won't say much, but he'll square you fair.",
+    options: [{ text: 'Will do.', action: { kind: 'leave' } }],
+  },
+  loyaltyComplete: {
+    speaker: 'Old Pete',
+    body: "Mick already mentioned. Word travels in a town this size. Here's your fifty — and partner, you keep at this rate, you'll be all right out here.",
     options: [{ text: 'Much obliged.', action: { kind: 'leave' } }],
   },
   bio: {

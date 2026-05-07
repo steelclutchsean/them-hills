@@ -17,7 +17,11 @@ import {
   THIRST_DRAIN_PER_SEC,
   THIRST_REGEN_IN_WATER_PER_SEC,
 } from '@/game/survival';
-import { applyGoldToQuestObjectives, getQuestDef } from '@/quests/quests';
+import {
+  applyDollarsToQuestObjectives,
+  applyGoldToQuestObjectives,
+  getQuestDef,
+} from '@/quests/quests';
 
 const GRAMS_PER_OZT = 31.1035;
 
@@ -278,6 +282,17 @@ export const gameStore = createStore<GameStateStore>((set, get) => ({
           spotPriceAtSale: spotPricePerOzt,
         },
       };
+
+      // Apply dollar amount to any active sellDollars objectives. Same
+      // transaction as the wallet update so progress can never desync.
+      const updatedActive: Record<string, ActiveQuest> = { ...state.save.quests.active };
+      for (const id of Object.keys(updatedActive)) {
+        const def = getQuestDef(id);
+        if (!def) continue;
+        const r = applyDollarsToQuestObjectives(updatedActive[id]!, def, earned, vendorId);
+        if (r.anyChanged) updatedActive[id] = r.updated;
+      }
+
       return {
         save: {
           ...state.save,
@@ -294,6 +309,7 @@ export const gameStore = createStore<GameStateStore>((set, get) => ({
             lifetimeEarnings: state.save.wallet.lifetimeEarnings + earned,
             recentTransactions: [...state.save.wallet.recentTransactions.slice(-49), tx],
           },
+          quests: { ...state.save.quests, active: updatedActive },
         },
       };
     });
