@@ -10,10 +10,19 @@ import { ASSETS } from '@/game/assets';
 import { bearingFromYaw, createCameraRig } from '@/game/camera-rig';
 import { createCamp } from '@/game/camp';
 import { createCharacter } from '@/game/character';
+import {
+  INNKEEPER_DIALOGUE,
+  getCurrentNode,
+  resolveBody,
+  resolveOptions,
+  startDialogue,
+  type DialogueSession,
+} from '@/game/dialogue';
 import { createGeneralStore } from '@/game/general-store';
+import { createInn } from '@/game/inn';
 import { createProspectingController } from '@/game/prospecting';
 import { scatterAssets } from '@/game/scatter';
-import { createSkyController, formatClock, getSkyHour } from '@/game/sky';
+import { SKY_SECONDS_PER_DAY, createSkyController, formatClock, getSkyHour } from '@/game/sky';
 import { createStream } from '@/game/stream';
 import {
   CAMP_REST_TIME_ADVANCE,
@@ -99,6 +108,9 @@ async function bootstrap(): Promise<void> {
 
   // ---- Camp ----
   const camp = createCamp(renderer.scene, (x, z) => terrain.getHeightAt(x, z));
+
+  // ---- Inn ----
+  const inn = createInn(renderer.scene, (x, z) => terrain.getHeightAt(x, z));
 
   // ---- Environment scatter (async, non-blocking) ----
   // Trees and rocks fill in over a few seconds while the player gets oriented.
@@ -256,6 +268,11 @@ async function bootstrap(): Promise<void> {
   let toolNextWasDown = false;
   let toolPrevWasDown = false;
 
+  // Active dialogue session (Innkeeper today; expandable to other NPCs).
+  // Mutually exclusive with vendor/store/prospecting sessions. TOOL_NEXT /
+  // TOOL_PREV cycles options, INTERACT picks, PAUSE leaves.
+  let dialogue: DialogueSession | null = null;
+
   // ---- Save snapshot helper ----
   function buildSaveSnapshot(): SaveV1 {
     const base = gameStore.getState().serialize();
@@ -294,7 +311,8 @@ async function bootstrap(): Promise<void> {
       const prospecting = prospect.isActive();
       const inVendorSession = activeVendor !== null;
       const inStoreSession = storeOpen;
-      const inSession = prospecting || inVendorSession || inStoreSession;
+      const inDialogueSession = dialogue !== null;
+      const inSession = prospecting || inVendorSession || inStoreSession || inDialogueSession;
       const moveInput = inSession ? { x: 0, y: 0 } : input.getMoveInput();
       const jumpDown = inSession ? false : input.isActive('JUMP');
       const sprintDown = inSession ? false : input.isActive('SPRINT');
@@ -323,14 +341,20 @@ async function bootstrap(): Promise<void> {
       // 6. Camera position
       cameraRig.placeCamera(character.getPosition(), physics.rapier, character.getColliderHandle());
 
-      // 7. Proximity: precedence is vendor > general store > camp > panning site.
+      // 7. Proximity: precedence is vendor > general store > inn > camp > panning site.
       const charPos = character.getPosition();
       const nearestVendor = !inSession ? vendors.findNearest(charPos) : null;
       const nearStore = !inSession && nearestVendor === null && generalStore.isPlayerNear(charPos);
+      const nearInn =
+        !inSession && nearestVendor === null && !nearStore && inn.isPlayerNear(charPos);
       const nearCamp =
-        !inSession && nearestVendor === null && !nearStore && camp.isPlayerNear(charPos);
+        !inSession &&
+        nearestVendor === null &&
+        !nearStore &&
+        !nearInn &&
+        camp.isPlayerNear(charPos);
       const nearestSite =
-        !inSession && nearestVendor === null && !nearStore && !nearCamp
+        !inSession && nearestVendor === null && !nearStore && !nearInn && !nearCamp
           ? stream.findNearestSite(charPos)
           : null;
 
@@ -341,6 +365,7 @@ async function bootstrap(): Promise<void> {
       );
       vendors.update(worldTime, activeVendor?.id ?? nearestVendor?.vendor.id ?? null);
       generalStore.update(worldTime, storeOpen || nearStore);
+      inn.update(worldTime, dialogue !== null || nearInn);
       camp.update(worldTime, nearCamp);
 
       // 8. Survival meter drain (or thirst regen if standing in stream)
@@ -351,8 +376,56 @@ async function bootstrap(): Promise<void> {
       gameStore.getState().regenSites(dt, worldTime);
       sky.update(worldTime);
 
-      // 10. Session state machine — store → vendor → prospecting → camp → idle.
-      if (inStoreSession) {
+      // 10. Session state machine — dialogue → store → vendor → prospecting → camp → idle.
+      if (inDialogueSession) {
+        if (pauseJustPressed) {
+          dialogue = null;
+          console.log('[dialogue] left');
+        } else {
+          const node = getCurrentNode(dialogue!);
+          const opts = node ? resolveOptions(dialogue!, gameStore.getState().save) : [];
+          if (toolNextJustPressed && opts.length > 0) {
+            dialogue!.selectionIdx = (dialogue!.selectionIdx + 1) % opts.length;
+          }
+          if (toolPrevJustPressed && opts.length > 0) {
+            dialogue!.selectionIdx = (dialogue!.selectionIdx - 1 + opts.length) % opts.length;
+          }
+          if (interactJustPressed && node) {
+            const opt = node.options[dialogue!.selectionIdx];
+            const resolved = opts[dialogue!.selectionIdx];
+            if (opt && resolved && resolved.enabled) {
+              const action = opt.action;
+              if (action.kind === 'leave') {
+                dialogue = null;
+                console.log('[dialogue] goodbye');
+              } else if (action.kind === 'goto') {
+                dialogue!.currentNodeId = action.nodeId;
+                dialogue!.selectionIdx = 0;
+                if (action.nodeId === 'tips') dialogue!.tipIndex += 1;
+              } else if (action.kind === 'restAtInn') {
+                const ok = gameStore.getState().payAndRestAtInn(action.cost, worldTime);
+                if (ok) {
+                  // Advance to the next 07:00 sky-time so the player wakes
+                  // refreshed. If we're already past midnight but before 7am,
+                  // skip just the remaining hours; otherwise jump to tomorrow.
+                  const cur = getSkyHour(worldTime);
+                  const TARGET_HOUR = 7;
+                  let delta = (TARGET_HOUR - cur + 24) % 24;
+                  if (delta < 0.5) delta += 24;
+                  worldTime += (delta / 24) * SKY_SECONDS_PER_DAY;
+                  dialogue!.currentNodeId = 'rested';
+                  dialogue!.selectionIdx = 0;
+                  console.log(
+                    `[dialogue] inn rest — wallet -$${action.cost.toFixed(2)}, advanced ${delta.toFixed(1)} sky-hours`,
+                  );
+                } else {
+                  console.log('[dialogue] inn rest declined: insufficient funds');
+                }
+              }
+            }
+          }
+        }
+      } else if (inStoreSession) {
         if (pauseJustPressed) {
           storeOpen = false;
           console.log('[store] left general store');
@@ -426,6 +499,9 @@ async function bootstrap(): Promise<void> {
       } else if (nearStore && interactJustPressed) {
         storeOpen = true;
         console.log('[store] opened general store');
+      } else if (nearInn && interactJustPressed) {
+        dialogue = startDialogue('innkeeper', INNKEEPER_DIALOGUE);
+        console.log('[dialogue] opened innkeeper');
       } else if (nearCamp && interactJustPressed) {
         gameStore.getState().restAtCamp();
         worldTime += CAMP_REST_TIME_ADVANCE;
@@ -465,11 +541,13 @@ async function bootstrap(): Promise<void> {
           ? { text: `Sell at ${nearestVendor.vendor.name}`, glyph: interactGlyph }
           : nearStore
             ? { text: 'Open General Store', glyph: interactGlyph }
-            : nearCamp
-              ? { text: 'Rest at Camp (4h)', glyph: interactGlyph }
-              : nearestSite
-                ? { text: 'Prospect', glyph: interactGlyph }
-                : null;
+            : nearInn
+              ? { text: 'Talk to Innkeeper', glyph: interactGlyph }
+              : nearCamp
+                ? { text: 'Rest at Camp (4h)', glyph: interactGlyph }
+                : nearestSite
+                  ? { text: 'Prospect', glyph: interactGlyph }
+                  : null;
 
       let vendorOverlay: ReturnType<typeof buildVendorOverlay> | null = null;
       if (activeVendor) {
@@ -487,6 +565,11 @@ async function bootstrap(): Promise<void> {
           save.wallet.balance,
           storeSelectionIdx,
         );
+      }
+
+      let dialogueOverlay: ReturnType<typeof buildDialogueOverlay> | null = null;
+      if (dialogue) {
+        dialogueOverlay = buildDialogueOverlay(dialogue, save);
       }
 
       hud.update({
@@ -508,6 +591,7 @@ async function bootstrap(): Promise<void> {
         prompt: promptInfo,
         vendor: vendorOverlay,
         store: storeOverlay,
+        dialogue: dialogueOverlay,
         prospect: prospect.getSnapshot(),
       });
     },
@@ -605,6 +689,27 @@ function buildStoreOverlay(
     };
   });
   return { rows, selectedIndex: selectionIdx, walletBalance };
+}
+
+// Snapshot of the dialogue UI for the HUD: speaker, body line, and the list
+// of options with enabled state + optional disabled hints.
+function buildDialogueOverlay(
+  session: DialogueSession,
+  save: SaveV1,
+): {
+  speaker: string;
+  body: string;
+  options: { text: string; enabled: boolean; hint?: string }[];
+  selectedIndex: number;
+} | null {
+  const node = getCurrentNode(session);
+  if (!node) return null;
+  return {
+    speaker: node.speaker,
+    body: resolveBody(session),
+    options: resolveOptions(session, save),
+    selectedIndex: session.selectionIdx,
+  };
 }
 
 bootstrap().catch((e: unknown) => {

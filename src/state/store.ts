@@ -76,6 +76,13 @@ export interface GameStateStore {
 
   /** Camp rest — refill hunger + thirst to full. */
   restAtCamp(): void;
+
+  /**
+   * Pay the inn's room fee (deducts wallet) and refill hunger + thirst.
+   * Returns true if the transaction went through, false if insufficient funds.
+   * Caller (main.ts) advances worldTime to next morning on success.
+   */
+  payAndRestAtInn(cost: number, gameTime: number): boolean;
 }
 
 export const gameStore = createStore<GameStateStore>((set, get) => ({
@@ -343,6 +350,36 @@ export const gameStore = createStore<GameStateStore>((set, get) => ({
         },
       };
     });
+  },
+
+  payAndRestAtInn(cost, gameTime) {
+    const balance = get().save.wallet.balance;
+    if (balance < cost) return false;
+    set((state) => {
+      const tx: Transaction = {
+        id: `tx_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+        timestamp: gameTime,
+        type: 'inn_sleep',
+        amount: -cost,
+        vendorId: 'innkeeper',
+      };
+      return {
+        save: {
+          ...state.save,
+          wallet: {
+            ...state.save.wallet,
+            balance: state.save.wallet.balance - cost,
+            lifetimeSpending: state.save.wallet.lifetimeSpending + cost,
+            recentTransactions: [...state.save.wallet.recentTransactions.slice(-49), tx],
+          },
+          player: {
+            ...state.save.player,
+            meters: { ...state.save.player.meters, hunger: 1, thirst: 1 },
+          },
+        },
+      };
+    });
+    return true;
   },
 
   setSpotPrice(price, source) {

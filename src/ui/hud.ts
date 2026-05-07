@@ -49,6 +49,13 @@ export interface HudUpdate {
     selectedIndex: number;
     walletBalance: number;
   } | null;
+  /** Center overlay — shown while in a dialogue session with an NPC. */
+  dialogue: {
+    speaker: string;
+    body: string;
+    options: { text: string; enabled: boolean; hint?: string }[];
+    selectedIndex: number;
+  } | null;
 }
 
 export interface MountedHud {
@@ -222,7 +229,8 @@ const STYLE = `
   }
   .hud-info[hidden], .hud-inventory[hidden],
   .hud-prompt[hidden], .hud-prospect[hidden],
-  .hud-compass[hidden], .hud-vendor[hidden], .hud-store[hidden] { display: none; }
+  .hud-compass[hidden], .hud-vendor[hidden], .hud-store[hidden],
+  .hud-dialogue[hidden] { display: none; }
   .hud-vendor { border-color: rgba(212, 166, 71, 0.7); }
   .hud-vendor .step-label { color: #d4a647; }
   .hud-store {
@@ -240,6 +248,46 @@ const STYLE = `
   .hud-store .store-next.cant-afford { color: #b87a4a; }
   .hud-store .store-next.affordable { color: #8fc466; }
   .hud-store .store-footer { margin-top: 10px; font-size: 12px; color: rgba(255,255,255,0.6); text-align: center; }
+  .hud-dialogue {
+    width: 540px;
+    border-color: rgba(212, 122, 42, 0.7);
+    text-align: left;
+  }
+  .hud-dialogue .dlg-speaker {
+    font-weight: 600;
+    color: #d47a2a;
+    margin-bottom: 6px;
+    text-align: center;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-size: 12px;
+  }
+  .hud-dialogue .dlg-body {
+    font-size: 14px;
+    line-height: 1.5;
+    color: #f5e0c0;
+    margin-bottom: 12px;
+    font-style: italic;
+  }
+  .hud-dialogue .dlg-option {
+    padding: 5px 10px;
+    border-radius: 4px;
+    color: rgba(255,255,255,0.85);
+    font-size: 13px;
+  }
+  .hud-dialogue .dlg-option.selected {
+    background: rgba(212, 122, 42, 0.18);
+    outline: 1px solid rgba(212, 122, 42, 0.45);
+    color: #fff;
+  }
+  .hud-dialogue .dlg-option.disabled { color: rgba(255,255,255,0.35); font-style: italic; }
+  .hud-dialogue .dlg-hint { color: rgba(255,255,255,0.5); margin-left: 6px; font-size: 12px; }
+  .hud-dialogue .dlg-footer {
+    margin-top: 10px;
+    font-size: 12px;
+    color: rgba(255,255,255,0.6);
+    text-align: center;
+  }
 `;
 
 function injectStyle(): void {
@@ -300,6 +348,11 @@ export function mountHud(root: HTMLElement): MountedHud {
   store.hidden = true;
   document.body.appendChild(store);
 
+  const dialogue = document.createElement('div');
+  dialogue.className = 'hud-prospect hud-dialogue';
+  dialogue.hidden = true;
+  document.body.appendChild(dialogue);
+
   const lines: Record<string, HTMLDivElement> = {};
   const addInfoLine = (key: string): HTMLDivElement => {
     const el = document.createElement('div');
@@ -314,7 +367,7 @@ export function mountHud(root: HTMLElement): MountedHud {
     return el;
   };
 
-  addInfoLine('title').textContent = 'Them Hills — Phase 7 (Day/night cycle)';
+  addInfoLine('title').textContent = 'Them Hills — Phase 8a (NPC dialogue)';
   addInfoLine('clock');
   addInfoLine('device');
   addInfoLine('state');
@@ -467,6 +520,46 @@ export function mountHud(root: HTMLElement): MountedHud {
         vendor.appendChild(msg);
       } else {
         vendor.hidden = true;
+      }
+
+      // Dialogue overlay
+      if (s.dialogue) {
+        dialogue.hidden = false;
+        dialogue.innerHTML = '';
+
+        const speaker = document.createElement('div');
+        speaker.className = 'dlg-speaker';
+        speaker.textContent = s.dialogue.speaker;
+        dialogue.appendChild(speaker);
+
+        const body = document.createElement('div');
+        body.className = 'dlg-body';
+        body.textContent = s.dialogue.body;
+        dialogue.appendChild(body);
+
+        s.dialogue.options.forEach((opt, idx) => {
+          const row = document.createElement('div');
+          const cls = ['dlg-option'];
+          if (idx === s.dialogue!.selectedIndex) cls.push('selected');
+          if (!opt.enabled) cls.push('disabled');
+          row.className = cls.join(' ');
+          row.textContent = opt.text;
+          if (opt.hint) {
+            const hint = document.createElement('span');
+            hint.className = 'dlg-hint';
+            hint.textContent = ` ${opt.hint}`;
+            row.appendChild(hint);
+          }
+          dialogue.appendChild(row);
+        });
+
+        const footer = document.createElement('div');
+        footer.className = 'dlg-footer';
+        const glyph = glyphFor(s.device, s.gamepadGlyph, 'INTERACT');
+        footer.textContent = `[ / ] cycle    [${glyph}] choose    [Esc] leave`;
+        dialogue.appendChild(footer);
+      } else {
+        dialogue.hidden = true;
       }
 
       // General Store overlay
