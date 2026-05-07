@@ -651,6 +651,13 @@ async function bootstrap(): Promise<void> {
         ambientColor: renderer.ambient.color,
         ambientIntensity: renderer.ambient.intensity,
       });
+      streams.updateLighting({
+        sunDirection: sunDirWorld,
+        sunColor: renderer.sun.color,
+        sunIntensity: renderer.sun.intensity,
+        ambientColor: renderer.ambient.color,
+        ambientIntensity: renderer.ambient.intensity,
+      });
 
       // 10. Session state machine — dialogue → store → vendor → prospecting → camp → idle.
       if (inDialogueSession) {
