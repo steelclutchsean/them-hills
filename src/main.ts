@@ -551,6 +551,17 @@ async function bootstrap(): Promise<void> {
       };
       grass.update(grassLight);
       for (const cover of grassCovers) cover.update(grassLight);
+      // Sun direction comes from the directional light's position relative to
+      // the scene origin — the light "shines from" its position toward (0,0,0)
+      // in Three.js, so the surface normal-aligned direction is the position
+      // unit vector.
+      terrain.updateLighting({
+        sunDirection: renderer.sun.position.clone().normalize(),
+        sunColor: renderer.sun.color,
+        sunIntensity: renderer.sun.intensity,
+        ambientColor: renderer.ambient.color,
+        ambientIntensity: renderer.ambient.intensity,
+      });
 
       // 10. Session state machine — dialogue → store → vendor → prospecting → camp → idle.
       if (inDialogueSession) {

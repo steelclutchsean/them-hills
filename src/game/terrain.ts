@@ -33,11 +33,21 @@ export interface ChannelConfig {
   depth: number;
 }
 
+export interface TerrainLightingState {
+  sunDirection: THREE.Vector3;
+  sunColor: THREE.Color;
+  sunIntensity: number;
+  ambientColor: THREE.Color;
+  ambientIntensity: number;
+}
+
 export interface Terrain {
   mesh: THREE.Mesh;
   collider: RAPIER.Collider;
   /** Ground height at world (x, z), bilinear interpolated. Matches the Rapier collider. */
   getHeightAt(x: number, z: number): number;
+  /** Push the latest sun + ambient lighting to the terrain shader uniforms. */
+  updateLighting(state: TerrainLightingState): void;
 }
 
 /** Column-major index: heights[i + j * nrows] where i = row (Z), j = col (X). */
@@ -112,6 +122,100 @@ function generateHeights(channels: readonly ChannelConfig[]): Float32Array {
   }
   return heights;
 }
+
+const TERRAIN_VS = /* glsl */ `
+  attribute vec3 color;
+  varying vec3 vWorld;
+  varying vec3 vNormal;
+  varying vec3 vColor;
+  void main() {
+    vec4 worldPos = modelMatrix * vec4(position, 1.0);
+    vWorld = worldPos.xyz;
+    vNormal = normalize(normalMatrix * normal);
+    vColor = color;
+    gl_Position = projectionMatrix * viewMatrix * worldPos;
+  }
+`;
+
+// Procedural surface texture. Three octaves of value-noise (large patches,
+// medium speckle, fine grain) blend with the per-vertex base palette and a
+// dirt tint so the terrain reads as textured ground. Lighting is a simple
+// lambert sun plus ambient; intensity comes from the same sky controller
+// that drives the rest of the world so dawn/dusk/storms tint the ground
+// correctly.
+const TERRAIN_FS = /* glsl */ `
+  uniform vec3 uSunDir;
+  uniform vec3 uSunColor;
+  uniform float uSunIntensity;
+  uniform vec3 uAmbientColor;
+  uniform float uAmbientIntensity;
+  varying vec3 vWorld;
+  varying vec3 vNormal;
+  varying vec3 vColor;
+
+  float hash(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+  }
+  float noise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float a = hash(i);
+    float b = hash(i + vec2(1.0, 0.0));
+    float c = hash(i + vec2(0.0, 1.0));
+    float d = hash(i + vec2(1.0, 1.0));
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+  }
+  float fbm(vec2 p) {
+    float v = 0.0;
+    float amp = 0.5;
+    for (int i = 0; i < 4; i++) {
+      v += amp * noise(p);
+      p *= 2.13;
+      amp *= 0.5;
+    }
+    return v;
+  }
+
+  void main() {
+    vec3 base = vColor;
+    vec2 worldXZ = vWorld.xz;
+
+    // Three noise scales: 0.3 = ~3m blobs (patches), 1.7 = ~60cm speckle,
+    // 5.0 = high-frequency grain that makes near-camera ground feel solid.
+    float n1 = fbm(worldXZ * 0.3);
+    float n2 = noise(worldXZ * 1.7);
+    float n3 = noise(worldXZ * 5.0);
+    float n4 = noise(worldXZ * 12.0);
+
+    // Modulate the base palette: dim some patches, brighten others, drop
+    // muddy/dirt patches into the lower-noise wells.
+    vec3 lighter = base * 1.25 + vec3(0.04, 0.05, 0.02);
+    vec3 darker  = base * 0.65;
+    vec3 dirty   = vec3(0.32, 0.24, 0.16);
+    base = mix(darker, base, smoothstep(0.30, 0.70, n1));
+    base = mix(base, lighter, smoothstep(0.55, 0.85, n2) * 0.55);
+    float dirtMask = smoothstep(0.55, 0.78, n1) * smoothstep(0.45, 0.70, n2);
+    base = mix(base, dirty, dirtMask * 0.45);
+
+    // Fine grain for per-pixel variation — keeps it from looking like a flat
+    // sticker close-up. Very subtle.
+    base *= 0.88 + 0.18 * n3 + 0.06 * n4;
+
+    // Slope-aware darkening — steep faces sit in shadow more, which both
+    // adds depth to hills and reinforces the rock-tinted vertex colors on
+    // the cliffs.
+    float upDot = clamp(vNormal.y, 0.0, 1.0);
+    base *= mix(0.6, 1.0, upDot);
+
+    // Lambert sun + ambient. Sun direction is updated each frame so dawn /
+    // dusk tilt is accurate.
+    float lambert = max(0.0, dot(vNormal, uSunDir));
+    vec3 lit = base * (uAmbientColor * uAmbientIntensity + uSunColor * uSunIntensity * lambert * 0.85);
+
+    gl_FragColor = vec4(lit, 1.0);
+  }
+`;
 
 // Color palette for vertex tinting. Per-vertex color picks among these based
 // on the local slope and proximity to a stream.
@@ -216,18 +320,22 @@ export function createTerrain(world: RAPIER.World, channels: readonly ChannelCon
 
   paintVertexColors(geom, heights, channels);
 
-  const mesh = new THREE.Mesh(
-    geom,
-    new THREE.MeshStandardMaterial({
-      // White base + vertexColors lets per-vertex color drive the surface
-      // hue without being multiplied against a constant tint.
-      color: 0xffffff,
-      vertexColors: true,
-      flatShading: false,
-      roughness: 0.95,
-      metalness: 0,
-    }),
-  );
+  // Custom procedural terrain shader. Per-vertex color (meadow / hill / cliff
+  // / sand) supplies the macro palette; the fragment shader breaks up each
+  // tile with multi-octave noise, dirt patches, and fine grain so the surface
+  // reads as textured ground rather than solid plastic.
+  const terrainMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uSunDir: { value: new THREE.Vector3(0.5, 1, 0.3).normalize() },
+      uSunColor: { value: new THREE.Color(0xffffff) },
+      uSunIntensity: { value: 1.0 },
+      uAmbientColor: { value: new THREE.Color(0xffffff) },
+      uAmbientIntensity: { value: 0.5 },
+    },
+    vertexShader: TERRAIN_VS,
+    fragmentShader: TERRAIN_FS,
+  });
+  const mesh = new THREE.Mesh(geom, terrainMat);
   mesh.receiveShadow = true;
 
   // Rapier heightfield collider with the same column-major layout.
@@ -258,6 +366,13 @@ export function createTerrain(world: RAPIER.World, channels: readonly ChannelCon
       const h0 = h00 + (h10 - h00) * tx;
       const h1 = h01 + (h11 - h01) * tx;
       return (h0 + (h1 - h0) * tz) * HEIGHT_SCALE;
+    },
+    updateLighting(state) {
+      (terrainMat.uniforms.uSunDir!.value as THREE.Vector3).copy(state.sunDirection);
+      (terrainMat.uniforms.uSunColor!.value as THREE.Color).copy(state.sunColor);
+      terrainMat.uniforms.uSunIntensity!.value = state.sunIntensity;
+      (terrainMat.uniforms.uAmbientColor!.value as THREE.Color).copy(state.ambientColor);
+      terrainMat.uniforms.uAmbientIntensity!.value = state.ambientIntensity;
     },
   };
 }
