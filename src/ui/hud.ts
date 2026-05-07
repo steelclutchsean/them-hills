@@ -22,6 +22,8 @@ export interface HudUpdate {
   clockText: string;
   /** Current weather state + intensity. */
   weather: WeatherView;
+  /** True when the headlamp is currently illuminating (gear T2 + dark conditions). */
+  headlampOn: boolean;
   inventory: GoldStash;
   walletBalance: number;
   spotPricePerOzt: number;
@@ -406,7 +408,7 @@ export function mountHud(root: HTMLElement): MountedHud {
     return el;
   };
 
-  addInfoLine('title').textContent = 'Them Hills — Phase 7b (Weather)';
+  addInfoLine('title').textContent = 'Them Hills — Phase 10a (Mine entrance + headlamp)';
   addInfoLine('clock');
   addInfoLine('weather');
   addInfoLine('device');
@@ -444,7 +446,8 @@ export function mountHud(root: HTMLElement): MountedHud {
             : s.weather.state === 'rain'
               ? '☂'
               : '◐';
-      lines.weather!.textContent = `Weather: ${wIcon} ${s.weather.state} (${wPct}%)`;
+      const lampSuffix = s.headlampOn ? '   ◉ headlamp on' : '';
+      lines.weather!.textContent = `Weather: ${wIcon} ${s.weather.state} (${wPct}%)${lampSuffix}`;
       const padInfo = s.gamepadGlyph === 'unknown' ? 'no pad' : `pad: ${s.gamepadGlyph}`;
       lines.device!.textContent = `Input: ${s.device} (${padInfo})`;
       lines.state!.textContent = `State: ${s.characterState}`;

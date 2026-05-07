@@ -21,7 +21,9 @@ import {
   type DialogueSession,
 } from '@/game/dialogue';
 import { createGeneralStore } from '@/game/general-store';
+import { createHeadlamp } from '@/game/headlamp';
 import { createInn } from '@/game/inn';
+import { createMineEntrance } from '@/game/mine';
 import { createOldPete } from '@/game/old-pete';
 import { createProspectingController } from '@/game/prospecting';
 import { scatterAssets } from '@/game/scatter';
@@ -159,6 +161,12 @@ async function bootstrap(): Promise<void> {
 
   // ---- Old Pete ----
   const oldPete = createOldPete(renderer.scene, (x, z) => terrain.getHeightAt(x, z));
+
+  // ---- Mine entrance ----
+  const mine = createMineEntrance(renderer.scene, (x, z) => terrain.getHeightAt(x, z));
+
+  // ---- Headlamp ----
+  const headlamp = createHeadlamp(renderer.scene);
 
   // ---- Environment scatter (async, non-blocking) ----
   // Trees and rocks fill in over a few seconds while the player gets oriented.
@@ -399,7 +407,7 @@ async function bootstrap(): Promise<void> {
       // 6. Camera position
       cameraRig.placeCamera(character.getPosition(), physics.rapier, character.getColliderHandle());
 
-      // 7. Proximity: precedence is vendor > general store > inn > Pete > camp > panning site.
+      // 7. Proximity: precedence is vendor > general store > inn > Pete > mine > camp > site.
       const charPos = character.getPosition();
       const nearestVendor = !inSession ? vendors.findNearest(charPos) : null;
       const nearStore = !inSession && nearestVendor === null && generalStore.isPlayerNear(charPos);
@@ -411,15 +419,29 @@ async function bootstrap(): Promise<void> {
         !nearStore &&
         !nearInn &&
         oldPete.isPlayerNear(charPos);
+      const nearMine =
+        !inSession &&
+        nearestVendor === null &&
+        !nearStore &&
+        !nearInn &&
+        !nearPete &&
+        mine.isPlayerNear(charPos);
       const nearCamp =
         !inSession &&
         nearestVendor === null &&
         !nearStore &&
         !nearInn &&
         !nearPete &&
+        !nearMine &&
         camp.isPlayerNear(charPos);
       const nearestSite =
-        !inSession && nearestVendor === null && !nearStore && !nearInn && !nearPete && !nearCamp
+        !inSession &&
+        nearestVendor === null &&
+        !nearStore &&
+        !nearInn &&
+        !nearPete &&
+        !nearMine &&
+        !nearCamp
           ? streams.findNearestSite(charPos)
           : null;
 
@@ -432,16 +454,23 @@ async function bootstrap(): Promise<void> {
       generalStore.update(worldTime, storeOpen || nearStore);
       inn.update(worldTime, dialogue !== null || nearInn);
       oldPete.update(worldTime, (dialogue !== null && dialogue.treeId === 'old_pete') || nearPete);
+      mine.update(worldTime, nearMine);
       camp.update(worldTime, nearCamp);
 
       // 8. Survival meter drain (or thirst regen if standing in any stream)
       const inStreamWater = streams.isPlayerInAnyStream(charPos);
       gameStore.getState().tickMeters(dt, inStreamWater);
 
-      // 9. Site richness regen + weather + sky
+      // 9. Site richness regen + weather + sky + headlamp
       gameStore.getState().regenSites(dt, worldTime);
       weather.update(worldTime, dt, charPos);
       sky.update(worldTime, weather.getView());
+      headlamp.update({
+        playerPos: charPos,
+        skyHour: getSkyHour(worldTime),
+        weather: weather.getView(),
+        gearTier: gameStore.getState().save.equipment.ownedTiers.gear,
+      });
 
       // 10. Session state machine — dialogue → store → vendor → prospecting → camp → idle.
       if (inDialogueSession) {
@@ -590,6 +619,15 @@ async function bootstrap(): Promise<void> {
       } else if (nearPete && interactJustPressed) {
         dialogue = startDialogue('old_pete', OLD_PETE_DIALOGUE);
         console.log('[dialogue] opened old_pete');
+      } else if (nearMine && interactJustPressed) {
+        // Phase 10a: entrance is locked. 10b will open the interior when the
+        // player has a pickaxe (shovel T3).
+        const shovelTier = gameStore.getState().save.equipment.ownedTiers.shovel;
+        if (mine.isUnlocked(shovelTier)) {
+          console.log('[mine] open — interior coming in Phase 10b');
+        } else {
+          console.log('[mine] sealed — needs a pickaxe (Shovel T3)');
+        }
       } else if (nearCamp && interactJustPressed) {
         gameStore.getState().restAtCamp();
         worldTime += CAMP_REST_TIME_ADVANCE;
@@ -623,6 +661,8 @@ async function bootstrap(): Promise<void> {
             ? '□'
             : 'X'
           : 'E';
+      const shovelTierForPrompt = gameStore.getState().save.equipment.ownedTiers.shovel;
+      const mineLocked = !mine.isUnlocked(shovelTierForPrompt);
       const promptInfo = inSession
         ? null
         : nearestVendor
@@ -633,11 +673,16 @@ async function bootstrap(): Promise<void> {
               ? { text: 'Talk to Innkeeper', glyph: interactGlyph }
               : nearPete
                 ? { text: 'Talk to Old Pete', glyph: interactGlyph }
-                : nearCamp
-                  ? { text: 'Rest at Camp (4h)', glyph: interactGlyph }
-                  : nearestSite
-                    ? { text: 'Prospect', glyph: interactGlyph }
-                    : null;
+                : nearMine
+                  ? {
+                      text: mineLocked ? 'Mine sealed — needs a pickaxe' : 'Enter Mine',
+                      glyph: interactGlyph,
+                    }
+                  : nearCamp
+                    ? { text: 'Rest at Camp (4h)', glyph: interactGlyph }
+                    : nearestSite
+                      ? { text: 'Prospect', glyph: interactGlyph }
+                      : null;
 
       let vendorOverlay: ReturnType<typeof buildVendorOverlay> | null = null;
       if (activeVendor) {
@@ -676,6 +721,7 @@ async function bootstrap(): Promise<void> {
         inStreamWater,
         clockText: formatClock(getSkyHour(worldTime)),
         weather: weather.getView(),
+        headlampOn: headlamp.isOn(),
         inventory: save.inventory.carry.gold,
         walletBalance: save.wallet.balance,
         spotPricePerOzt: save.economy.spotPrice.current,
