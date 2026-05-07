@@ -4,6 +4,8 @@ export interface RendererBundle {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   renderer: THREE.WebGLRenderer;
+  ambient: THREE.AmbientLight;
+  sun: THREE.DirectionalLight;
   render(): void;
   dispose(): void;
 }
@@ -15,6 +17,7 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererBundle {
   renderer.setClearColor(0x88aacc);
 
   const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x88aacc);
   scene.fog = new THREE.Fog(0x88aacc, 50, 250);
 
   const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 500);
@@ -22,7 +25,8 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererBundle {
   camera.position.set(0, 5, 8);
   camera.lookAt(0, 1.5, 0);
 
-  // Lighting (placeholder — Phase 6 brings the painterly skybox + sun rig)
+  // Lighting — initial values are placeholders. The sky controller (Phase 7)
+  // drives color, intensity, and sun position from the time-of-day clock.
   const ambient = new THREE.AmbientLight(0xffffff, 0.5);
   scene.add(ambient);
 
@@ -41,6 +45,8 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererBundle {
     scene,
     camera,
     renderer,
+    ambient,
+    sun,
     render: () => renderer.render(scene, camera),
     dispose: () => {
       window.removeEventListener('resize', onResize);

@@ -11,12 +11,18 @@
 // Empty meters reduce active prospecting yield to 50% (linearly from full=1.0
 // to empty=0.5). Multiplied with the equipment yield multiplier in main.ts.
 
+import { SKY_SECONDS_PER_DAY } from './sky';
+
 export const HUNGER_DRAIN_PER_SEC = 1.0 / 720; // ~12 min full → empty
 export const THIRST_DRAIN_PER_SEC = 1.0 / 480; // ~8 min full → empty
 export const THIRST_REGEN_IN_WATER_PER_SEC = 0.05; // 20 s empty → full
 
-/** Game-seconds advanced by a single rest at camp. */
-export const CAMP_REST_TIME_ADVANCE = 4 * 3600;
+/**
+ * Real-seconds added to worldTime by a single rest at camp. Set so the sky
+ * advances exactly four game-hours per rest (~ ~"sleep until morning" if you
+ * rest at evening).
+ */
+export const CAMP_REST_TIME_ADVANCE = (SKY_SECONDS_PER_DAY / 24) * 4;
 
 // Stream geometry — must match values in stream.ts and main.ts.
 const STREAM_X = 10;

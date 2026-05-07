@@ -16,6 +16,8 @@ export interface HudUpdate {
   thirst: number;
   /** True while the player is standing in stream water (passive thirst regen). */
   inStreamWater: boolean;
+  /** "HH:MM" clock string from the day-night cycle. */
+  clockText: string;
   inventory: GoldStash;
   walletBalance: number;
   spotPricePerOzt: number;
@@ -312,7 +314,8 @@ export function mountHud(root: HTMLElement): MountedHud {
     return el;
   };
 
-  addInfoLine('title').textContent = 'Them Hills — Phase 6 (Survival meters)';
+  addInfoLine('title').textContent = 'Them Hills — Phase 7 (Day/night cycle)';
+  addInfoLine('clock');
   addInfoLine('device');
   addInfoLine('state');
   addInfoLine('stamina');
@@ -338,6 +341,7 @@ export function mountHud(root: HTMLElement): MountedHud {
 
   return {
     update(s) {
+      lines.clock!.textContent = `Time: ${s.clockText}`;
       const padInfo = s.gamepadGlyph === 'unknown' ? 'no pad' : `pad: ${s.gamepadGlyph}`;
       lines.device!.textContent = `Input: ${s.device} (${padInfo})`;
       lines.state!.textContent = `State: ${s.characterState}`;

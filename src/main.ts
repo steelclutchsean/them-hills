@@ -13,6 +13,7 @@ import { createCharacter } from '@/game/character';
 import { createGeneralStore } from '@/game/general-store';
 import { createProspectingController } from '@/game/prospecting';
 import { scatterAssets } from '@/game/scatter';
+import { createSkyController, formatClock, getSkyHour } from '@/game/sky';
 import { createStream } from '@/game/stream';
 import {
   CAMP_REST_TIME_ADVANCE,
@@ -70,6 +71,14 @@ async function bootstrap(): Promise<void> {
 
   // ---- Renderer ----
   const renderer = createRenderer(canvas);
+
+  // ---- Sky / day-night ----
+  const sky = createSkyController({
+    scene: renderer.scene,
+    ambient: renderer.ambient,
+    sun: renderer.sun,
+    renderer: renderer.renderer,
+  });
 
   // ---- Physics ----
   const physics = await createPhysicsWorld();
@@ -338,8 +347,9 @@ async function bootstrap(): Promise<void> {
       const inStreamWater = isInStreamWater(charPos);
       gameStore.getState().tickMeters(dt, inStreamWater);
 
-      // 9. Site richness regen
+      // 9. Site richness regen + sky cycle
       gameStore.getState().regenSites(dt, worldTime);
+      sky.update(worldTime);
 
       // 10. Session state machine — store → vendor → prospecting → camp → idle.
       if (inStoreSession) {
@@ -489,6 +499,7 @@ async function bootstrap(): Promise<void> {
         hunger: save.player.meters.hunger,
         thirst: save.player.meters.thirst,
         inStreamWater,
+        clockText: formatClock(getSkyHour(worldTime)),
         inventory: save.inventory.carry.gold,
         walletBalance: save.wallet.balance,
         spotPricePerOzt: save.economy.spotPrice.current,
