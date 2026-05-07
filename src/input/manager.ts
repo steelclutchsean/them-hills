@@ -58,6 +58,19 @@ export function createInputManager(): InputManager {
   let frameMouseDx = 0;
   let frameMouseDy = 0;
 
+  // Secondary bindings for menu navigation. Not yet rebindable; coexist with
+  // the primary bindings in DEFAULT_*_BINDINGS rather than replacing them.
+  // ArrowUp/ArrowDown + D-pad up/down are the universal "cycle a list" inputs;
+  // we layer them on top of the existing BracketLeft/BracketRight + LB/RB.
+  const SECONDARY_KB: Partial<Record<ActionId, string>> = {
+    TOOL_NEXT: 'ArrowDown',
+    TOOL_PREV: 'ArrowUp',
+  };
+  const SECONDARY_GP: Partial<Record<ActionId, number>> = {
+    TOOL_NEXT: 13, // D-pad down
+    TOOL_PREV: 12, // D-pad up
+  };
+
   const isActiveRaw = (action: ActionId): boolean => {
     const kbBinding = DEFAULT_KEYBOARD_BINDINGS[action];
     const gpButton = DEFAULT_GAMEPAD_BINDINGS[action];
@@ -65,7 +78,17 @@ export function createInputManager(): InputManager {
       lastDevice = 'keyboard';
       return true;
     }
+    const kb2 = SECONDARY_KB[action];
+    if (kb2 && kb.isPressed(kb2)) {
+      lastDevice = 'keyboard';
+      return true;
+    }
     if (gpButton >= 0 && gp.isPressed(gpButton)) {
+      lastDevice = 'gamepad';
+      return true;
+    }
+    const gp2 = SECONDARY_GP[action];
+    if (gp2 !== undefined && gp.isPressed(gp2)) {
       lastDevice = 'gamepad';
       return true;
     }
@@ -76,7 +99,14 @@ export function createInputManager(): InputManager {
     const kbBinding = DEFAULT_KEYBOARD_BINDINGS[action];
     const gpButton = DEFAULT_GAMEPAD_BINDINGS[action];
     if (kb.isPressed(kbBinding)) return 1;
-    if (gpButton >= 0) return gp.getButtonValue(gpButton);
+    const kb2 = SECONDARY_KB[action];
+    if (kb2 && kb.isPressed(kb2)) return 1;
+    if (gpButton >= 0) {
+      const v = gp.getButtonValue(gpButton);
+      if (v > 0) return v;
+    }
+    const gp2 = SECONDARY_GP[action];
+    if (gp2 !== undefined && gp.isPressed(gp2)) return 1;
     return 0;
   };
 

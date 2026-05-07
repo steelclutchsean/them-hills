@@ -609,7 +609,8 @@ export function mountHud(root: HTMLElement): MountedHud {
         const footer = document.createElement('div');
         footer.className = 'dlg-footer';
         const glyph = glyphFor(s.device, s.gamepadGlyph, 'INTERACT');
-        footer.textContent = `[ / ] cycle    [${glyph}] choose    [Esc] leave`;
+        const cycleGlyph = s.device === 'gamepad' ? 'D-pad' : '↑↓';
+        footer.textContent = `[${cycleGlyph}] cycle    [${glyph}] choose    [Esc] leave`;
         dialogue.appendChild(footer);
       } else {
         dialogue.hidden = true;
@@ -684,7 +685,8 @@ export function mountHud(root: HTMLElement): MountedHud {
         const footer = document.createElement('div');
         footer.className = 'store-footer';
         const glyph = glyphFor(s.device, s.gamepadGlyph, 'INTERACT');
-        footer.textContent = `[ / ] cycle    [${glyph}] buy    [Esc] leave`;
+        const cycleGlyph = s.device === 'gamepad' ? 'D-pad' : '↑↓';
+        footer.textContent = `[${cycleGlyph}] cycle    [${glyph}] buy    [Esc] leave`;
         store.appendChild(footer);
       } else {
         store.hidden = true;
