@@ -18,35 +18,46 @@ const TEXTURE_VARIANTS = [
   'assets/textures/namaqualand_boulder_03_diff_4k.jpg',
 ];
 
-/** Sphere → boulder. Per-vertex displacement using sin-hash noise so the
- * result is deterministic for a given seed and reproducible across reloads. */
+/**
+ * Sphere → boulder. Conservative per-vertex displacement so neighbors can't
+ * separate enough to produce visible gaps or self-intersecting faces.
+ * Each boulder has a SINGLE Y-squash factor (so it's a flattened-but-
+ * coherent sphere, not a chaos of per-vertex squashes), and the radial
+ * displacement is clamped to ±18% of unit radius so triangles stay smoothly
+ * connected.
+ */
 function createBoulderGeometry(seed: number): THREE.BufferGeometry {
   const geom = new THREE.IcosahedronGeometry(1, 3);
   const positions = geom.attributes.position;
   if (!positions) return geom;
 
-  const seedX = (seed & 0xffff) * 0.0001;
-  const seedY = ((seed >> 8) & 0xffff) * 0.00013;
-  const seedZ = ((seed >> 16) & 0xffff) * 0.00017;
+  // Per-boulder constants. Computed once; do NOT vary across the loop.
+  const seedX = (seed & 0xff) * 0.024;
+  const seedY = ((seed >> 8) & 0xff) * 0.031;
+  const seedZ = ((seed >> 16) & 0xff) * 0.041;
+  const squashY = 0.74 + Math.sin(seed * 0.073) * 0.14; // 0.6..0.88
+
+  const MAX_DISP = 0.18; // clamp to avoid neighbor separation
 
   for (let i = 0; i < positions.count; i++) {
     const x = positions.getX(i);
     const y = positions.getY(i);
     const z = positions.getZ(i);
-    // Three orthogonal sin waves at different frequencies + a low-frequency
-    // squash factor produce irregular but coherent boulder lumps.
-    const n1 = Math.sin(x * 4.13 + seedX) * Math.cos(y * 3.91 + seedY);
-    const n2 = Math.sin(z * 5.27 + seedZ) * Math.cos(x * 2.83 - seedX);
-    const n3 = Math.sin(y * 6.71 - seedY) * Math.cos(z * 4.19 + seedZ);
-    const noiseVal = n1 * 0.18 + n2 * 0.13 + n3 * 0.09;
 
-    // Squash slightly along Y so boulders aren't perfect spheres
-    const squash = 0.78 + Math.sin(seedY * 11.0 + i * 0.3) * 0.18;
+    // Smooth coherent displacement: three orthogonal low-frequency sin waves.
+    // Output range ~[-0.9, +0.9].
+    const n =
+      Math.sin(x * 2.5 + seedX) * 0.36 +
+      Math.sin(y * 2.7 + seedY) * 0.32 +
+      Math.sin(z * 2.3 + seedZ) * 0.28;
+
+    const disp = Math.max(-MAX_DISP, Math.min(MAX_DISP, n * 0.45));
+    const scaleR = 1.0 + disp;
+
     const len = Math.sqrt(x * x + y * y + z * z);
-    const scaleR = 1 + noiseVal * 0.4;
-    const ny = (y / len) * squash;
-    const norm = Math.sqrt((x / len) ** 2 + ny ** 2 + (z / len) ** 2);
-    positions.setXYZ(i, (x / len / norm) * scaleR, (ny / norm) * scaleR, (z / len / norm) * scaleR);
+    // Apply Y-squash as a final per-axis scale so it doesn't compound with
+    // the radial displacement and create asymmetric warping.
+    positions.setXYZ(i, (x / len) * scaleR, (y / len) * scaleR * squashY, (z / len) * scaleR);
   }
   positions.needsUpdate = true;
   geom.computeVertexNormals();
@@ -83,6 +94,11 @@ export function placeBoulders(opts: PlaceBouldersOpts): BoulderField {
       map: tex,
       roughness: 0.92,
       metalness: 0,
+      // Render both sides — the displaced icosahedron's winding can be
+      // borderline at high-frequency areas, and double-side rendering hides
+      // any sliver of inverted-normal faces without a perceptible cost on
+      // ~52 small meshes.
+      side: THREE.DoubleSide,
     });
   });
 
