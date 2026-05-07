@@ -4,6 +4,7 @@
 import { createStore } from 'zustand/vanilla';
 import {
   createDefaultSave,
+  type ActiveQuest,
   type GoldStash,
   type SaveV1,
   type SiteState,
@@ -15,6 +16,7 @@ import {
   THIRST_DRAIN_PER_SEC,
   THIRST_REGEN_IN_WATER_PER_SEC,
 } from '@/game/survival';
+import { applyGoldToQuestObjectives, getQuestDef } from '@/quests/quests';
 
 const GRAMS_PER_OZT = 31.1035;
 
@@ -83,6 +85,21 @@ export interface GameStateStore {
    * Caller (main.ts) advances worldTime to next morning on success.
    */
   payAndRestAtInn(cost: number, gameTime: number): boolean;
+
+  /** Add a quest to active state. No-op if already active or completed. */
+  acceptQuest(questId: string, gameTime: number): void;
+
+  /**
+   * Apply a freshly-collected gold stash to all active quests' collectGold
+   * objectives. Called every time addGoldToCarry is.
+   */
+  applyGoldToQuests(stash: GoldStash): void;
+
+  /**
+   * Move quest from active → completed and pay the reward to the wallet.
+   * Returns earned dollars, or 0 if the quest isn't currently active.
+   */
+  turnInQuest(questId: string, gameTime: number): number;
 }
 
 export const gameStore = createStore<GameStateStore>((set, get) => ({
@@ -380,6 +397,89 @@ export const gameStore = createStore<GameStateStore>((set, get) => ({
       };
     });
     return true;
+  },
+
+  acceptQuest(questId, gameTime) {
+    const state = get();
+    if (questId in state.save.quests.active) return;
+    if (state.save.quests.completed.includes(questId)) return;
+    const fresh: ActiveQuest = {
+      id: questId,
+      acceptedAt: gameTime,
+      objectives: {},
+    };
+    set((s) => ({
+      save: {
+        ...s.save,
+        quests: {
+          ...s.save.quests,
+          active: { ...s.save.quests.active, [questId]: fresh },
+        },
+      },
+    }));
+  },
+
+  applyGoldToQuests(stash) {
+    set((state) => {
+      const active = state.save.quests.active;
+      const ids = Object.keys(active);
+      if (ids.length === 0) return state;
+      let anyChanged = false;
+      const updated: Record<string, ActiveQuest> = { ...active };
+      for (const id of ids) {
+        const def = getQuestDef(id);
+        if (!def) continue;
+        const cur = active[id]!;
+        const result = applyGoldToQuestObjectives(cur, def, stash);
+        if (result.anyChanged) {
+          updated[id] = result.updated;
+          anyChanged = true;
+        }
+      }
+      if (!anyChanged) return state;
+      return {
+        save: {
+          ...state.save,
+          quests: { ...state.save.quests, active: updated },
+        },
+      };
+    });
+  },
+
+  turnInQuest(questId, gameTime) {
+    const state = get();
+    const active = state.save.quests.active[questId];
+    if (!active) return 0;
+    const def = getQuestDef(questId);
+    if (!def) return 0;
+    const reward = def.reward.dollars;
+    set((s) => {
+      const newActive = { ...s.save.quests.active };
+      delete newActive[questId];
+      const tx: Transaction = {
+        id: `tx_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+        timestamp: gameTime,
+        type: 'quest_reward',
+        amount: reward,
+      };
+      return {
+        save: {
+          ...s.save,
+          quests: {
+            ...s.save.quests,
+            active: newActive,
+            completed: [...s.save.quests.completed, questId],
+          },
+          wallet: {
+            ...s.save.wallet,
+            balance: s.save.wallet.balance + reward,
+            lifetimeEarnings: s.save.wallet.lifetimeEarnings + reward,
+            recentTransactions: [...s.save.wallet.recentTransactions.slice(-49), tx],
+          },
+        },
+      };
+    });
+    return reward;
   },
 
   setSpotPrice(price, source) {

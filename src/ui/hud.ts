@@ -3,6 +3,7 @@ import type { GamepadGlyphStyle } from '@/input/gamepad';
 import type { ActionState, InputDevice } from '@/input/manager';
 import type { CharacterState } from '@/game/character';
 import type { ProspectingSnapshot } from '@/game/prospecting';
+import type { QuestProgressView } from '@/quests/quests';
 import type { GoldStash } from '@/save/schema';
 
 export interface HudUpdate {
@@ -56,6 +57,8 @@ export interface HudUpdate {
     options: { text: string; enabled: boolean; hint?: string }[];
     selectedIndex: number;
   } | null;
+  /** Persistent corner banner — current active quest + objective progress. */
+  questTracker: QuestProgressView | null;
 }
 
 export interface MountedHud {
@@ -288,6 +291,34 @@ const STYLE = `
     color: rgba(255,255,255,0.6);
     text-align: center;
   }
+  .hud-quest-tracker {
+    position: fixed;
+    bottom: 24px; left: 24px;
+    min-width: 240px; max-width: 320px;
+    padding: 10px 14px;
+    background: rgba(0,0,0,0.5);
+    border: 1px solid rgba(212, 122, 42, 0.45);
+    border-radius: 6px;
+    color: rgba(255,255,255,0.9);
+    text-shadow: 0 1px 2px rgba(0,0,0,0.85);
+    pointer-events: none;
+    user-select: none;
+    font-size: 12px;
+    line-height: 1.5;
+    backdrop-filter: blur(2px);
+  }
+  .hud-quest-tracker .qt-header {
+    color: #d47a2a;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .hud-quest-tracker .qt-title { font-weight: 600; color: #f5d088; margin-bottom: 4px; }
+  .hud-quest-tracker .qt-obj { color: rgba(255,255,255,0.85); }
+  .hud-quest-tracker .qt-obj.complete { color: #8fc466; text-decoration: line-through; opacity: 0.85; }
+  .hud-quest-tracker .qt-progress { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: rgba(255,255,255,0.7); }
+  .hud-quest-tracker[hidden] { display: none; }
 `;
 
 function injectStyle(): void {
@@ -353,6 +384,11 @@ export function mountHud(root: HTMLElement): MountedHud {
   dialogue.hidden = true;
   document.body.appendChild(dialogue);
 
+  const questTracker = document.createElement('div');
+  questTracker.className = 'hud-quest-tracker';
+  questTracker.hidden = true;
+  document.body.appendChild(questTracker);
+
   const lines: Record<string, HTMLDivElement> = {};
   const addInfoLine = (key: string): HTMLDivElement => {
     const el = document.createElement('div');
@@ -367,7 +403,7 @@ export function mountHud(root: HTMLElement): MountedHud {
     return el;
   };
 
-  addInfoLine('title').textContent = 'Them Hills — Phase 8a (NPC dialogue)';
+  addInfoLine('title').textContent = 'Them Hills — Phase 8b (Quests)';
   addInfoLine('clock');
   addInfoLine('device');
   addInfoLine('state');
@@ -560,6 +596,37 @@ export function mountHud(root: HTMLElement): MountedHud {
         dialogue.appendChild(footer);
       } else {
         dialogue.hidden = true;
+      }
+
+      // Active quest tracker
+      if (s.questTracker) {
+        questTracker.hidden = false;
+        questTracker.innerHTML = '';
+
+        const header = document.createElement('div');
+        header.className = 'qt-header';
+        header.textContent = s.questTracker.allComplete
+          ? 'Quest — Ready to turn in'
+          : 'Active Quest';
+        questTracker.appendChild(header);
+
+        const title = document.createElement('div');
+        title.className = 'qt-title';
+        title.textContent = s.questTracker.title;
+        questTracker.appendChild(title);
+
+        s.questTracker.objectives.forEach((o) => {
+          const obj = document.createElement('div');
+          obj.className = `qt-obj ${o.complete ? 'complete' : ''}`;
+          obj.textContent = `▸ ${o.description}`;
+          questTracker.appendChild(obj);
+          const prog = document.createElement('div');
+          prog.className = 'qt-progress';
+          prog.textContent = `${o.progress.toFixed(2)} / ${o.target.toFixed(2)}`;
+          questTracker.appendChild(prog);
+        });
+      } else {
+        questTracker.hidden = true;
       }
 
       // General Store overlay

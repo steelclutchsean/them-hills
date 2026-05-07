@@ -6,6 +6,7 @@ import {
   type EquipmentCategory,
 } from '@/economy/equipment';
 import { createSpotPriceService } from '@/economy/spot-price';
+import { buildTrackerView } from '@/quests/quests';
 import { ASSETS } from '@/game/assets';
 import { bearingFromYaw, createCameraRig } from '@/game/camera-rig';
 import { createCamp } from '@/game/camp';
@@ -384,6 +385,12 @@ async function bootstrap(): Promise<void> {
         } else {
           const node = getCurrentNode(dialogue!);
           const opts = node ? resolveOptions(dialogue!, gameStore.getState().save) : [];
+          // Visible-options list can shrink when the player's state changes
+          // mid-conversation (e.g. quest completes during the chat). Clamp
+          // the selection index so it never points off the end.
+          if (dialogue!.selectionIdx >= opts.length) {
+            dialogue!.selectionIdx = 0;
+          }
           if (toolNextJustPressed && opts.length > 0) {
             dialogue!.selectionIdx = (dialogue!.selectionIdx + 1) % opts.length;
           }
@@ -391,10 +398,9 @@ async function bootstrap(): Promise<void> {
             dialogue!.selectionIdx = (dialogue!.selectionIdx - 1 + opts.length) % opts.length;
           }
           if (interactJustPressed && node) {
-            const opt = node.options[dialogue!.selectionIdx];
             const resolved = opts[dialogue!.selectionIdx];
-            if (opt && resolved && resolved.enabled) {
-              const action = opt.action;
+            if (resolved && resolved.enabled) {
+              const action = resolved.source.action;
               if (action.kind === 'leave') {
                 dialogue = null;
                 console.log('[dialogue] goodbye');
@@ -420,6 +426,18 @@ async function bootstrap(): Promise<void> {
                   );
                 } else {
                   console.log('[dialogue] inn rest declined: insufficient funds');
+                }
+              } else if (action.kind === 'acceptQuest') {
+                gameStore.getState().acceptQuest(action.questId, worldTime);
+                dialogue!.currentNodeId = 'questAccepted';
+                dialogue!.selectionIdx = 0;
+                console.log(`[quest] accepted ${action.questId}`);
+              } else if (action.kind === 'turnInQuest') {
+                const reward = gameStore.getState().turnInQuest(action.questId, worldTime);
+                if (reward > 0) {
+                  dialogue!.currentNodeId = 'questComplete';
+                  dialogue!.selectionIdx = 0;
+                  console.log(`[quest] turned in ${action.questId} for $${reward.toFixed(2)}`);
                 }
               }
             }
@@ -485,6 +503,7 @@ async function bootstrap(): Promise<void> {
           const result = prospect.update(dt, interactDown);
           if (result) {
             gameStore.getState().addGoldToCarry(result.reward);
+            gameStore.getState().applyGoldToQuests(result.reward);
             gameStore.getState().touchSite(result.siteId, result.richnessDepletion, worldTime);
             const totalG = result.reward.flake_g + result.reward.picker_g + result.reward.nugget_g;
             console.log(
@@ -572,6 +591,8 @@ async function bootstrap(): Promise<void> {
         dialogueOverlay = buildDialogueOverlay(dialogue, save);
       }
 
+      const questTracker = buildTrackerView(save);
+
       hud.update({
         device: input.lastInputDevice(),
         gamepadGlyph: input.gamepadGlyphStyle(),
@@ -592,6 +613,7 @@ async function bootstrap(): Promise<void> {
         vendor: vendorOverlay,
         store: storeOverlay,
         dialogue: dialogueOverlay,
+        questTracker,
         prospect: prospect.getSnapshot(),
       });
     },
