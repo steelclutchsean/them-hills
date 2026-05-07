@@ -42,6 +42,7 @@ import { initSaveSystem, loadSave, saveCurrentState } from '@/save/store';
 import type { SaveV1 } from '@/save/schema';
 import { gameStore } from '@/state/store';
 import { mountHud } from '@/ui/hud';
+import { mountMinimap, type MinimapLandmark, type MinimapStream } from '@/ui/minimap';
 
 async function bootstrap(): Promise<void> {
   const canvas = document.getElementById('game-canvas') as HTMLCanvasElement | null;
@@ -362,6 +363,35 @@ async function bootstrap(): Promise<void> {
 
   // ---- HUD ----
   const hud = mountHud(hudEl);
+
+  // ---- Mini-map ----
+  // Landmark positions are pulled from each system's known anchor; if any
+  // of these later become configurable, this list should be derived from
+  // them rather than re-typed.
+  const minimapStreams: MinimapStream[] = STREAM_CONFIGS.map((s) => ({
+    centerX: s.centerX,
+    centerZ: s.centerZ,
+    halfWidth: s.halfWidth,
+    halfLength: s.halfLength,
+    orientation: s.orientation,
+    color: `#${(s.shallowColor ?? 0x9bd1d8).toString(16).padStart(6, '0')}`,
+  }));
+  const minimapLandmarks: MinimapLandmark[] = [
+    // Vendors
+    { x: -15, z: 0, label: 'Assayer', color: '#d4a647', shape: 'square' },
+    { x: -12, z: 7, label: 'Pawn Shop', color: '#d4a647', shape: 'square' },
+    // General store + inn + camp + Pete
+    { x: -10, z: -3, label: 'Store', color: '#8fc466', shape: 'square' },
+    { x: -13, z: 10, label: 'Inn', color: '#d47a2a', shape: 'square' },
+    { x: -7, z: 5, label: 'Camp', color: '#ff8844', shape: 'dot' },
+    { x: -4, z: 6, label: 'Old Pete', color: '#a57850', shape: 'dot' },
+    // Mine
+    { x: -45, z: -45, label: 'Mine', color: '#886644', shape: 'mine' },
+  ];
+  const minimap = mountMinimap({
+    streams: minimapStreams,
+    landmarks: minimapLandmarks,
+  });
 
   // ---- Prospecting ----
   const prospect = createProspectingController();
@@ -799,6 +829,8 @@ async function bootstrap(): Promise<void> {
       }
 
       const questTracker = buildTrackerView(save);
+
+      minimap.update({ x: charPos.x, z: charPos.z, yaw: cameraRig.getYaw() });
 
       hud.update({
         device: input.lastInputDevice(),
