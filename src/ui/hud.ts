@@ -403,7 +403,7 @@ export function mountHud(root: HTMLElement): MountedHud {
     return el;
   };
 
-  addInfoLine('title').textContent = 'Them Hills — Phase 8b (Quests)';
+  addInfoLine('title').textContent = 'Them Hills — Phase 9a (Two streams)';
   addInfoLine('clock');
   addInfoLine('device');
   addInfoLine('state');

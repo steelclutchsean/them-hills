@@ -24,21 +24,6 @@ export const THIRST_REGEN_IN_WATER_PER_SEC = 0.05; // 20 s empty → full
  */
 export const CAMP_REST_TIME_ADVANCE = (SKY_SECONDS_PER_DAY / 24) * 4;
 
-// Stream geometry — must match values in stream.ts and main.ts.
-const STREAM_X = 10;
-const STREAM_HALF_WIDTH = 2.7;
-const STREAM_Z_MIN = -16;
-const STREAM_Z_MAX = 16;
-
-export function isInStreamWater(playerPos: { x: number; z: number }): boolean {
-  return (
-    playerPos.x > STREAM_X - STREAM_HALF_WIDTH &&
-    playerPos.x < STREAM_X + STREAM_HALF_WIDTH &&
-    playerPos.z > STREAM_Z_MIN &&
-    playerPos.z < STREAM_Z_MAX
-  );
-}
-
 /**
  * Yield factor from current survival meters. Linearly interpolates between
  * 0.5 (both empty) and 1.0 (both full).

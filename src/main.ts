@@ -24,13 +24,9 @@ import { createInn } from '@/game/inn';
 import { createProspectingController } from '@/game/prospecting';
 import { scatterAssets } from '@/game/scatter';
 import { SKY_SECONDS_PER_DAY, createSkyController, formatClock, getSkyHour } from '@/game/sky';
-import { createStream } from '@/game/stream';
-import {
-  CAMP_REST_TIME_ADVANCE,
-  computeSurvivalYieldFactor,
-  isInStreamWater,
-} from '@/game/survival';
-import { createTerrain } from '@/game/terrain';
+import { createStream, createStreamRegistry, type StreamConfig } from '@/game/stream';
+import { CAMP_REST_TIME_ADVANCE, computeSurvivalYieldFactor } from '@/game/survival';
+import { createTerrain, type ChannelConfig } from '@/game/terrain';
 import { createVendors, type Vendor } from '@/game/vendor';
 import { createGameLoop } from '@/engine/loop';
 import { createRenderer } from '@/engine/renderer';
@@ -93,13 +89,49 @@ async function bootstrap(): Promise<void> {
   // ---- Physics ----
   const physics = await createPhysicsWorld();
 
+  // ---- Streams (config-driven; the terrain reads matching channel carves) ----
+  const STREAM_CONFIGS: StreamConfig[] = [
+    {
+      id: 'coyote_creek',
+      displayName: 'Coyote Creek',
+      centerX: 10,
+      centerZ: 0,
+      halfWidth: 2.5,
+      halfLength: 14.25,
+      orientation: 'NS',
+      siteCount: 20,
+    },
+    {
+      id: 'buckeye_run',
+      displayName: 'Buckeye Run',
+      centerX: 5,
+      centerZ: -35,
+      halfWidth: 2.4,
+      halfLength: 18,
+      orientation: 'EW',
+      siteCount: 15,
+      shallowColor: 0x9bcfb5,
+      deepColor: 0x355c4a,
+      foamColor: 0xeaf5e8,
+    },
+  ];
+  const CHANNEL_CONFIGS: ChannelConfig[] = STREAM_CONFIGS.map((s) => ({
+    centerX: s.centerX,
+    centerZ: s.centerZ,
+    halfWidth: s.halfWidth + 0.2, // slightly wider than the water plane so banks rise visibly
+    halfLength: s.halfLength + 2.75,
+    orientation: s.orientation,
+    depth: 0.45,
+  }));
+
   // ---- Terrain ----
-  const terrain = createTerrain(physics.rapier);
+  const terrain = createTerrain(physics.rapier, CHANNEL_CONFIGS);
   renderer.scene.add(terrain.mesh);
 
-  // ---- Stream + sites ----
-  const stream = createStream(terrain);
-  renderer.scene.add(stream.group);
+  // ---- Streams + sites ----
+  const streamList = STREAM_CONFIGS.map((cfg) => createStream(terrain, cfg));
+  for (const s of streamList) renderer.scene.add(s.group);
+  const streams = createStreamRegistry(streamList);
 
   // ---- Vendors ----
   const vendors = createVendors(renderer.scene, (x, z) => terrain.getHeightAt(x, z));
@@ -117,11 +149,12 @@ async function bootstrap(): Promise<void> {
   // Trees and rocks fill in over a few seconds while the player gets oriented.
   // None of these have physics colliders yet — visual only — so the camera
   // ray-cast and the character controller are unaffected.
-  const STREAM_X = 10;
-  const inStreamZone = (x: number, z: number): boolean =>
-    x > STREAM_X - 4 && x < STREAM_X + 4 && z > -17 && z < 17;
   const inSpawnClearing = (x: number, z: number): boolean => Math.hypot(x, z) < 5;
-  const reject = (x: number, z: number): boolean => inStreamZone(x, z) || inSpawnClearing(x, z);
+  const reject = (x: number, z: number): boolean =>
+    streams.isInStreamZone(x, z, 1.5) || inSpawnClearing(x, z);
+
+  // Coyote-Creek-flanking pebble bands. Buckeye Run gets its own seed below.
+  const COYOTE = STREAM_CONFIGS[0]!;
 
   const populate = Promise.all([
     scatterAssets(
@@ -161,10 +194,10 @@ async function bootstrap(): Promise<void> {
         scale: { min: 0.5, max: 1.1 },
         yOffset: -0.02,
         sampleXZ: (rng) => {
-          const sign = rng.next() < 0.5 ? -1 : 1;
+          const sideSign = rng.next() < 0.5 ? -1 : 1;
           return {
-            x: STREAM_X + sign * rng.range(2.7, 4.8),
-            z: rng.range(-16.5, 16.5),
+            x: COYOTE.centerX + sideSign * rng.range(2.7, 4.8),
+            z: COYOTE.centerZ + rng.range(-COYOTE.halfLength, COYOTE.halfLength),
           };
         },
       },
@@ -356,10 +389,10 @@ async function bootstrap(): Promise<void> {
         camp.isPlayerNear(charPos);
       const nearestSite =
         !inSession && nearestVendor === null && !nearStore && !nearInn && !nearCamp
-          ? stream.findNearestSite(charPos)
+          ? streams.findNearestSite(charPos)
           : null;
 
-      stream.update(
+      streams.update(
         worldTime,
         charPos,
         prospecting ? (prospect.getSnapshot()?.siteId ?? null) : (nearestSite?.site.id ?? null),
@@ -369,8 +402,8 @@ async function bootstrap(): Promise<void> {
       inn.update(worldTime, dialogue !== null || nearInn);
       camp.update(worldTime, nearCamp);
 
-      // 8. Survival meter drain (or thirst regen if standing in stream)
-      const inStreamWater = isInStreamWater(charPos);
+      // 8. Survival meter drain (or thirst regen if standing in any stream)
+      const inStreamWater = streams.isPlayerInAnyStream(charPos);
       gameStore.getState().tickMeters(dt, inStreamWater);
 
       // 9. Site richness regen + sky cycle
@@ -631,9 +664,9 @@ async function bootstrap(): Promise<void> {
     saveCurrentState(buildSaveSnapshot()).catch(() => undefined);
   });
 
-  console.log('[bootstrap] Them Hills ready (Phase 2 — Core Loop)');
+  console.log('[bootstrap] Them Hills ready (Phase 9a — Two streams)');
   console.log(
-    '  Walk to the stream (~10m east of spawn), approach a glowing ring, press E / X / □ to prospect.',
+    '  Coyote Creek runs N-S ~10m east of spawn. Buckeye Run runs E-W ~35m south — greener water.',
   );
   console.log(
     '  Steps: HOLD to dig → TAP rapidly to classify → TAP with rhythm to pan → TAP to collect.',

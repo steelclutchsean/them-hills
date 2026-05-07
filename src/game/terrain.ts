@@ -18,14 +18,17 @@ const EXTENT_X = 200;
 const EXTENT_Z = 200;
 const HEIGHT_SCALE = 6;
 
-// Phase 2 ships a single hand-placed stream; the terrain carves a matching channel
-// so the visual water plane sits inside a depression and the player can wade in
-// to roughly mid-shin depth at the center. (Phase 5 replaces this with proper
-// stream geometry tied to spline paths.)
-const CHANNEL_CENTER_X = 10;
-const CHANNEL_HALF_WIDTH = 2.7;
-const CHANNEL_HALF_LENGTH = 17;
-const CHANNEL_DEPTH_M = 0.45;
+export type ChannelOrientation = 'NS' | 'EW';
+
+export interface ChannelConfig {
+  centerX: number;
+  centerZ: number;
+  halfWidth: number;
+  halfLength: number;
+  orientation: ChannelOrientation;
+  /** Vertical drop in meters at the channel center; tapers to 0 at the banks. */
+  depth: number;
+}
 
 export interface Terrain {
   mesh: THREE.Mesh;
@@ -39,7 +42,7 @@ function heightIdx(ix: number, iy: number): number {
   return iy + ix * N;
 }
 
-function generateHeights(): Float32Array {
+function generateHeights(channels: readonly ChannelConfig[]): Float32Array {
   const heights = new Float32Array(N * N);
   for (let iy = 0; iy < N; iy++) {
     for (let ix = 0; ix < N; ix++) {
@@ -56,12 +59,22 @@ function generateHeights(): Float32Array {
       const flattening = Math.max(0, 1 - distFromOrigin / 30);
       let scaled = h * (1 - 0.7 * flattening);
 
-      // Stream channel carve: smooth U-shape, deepest at center, fades to 0 at banks.
-      if (Math.abs(z) < CHANNEL_HALF_LENGTH) {
-        const dx = Math.abs(x - CHANNEL_CENTER_X);
-        if (dx < CHANNEL_HALF_WIDTH) {
-          const t = dx / CHANNEL_HALF_WIDTH;
-          const carveDepthMeters = (1 - t * t) * CHANNEL_DEPTH_M;
+      // Stream channel carves: smooth U-shape, deepest at center, fades to 0
+      // at banks. Multiple channels stack additively where they overlap (a
+      // confluence is naturally deeper than either upstream branch).
+      for (const ch of channels) {
+        let dCross: number;
+        let dAlong: number;
+        if (ch.orientation === 'NS') {
+          dCross = Math.abs(x - ch.centerX);
+          dAlong = Math.abs(z - ch.centerZ);
+        } else {
+          dCross = Math.abs(z - ch.centerZ);
+          dAlong = Math.abs(x - ch.centerX);
+        }
+        if (dAlong < ch.halfLength && dCross < ch.halfWidth) {
+          const t = dCross / ch.halfWidth;
+          const carveDepthMeters = (1 - t * t) * ch.depth;
           scaled -= carveDepthMeters / HEIGHT_SCALE;
         }
       }
@@ -72,8 +85,8 @@ function generateHeights(): Float32Array {
   return heights;
 }
 
-export function createTerrain(world: RAPIER.World): Terrain {
-  const heights = generateHeights();
+export function createTerrain(world: RAPIER.World, channels: readonly ChannelConfig[]): Terrain {
+  const heights = generateHeights(channels);
 
   // Three.js mesh: PlaneGeometry rotated to lie on the XZ plane.
   // PlaneGeometry vertex (iy, ix) is at world (ix * segX - widthHalf, _, iy * segZ - heightHalf)
