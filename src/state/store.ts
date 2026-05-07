@@ -2,7 +2,16 @@
 // Phase 2 adds gold/site mutators on top of the Phase 0 hydrate/serialize contract.
 
 import { createStore } from 'zustand/vanilla';
-import { createDefaultSave, type GoldStash, type SaveV1, type SiteState } from '@/save/schema';
+import {
+  createDefaultSave,
+  type GoldStash,
+  type SaveV1,
+  type SiteState,
+  type Transaction,
+  type VendorId,
+} from '@/save/schema';
+
+const GRAMS_PER_OZT = 31.1035;
 
 const SITE_REGEN_PER_GAME_SEC = 0.0002; // ~5 game-min for full recovery
 const SITE_REGEN_DELAY_SEC = 60;
@@ -29,6 +38,17 @@ export interface GameStateStore {
 
   /** Update the current gold spot price + source label, append to short history. */
   setSpotPrice(price: number, source: 'live' | 'cached' | 'baseline'): void;
+
+  /**
+   * Sell all carry gold to a vendor at the given multiplier set + current spot.
+   * Returns the gross dollar amount earned and the grams sold for UI feedback.
+   */
+  sellAllCarry(
+    vendorId: VendorId,
+    multipliers: { flake: number; picker: number; nugget: number },
+    spotPricePerOzt: number,
+    gameTime: number,
+  ): { earned: number; gramsByQuality: GoldStash };
 }
 
 export const gameStore = createStore<GameStateStore>((set, get) => ({
@@ -173,6 +193,52 @@ export const gameStore = createStore<GameStateStore>((set, get) => ({
       };
     });
     return next;
+  },
+
+  sellAllCarry(vendorId, multipliers, spotPricePerOzt, gameTime) {
+    let earned = 0;
+    let gramsByQuality: GoldStash = { flake_g: 0, picker_g: 0, nugget_g: 0 };
+    set((state) => {
+      const carry = state.save.inventory.carry.gold;
+      const oztFlake = carry.flake_g / GRAMS_PER_OZT;
+      const oztPicker = carry.picker_g / GRAMS_PER_OZT;
+      const oztNugget = carry.nugget_g / GRAMS_PER_OZT;
+      earned =
+        oztFlake * spotPricePerOzt * multipliers.flake +
+        oztPicker * spotPricePerOzt * multipliers.picker +
+        oztNugget * spotPricePerOzt * multipliers.nugget;
+      gramsByQuality = { ...carry };
+      const tx: Transaction = {
+        id: `tx_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+        timestamp: gameTime,
+        type: 'sale',
+        amount: earned,
+        vendorId,
+        details: {
+          gramsByQuality,
+          spotPriceAtSale: spotPricePerOzt,
+        },
+      };
+      return {
+        save: {
+          ...state.save,
+          inventory: {
+            ...state.save.inventory,
+            carry: {
+              ...state.save.inventory.carry,
+              gold: { flake_g: 0, picker_g: 0, nugget_g: 0 },
+            },
+          },
+          wallet: {
+            ...state.save.wallet,
+            balance: state.save.wallet.balance + earned,
+            lifetimeEarnings: state.save.wallet.lifetimeEarnings + earned,
+            recentTransactions: [...state.save.wallet.recentTransactions.slice(-49), tx],
+          },
+        },
+      };
+    });
+    return { earned, gramsByQuality };
   },
 
   setSpotPrice(price, source) {

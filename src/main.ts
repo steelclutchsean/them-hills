@@ -6,6 +6,7 @@ import { createProspectingController } from '@/game/prospecting';
 import { scatterAssets } from '@/game/scatter';
 import { createStream } from '@/game/stream';
 import { createTerrain } from '@/game/terrain';
+import { createVendors, type Vendor } from '@/game/vendor';
 import { createGameLoop } from '@/engine/loop';
 import { createRenderer } from '@/engine/renderer';
 import { createInputManager } from '@/input/manager';
@@ -66,6 +67,9 @@ async function bootstrap(): Promise<void> {
   // ---- Stream + sites ----
   const stream = createStream(terrain);
   renderer.scene.add(stream.group);
+
+  // ---- Vendors ----
+  const vendors = createVendors(renderer.scene, (x, z) => terrain.getHeightAt(x, z));
 
   // ---- Environment scatter (async, non-blocking) ----
   // Trees and rocks fill in over a few seconds while the player gets oriented.
@@ -210,6 +214,11 @@ async function bootstrap(): Promise<void> {
   let pauseWasDown = false;
   let worldTime = gameStore.getState().save.world.gameTime;
 
+  // Active vendor session (mutually exclusive with prospecting). When non-null,
+  // the player is at a vendor's sale screen — movement frozen, INTERACT confirms
+  // the sale, PAUSE leaves without selling.
+  let activeVendor: Vendor | null = null;
+
   // ---- Save snapshot helper ----
   function buildSaveSnapshot(): SaveV1 {
     const base = gameStore.getState().serialize();
@@ -244,11 +253,13 @@ async function bootstrap(): Promise<void> {
       const lookDelta = input.getLookDelta(dt);
       cameraRig.applyLook(lookDelta);
 
-      // 2. Determine whether character can move (locked while prospecting)
+      // 2. Determine whether character can move (locked during any session)
       const prospecting = prospect.isActive();
-      const moveInput = prospecting ? { x: 0, y: 0 } : input.getMoveInput();
-      const jumpDown = prospecting ? false : input.isActive('JUMP');
-      const sprintDown = prospecting ? false : input.isActive('SPRINT');
+      const inVendorSession = activeVendor !== null;
+      const inSession = prospecting || inVendorSession;
+      const moveInput = inSession ? { x: 0, y: 0 } : input.getMoveInput();
+      const jumpDown = inSession ? false : input.isActive('JUMP');
+      const sprintDown = inSession ? false : input.isActive('SPRINT');
 
       // 3. Character intent
       character.preStep(dt, moveInput, jumpDown, sprintDown, cameraRig.getYaw());
@@ -266,62 +277,105 @@ async function bootstrap(): Promise<void> {
       // 6. Camera position
       cameraRig.placeCamera(character.getPosition(), physics.rapier, character.getColliderHandle());
 
-      // 7. Stream visuals + nearest-site detection
+      // 7. Proximity: vendors take priority over panning sites (they're spatially
+      // separated in the world but if they ever overlap, we want vendor wins).
       const charPos = character.getPosition();
-      const nearest = !prospecting ? stream.findNearestSite(charPos) : null;
+      const nearestVendor = !inSession ? vendors.findNearest(charPos) : null;
+      const nearestSite =
+        !inSession && nearestVendor === null ? stream.findNearestSite(charPos) : null;
+
       stream.update(
         worldTime,
         charPos,
-        prospecting ? (prospect.getSnapshot()?.siteId ?? null) : (nearest?.site.id ?? null),
+        prospecting ? (prospect.getSnapshot()?.siteId ?? null) : (nearestSite?.site.id ?? null),
       );
+      vendors.update(worldTime, activeVendor?.id ?? nearestVendor?.vendor.id ?? null);
 
-      // 8. Site richness regen (slow, only when not actively working)
+      // 8. Site richness regen
       gameStore.getState().regenSites(dt, worldTime);
 
-      // 9. Prospecting state machine
-      if (!prospecting && nearest && interactJustPressed) {
-        const site = gameStore.getState().getOrCreateSite(nearest.site.id);
+      // 9. Session state machine — vendor → prospecting → idle.
+      if (inVendorSession) {
+        if (pauseJustPressed) {
+          console.log(`[vendor] left ${activeVendor!.id}`);
+          activeVendor = null;
+        } else if (interactJustPressed) {
+          const carry = gameStore.getState().save.inventory.carry.gold;
+          const totalG = carry.flake_g + carry.picker_g + carry.nugget_g;
+          if (totalG > 1e-6) {
+            const result = gameStore
+              .getState()
+              .sellAllCarry(
+                activeVendor!.id,
+                activeVendor!.multipliers,
+                gameStore.getState().save.economy.spotPrice.current,
+                worldTime,
+              );
+            console.log(
+              `[vendor] sold ${totalG.toFixed(3)}g at ${activeVendor!.id} for $${result.earned.toFixed(2)}`,
+            );
+          }
+          activeVendor = null;
+        }
+      } else if (prospecting) {
+        if (pauseJustPressed) {
+          prospect.cancel();
+          console.log('[prospect] cancelled');
+        } else {
+          const result = prospect.update(dt, interactDown);
+          if (result) {
+            gameStore.getState().addGoldToCarry(result.reward);
+            gameStore.getState().touchSite(result.siteId, result.richnessDepletion, worldTime);
+            const totalG = result.reward.flake_g + result.reward.picker_g + result.reward.nugget_g;
+            console.log(
+              `[prospect] reward at ${result.siteId}: ${totalG.toFixed(3)}g ` +
+                `(flake=${result.reward.flake_g.toFixed(3)}, picker=${result.reward.picker_g.toFixed(3)}, nugget=${result.reward.nugget_g.toFixed(3)})`,
+            );
+          }
+        }
+      } else if (nearestVendor && interactJustPressed) {
+        activeVendor = nearestVendor.vendor;
+        console.log(`[vendor] opened ${activeVendor.id}`);
+      } else if (nearestSite && interactJustPressed) {
+        const site = gameStore.getState().getOrCreateSite(nearestSite.site.id);
         const actionCount = gameStore.getState().incrementPanCount();
         const firstEver = actionCount === 1;
         prospect.start({
-          siteId: nearest.site.id,
+          siteId: nearestSite.site.id,
           siteRichness: site.richnessRemaining,
           actionCount,
           firstEver,
         });
         console.log(
-          `[prospect] start ${nearest.site.id} (richness=${site.richnessRemaining.toFixed(2)}, firstEver=${firstEver})`,
+          `[prospect] start ${nearestSite.site.id} (richness=${site.richnessRemaining.toFixed(2)}, firstEver=${firstEver})`,
         );
-      } else if (prospecting && pauseJustPressed) {
-        prospect.cancel();
-        console.log('[prospect] cancelled');
-      } else if (prospecting) {
-        const result = prospect.update(dt, interactDown);
-        if (result) {
-          gameStore.getState().addGoldToCarry(result.reward);
-          gameStore.getState().touchSite(result.siteId, result.richnessDepletion, worldTime);
-          const totalG = result.reward.flake_g + result.reward.picker_g + result.reward.nugget_g;
-          console.log(
-            `[prospect] reward at ${result.siteId}: ${totalG.toFixed(3)}g ` +
-              `(flake=${result.reward.flake_g.toFixed(3)}, picker=${result.reward.picker_g.toFixed(3)}, nugget=${result.reward.nugget_g.toFixed(3)})`,
-          );
-        }
       }
 
       // 10. HUD
       const save = gameStore.getState().save;
-      const promptInfo =
-        !prospecting && nearest
-          ? {
-              text: 'Prospect',
-              glyph:
-                input.lastInputDevice() === 'gamepad'
-                  ? input.gamepadGlyphStyle() === 'playstation'
-                    ? '□'
-                    : 'X'
-                  : 'E',
-            }
-          : null;
+      const interactGlyph =
+        input.lastInputDevice() === 'gamepad'
+          ? input.gamepadGlyphStyle() === 'playstation'
+            ? '□'
+            : 'X'
+          : 'E';
+      const promptInfo = inSession
+        ? null
+        : nearestVendor
+          ? { text: `Sell at ${nearestVendor.vendor.name}`, glyph: interactGlyph }
+          : nearestSite
+            ? { text: 'Prospect', glyph: interactGlyph }
+            : null;
+
+      let vendorOverlay: ReturnType<typeof buildVendorOverlay> | null = null;
+      if (activeVendor) {
+        vendorOverlay = buildVendorOverlay(
+          activeVendor,
+          save.inventory.carry.gold,
+          save.economy.spotPrice.current,
+        );
+      }
+
       hud.update({
         device: input.lastInputDevice(),
         gamepadGlyph: input.gamepadGlyphStyle(),
@@ -330,10 +384,12 @@ async function bootstrap(): Promise<void> {
         characterState: character.getState(),
         stamina: character.getStamina(),
         inventory: save.inventory.carry.gold,
+        walletBalance: save.wallet.balance,
         spotPricePerOzt: save.economy.spotPrice.current,
         spotPriceSource: save.economy.spotPrice.source,
         bearingDeg: bearingFromYaw(cameraRig.getYaw()),
         prompt: promptInfo,
+        vendor: vendorOverlay,
         prospect: prospect.getSnapshot(),
       });
     },
@@ -359,6 +415,41 @@ async function bootstrap(): Promise<void> {
     '  Steps: HOLD to dig → TAP rapidly to classify → TAP with rhythm to pan → TAP to collect.',
   );
   console.log('  Press Esc / Menu to cancel.');
+}
+
+// Compute the data the vendor sale overlay shows: gross dollar value of the
+// player's current carry at this vendor's multipliers, plus a label describing
+// the multipliers so the player understands the deal before confirming.
+const GRAMS_PER_OZT = 31.1035;
+function buildVendorOverlay(
+  vendor: Vendor,
+  carry: { flake_g: number; picker_g: number; nugget_g: number },
+  spotPricePerOzt: number,
+): {
+  name: string;
+  multiplierLabel: string;
+  grossDollars: number;
+  canSell: boolean;
+} {
+  const oztFlake = carry.flake_g / GRAMS_PER_OZT;
+  const oztPicker = carry.picker_g / GRAMS_PER_OZT;
+  const oztNugget = carry.nugget_g / GRAMS_PER_OZT;
+  const gross =
+    oztFlake * spotPricePerOzt * vendor.multipliers.flake +
+    oztPicker * spotPricePerOzt * vendor.multipliers.picker +
+    oztNugget * spotPricePerOzt * vendor.multipliers.nugget;
+  const totalG = carry.flake_g + carry.picker_g + carry.nugget_g;
+  const m = vendor.multipliers;
+  const multiplierLabel =
+    `${(m.flake * 100).toFixed(0)}% flake, ` +
+    `${(m.picker * 100).toFixed(0)}% picker, ` +
+    `${(m.nugget * 100).toFixed(0)}% nugget`;
+  return {
+    name: vendor.name,
+    multiplierLabel,
+    grossDollars: gross,
+    canSell: totalG > 1e-6,
+  };
 }
 
 bootstrap().catch((e: unknown) => {

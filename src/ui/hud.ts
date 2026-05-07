@@ -13,6 +13,7 @@ export interface HudUpdate {
   characterState: CharacterState;
   stamina: number;
   inventory: GoldStash;
+  walletBalance: number;
   spotPricePerOzt: number;
   spotPriceSource: 'live' | 'cached' | 'baseline';
   /** Compass bearing in degrees (0=N, 90=E, 180=S, 270=W). */
@@ -21,6 +22,13 @@ export interface HudUpdate {
   prompt: { text: string; glyph: string } | null;
   /** Center overlay — shown while a prospecting session is active. */
   prospect: ProspectingSnapshot | null;
+  /** Center overlay — shown while at a vendor; offers a sale confirmation. */
+  vendor: {
+    name: string;
+    multiplierLabel: string;
+    grossDollars: number;
+    canSell: boolean;
+  } | null;
 }
 
 export interface MountedHud {
@@ -194,7 +202,9 @@ const STYLE = `
   }
   .hud-info[hidden], .hud-inventory[hidden],
   .hud-prompt[hidden], .hud-prospect[hidden],
-  .hud-compass[hidden] { display: none; }
+  .hud-compass[hidden], .hud-vendor[hidden] { display: none; }
+  .hud-vendor { border-color: rgba(212, 166, 71, 0.7); }
+  .hud-vendor .step-label { color: #d4a647; }
 `;
 
 function injectStyle(): void {
@@ -245,6 +255,11 @@ export function mountHud(root: HTMLElement): MountedHud {
   prospect.hidden = true;
   document.body.appendChild(prospect);
 
+  const vendor = document.createElement('div');
+  vendor.className = 'hud-prospect hud-vendor';
+  vendor.hidden = true;
+  document.body.appendChild(vendor);
+
   const lines: Record<string, HTMLDivElement> = {};
   const addInfoLine = (key: string): HTMLDivElement => {
     const el = document.createElement('div');
@@ -259,7 +274,7 @@ export function mountHud(root: HTMLElement): MountedHud {
     return el;
   };
 
-  addInfoLine('title').textContent = 'Them Hills — Phase 4 (Spot price API)';
+  addInfoLine('title').textContent = 'Them Hills — Phase 5a (Sell flow)';
   addInfoLine('device');
   addInfoLine('state');
   addInfoLine('stamina');
@@ -274,6 +289,7 @@ export function mountHud(root: HTMLElement): MountedHud {
   addInvLine('invTotal');
   addInvLine('invValue');
   addInvLine('invSpacer').innerHTML = '&nbsp;';
+  addInvLine('invWallet');
   addInvLine('invSpot');
 
   let frameCount = 0;
@@ -317,8 +333,10 @@ export function mountHud(root: HTMLElement): MountedHud {
       const dollarEst = (totalG / GRAMS_PER_OZT) * s.spotPricePerOzt * ASSAYER_MULT;
       lines.invValue!.textContent = `≈ $${dollarEst.toFixed(2)} (Assayer)`;
 
-      // Live spot price + source indicator (live = green dot, cached = yellow,
-      // baseline = gray). Updated by the spot-price service every 15 min.
+      lines.invWallet!.textContent = `Wallet: $${s.walletBalance.toFixed(2)}`;
+
+      // Live spot price + source indicator (live = filled circle, cached =
+      // half, baseline = empty). Updated by the spot-price service every 15 min.
       const sourceLabel =
         s.spotPriceSource === 'live'
           ? '● live'
@@ -370,6 +388,38 @@ export function mountHud(root: HTMLElement): MountedHud {
         }
       } else {
         prospect.hidden = true;
+      }
+
+      // Vendor sale overlay
+      if (s.vendor) {
+        vendor.hidden = false;
+        vendor.innerHTML = '';
+        const label = document.createElement('div');
+        label.className = 'step-label';
+        label.textContent = s.vendor.name;
+        vendor.appendChild(label);
+
+        const amount = document.createElement('div');
+        amount.className = 'step-bar';
+        amount.textContent = s.vendor.canSell
+          ? `Sell all gold for $${s.vendor.grossDollars.toFixed(2)}`
+          : 'No gold to sell';
+        vendor.appendChild(amount);
+
+        const sub = document.createElement('div');
+        sub.className = 'step-extra';
+        sub.textContent = s.vendor.multiplierLabel;
+        vendor.appendChild(sub);
+
+        const msg = document.createElement('div');
+        msg.className = 'step-message';
+        const glyph = glyphFor(s.device, s.gamepadGlyph, 'INTERACT');
+        msg.textContent = s.vendor.canSell
+          ? `[${glyph}]  Confirm sale     [Esc]  Cancel`
+          : `[Esc]  Leave`;
+        vendor.appendChild(msg);
+      } else {
+        vendor.hidden = true;
       }
     },
   };
