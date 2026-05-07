@@ -12,6 +12,10 @@ export interface HudUpdate {
   position: { x: number; y: number; z: number };
   characterState: CharacterState;
   stamina: number;
+  hunger: number;
+  thirst: number;
+  /** True while the player is standing in stream water (passive thirst regen). */
+  inStreamWater: boolean;
   inventory: GoldStash;
   walletBalance: number;
   spotPricePerOzt: number;
@@ -308,10 +312,12 @@ export function mountHud(root: HTMLElement): MountedHud {
     return el;
   };
 
-  addInfoLine('title').textContent = 'Them Hills — Phase 5b (Equipment progression)';
+  addInfoLine('title').textContent = 'Them Hills — Phase 6 (Survival meters)';
   addInfoLine('device');
   addInfoLine('state');
   addInfoLine('stamina');
+  addInfoLine('hunger');
+  addInfoLine('thirst');
   addInfoLine('position');
   addInfoLine('actions');
   addInfoLine('fps');
@@ -336,6 +342,9 @@ export function mountHud(root: HTMLElement): MountedHud {
       lines.device!.textContent = `Input: ${s.device} (${padInfo})`;
       lines.state!.textContent = `State: ${s.characterState}`;
       lines.stamina!.textContent = `Stamina: ${makeBar(s.stamina)} ${(s.stamina * 100).toFixed(0)}%`;
+      lines.hunger!.textContent = `Hunger:  ${makeBar(s.hunger)} ${(s.hunger * 100).toFixed(0)}%`;
+      const thirstSuffix = s.inStreamWater ? '  (drinking)' : '';
+      lines.thirst!.textContent = `Thirst:  ${makeBar(s.thirst)} ${(s.thirst * 100).toFixed(0)}%${thirstSuffix}`;
       lines.position!.textContent = `Pos: ${s.position.x.toFixed(1)}, ${s.position.y.toFixed(1)}, ${s.position.z.toFixed(1)}`;
 
       const active: string[] = [];

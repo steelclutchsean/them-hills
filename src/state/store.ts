@@ -10,6 +10,11 @@ import {
   type Transaction,
   type VendorId,
 } from '@/save/schema';
+import {
+  HUNGER_DRAIN_PER_SEC,
+  THIRST_DRAIN_PER_SEC,
+  THIRST_REGEN_IN_WATER_PER_SEC,
+} from '@/game/survival';
 
 const GRAMS_PER_OZT = 31.1035;
 
@@ -61,6 +66,16 @@ export interface GameStateStore {
     newTier: number,
     gameTime: number,
   ): boolean;
+
+  /**
+   * Drain hunger + thirst over time. If `inStreamWater` is true, thirst regens
+   * faster than it drains so the net effect is filling the meter. Stamina is
+   * owned by character.ts and updated separately at save time.
+   */
+  tickMeters(dt: number, inStreamWater: boolean): void;
+
+  /** Camp rest — refill hunger + thirst to full. */
+  restAtCamp(): void;
 }
 
 export const gameStore = createStore<GameStateStore>((set, get) => ({
@@ -289,6 +304,45 @@ export const gameStore = createStore<GameStateStore>((set, get) => ({
       };
     });
     return true;
+  },
+
+  tickMeters(dt, inStreamWater) {
+    set((state) => {
+      const cur = state.save.player.meters;
+      let hunger = cur.hunger - HUNGER_DRAIN_PER_SEC * dt;
+      let thirst = cur.thirst - THIRST_DRAIN_PER_SEC * dt;
+      if (inStreamWater) {
+        thirst += THIRST_REGEN_IN_WATER_PER_SEC * dt;
+      }
+      hunger = Math.max(0, Math.min(1, hunger));
+      thirst = Math.max(0, Math.min(1, thirst));
+      if (hunger === cur.hunger && thirst === cur.thirst) return state;
+      return {
+        save: {
+          ...state.save,
+          player: {
+            ...state.save.player,
+            meters: { ...cur, hunger, thirst },
+          },
+        },
+      };
+    });
+  },
+
+  restAtCamp() {
+    set((state) => {
+      const cur = state.save.player.meters;
+      if (cur.hunger >= 1 && cur.thirst >= 1) return state;
+      return {
+        save: {
+          ...state.save,
+          player: {
+            ...state.save.player,
+            meters: { ...cur, hunger: 1, thirst: 1 },
+          },
+        },
+      };
+    });
   },
 
   setSpotPrice(price, source) {

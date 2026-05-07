@@ -8,11 +8,17 @@ import {
 import { createSpotPriceService } from '@/economy/spot-price';
 import { ASSETS } from '@/game/assets';
 import { bearingFromYaw, createCameraRig } from '@/game/camera-rig';
+import { createCamp } from '@/game/camp';
 import { createCharacter } from '@/game/character';
 import { createGeneralStore } from '@/game/general-store';
 import { createProspectingController } from '@/game/prospecting';
 import { scatterAssets } from '@/game/scatter';
 import { createStream } from '@/game/stream';
+import {
+  CAMP_REST_TIME_ADVANCE,
+  computeSurvivalYieldFactor,
+  isInStreamWater,
+} from '@/game/survival';
 import { createTerrain } from '@/game/terrain';
 import { createVendors, type Vendor } from '@/game/vendor';
 import { createGameLoop } from '@/engine/loop';
@@ -81,6 +87,9 @@ async function bootstrap(): Promise<void> {
 
   // ---- General Store ----
   const generalStore = createGeneralStore(renderer.scene, (x, z) => terrain.getHeightAt(x, z));
+
+  // ---- Camp ----
+  const camp = createCamp(renderer.scene, (x, z) => terrain.getHeightAt(x, z));
 
   // ---- Environment scatter (async, non-blocking) ----
   // Trees and rocks fill in over a few seconds while the player gets oriented.
@@ -305,12 +314,16 @@ async function bootstrap(): Promise<void> {
       // 6. Camera position
       cameraRig.placeCamera(character.getPosition(), physics.rapier, character.getColliderHandle());
 
-      // 7. Proximity: precedence is vendor > general store > panning site.
+      // 7. Proximity: precedence is vendor > general store > camp > panning site.
       const charPos = character.getPosition();
       const nearestVendor = !inSession ? vendors.findNearest(charPos) : null;
       const nearStore = !inSession && nearestVendor === null && generalStore.isPlayerNear(charPos);
+      const nearCamp =
+        !inSession && nearestVendor === null && !nearStore && camp.isPlayerNear(charPos);
       const nearestSite =
-        !inSession && nearestVendor === null && !nearStore ? stream.findNearestSite(charPos) : null;
+        !inSession && nearestVendor === null && !nearStore && !nearCamp
+          ? stream.findNearestSite(charPos)
+          : null;
 
       stream.update(
         worldTime,
@@ -319,11 +332,16 @@ async function bootstrap(): Promise<void> {
       );
       vendors.update(worldTime, activeVendor?.id ?? nearestVendor?.vendor.id ?? null);
       generalStore.update(worldTime, storeOpen || nearStore);
+      camp.update(worldTime, nearCamp);
 
-      // 8. Site richness regen
+      // 8. Survival meter drain (or thirst regen if standing in stream)
+      const inStreamWater = isInStreamWater(charPos);
+      gameStore.getState().tickMeters(dt, inStreamWater);
+
+      // 9. Site richness regen
       gameStore.getState().regenSites(dt, worldTime);
 
-      // 9. Session state machine — store → vendor → prospecting → idle.
+      // 10. Session state machine — store → vendor → prospecting → camp → idle.
       if (inStoreSession) {
         if (pauseJustPressed) {
           storeOpen = false;
@@ -398,13 +416,19 @@ async function bootstrap(): Promise<void> {
       } else if (nearStore && interactJustPressed) {
         storeOpen = true;
         console.log('[store] opened general store');
+      } else if (nearCamp && interactJustPressed) {
+        gameStore.getState().restAtCamp();
+        worldTime += CAMP_REST_TIME_ADVANCE;
+        console.log(
+          `[camp] rested — meters refilled, time advanced ${(CAMP_REST_TIME_ADVANCE / 3600).toFixed(0)}h`,
+        );
       } else if (nearestSite && interactJustPressed) {
         const site = gameStore.getState().getOrCreateSite(nearestSite.site.id);
         const actionCount = gameStore.getState().incrementPanCount();
         const firstEver = actionCount === 1;
-        const yieldMultiplier = computeYieldMultiplier(
-          gameStore.getState().save.equipment.ownedTiers,
-        );
+        const equipMult = computeYieldMultiplier(gameStore.getState().save.equipment.ownedTiers);
+        const survivalMult = computeSurvivalYieldFactor(gameStore.getState().save.player.meters);
+        const yieldMultiplier = equipMult * survivalMult;
         prospect.start({
           siteId: nearestSite.site.id,
           siteRichness: site.richnessRemaining,
@@ -413,11 +437,11 @@ async function bootstrap(): Promise<void> {
           yieldMultiplier,
         });
         console.log(
-          `[prospect] start ${nearestSite.site.id} (richness=${site.richnessRemaining.toFixed(2)}, firstEver=${firstEver}, yieldMult=${yieldMultiplier.toFixed(2)})`,
+          `[prospect] start ${nearestSite.site.id} (richness=${site.richnessRemaining.toFixed(2)}, firstEver=${firstEver}, yield=${yieldMultiplier.toFixed(2)} = equip${equipMult.toFixed(2)} × survival${survivalMult.toFixed(2)})`,
         );
       }
 
-      // 10. HUD
+      // 11. HUD
       const save = gameStore.getState().save;
       const interactGlyph =
         input.lastInputDevice() === 'gamepad'
@@ -431,9 +455,11 @@ async function bootstrap(): Promise<void> {
           ? { text: `Sell at ${nearestVendor.vendor.name}`, glyph: interactGlyph }
           : nearStore
             ? { text: 'Open General Store', glyph: interactGlyph }
-            : nearestSite
-              ? { text: 'Prospect', glyph: interactGlyph }
-              : null;
+            : nearCamp
+              ? { text: 'Rest at Camp (4h)', glyph: interactGlyph }
+              : nearestSite
+                ? { text: 'Prospect', glyph: interactGlyph }
+                : null;
 
       let vendorOverlay: ReturnType<typeof buildVendorOverlay> | null = null;
       if (activeVendor) {
@@ -460,6 +486,9 @@ async function bootstrap(): Promise<void> {
         position: { x: charPos.x, y: charPos.y, z: charPos.z },
         characterState: character.getState(),
         stamina: character.getStamina(),
+        hunger: save.player.meters.hunger,
+        thirst: save.player.meters.thirst,
+        inStreamWater,
         inventory: save.inventory.carry.gold,
         walletBalance: save.wallet.balance,
         spotPricePerOzt: save.economy.spotPrice.current,
