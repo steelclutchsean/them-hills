@@ -15,6 +15,10 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererBundle {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight, false);
   renderer.setClearColor(0x88aacc);
+  // Soft shadows. The shadow camera bounds + per-mesh castShadow flags are
+  // configured in main.ts; here we just enable the pipeline.
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x88aacc);
@@ -32,7 +36,24 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererBundle {
 
   const sun = new THREE.DirectionalLight(0xffffff, 1.0);
   sun.position.set(50, 80, 30);
+  // Shadow camera covers a 120×120m square around the player (set each
+  // frame in main.ts by repositioning sun + target relative to charPos).
+  // 2048² shadow map is the sweet spot for 60–120m coverage on modern
+  // hardware — 1024² is visibly aliased on tree silhouettes from a few
+  // meters out.
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.camera.left = -60;
+  sun.shadow.camera.right = 60;
+  sun.shadow.camera.top = 60;
+  sun.shadow.camera.bottom = -60;
+  sun.shadow.camera.near = 1;
+  sun.shadow.camera.far = 220;
+  // Bias values tuned to hide acne without producing noticeable peter-pan.
+  sun.shadow.bias = -0.0008;
+  sun.shadow.normalBias = 0.04;
   scene.add(sun);
+  scene.add(sun.target);
 
   const onResize = (): void => {
     camera.aspect = window.innerWidth / window.innerHeight;

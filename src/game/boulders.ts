@@ -125,6 +125,7 @@ export function placeBoulders(opts: PlaceBouldersOpts): BoulderField {
     // the ground (in-stream boulders look like worn river stones).
     const groundY = terrain.getHeightAt(x, z);
     mesh.position.set(x, groundY + scale * 0.55 - submerge, z);
+    mesh.castShadow = true;
     mesh.receiveShadow = true;
     root.add(mesh);
     placed++;

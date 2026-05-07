@@ -238,6 +238,7 @@ async function bootstrap(): Promise<void> {
         scale: { min: 0.7, max: 1.4 },
         reject,
         exclusionRadius: (s) => 1.4 * s,
+        shadows: { cast: true, receive: true },
       },
       0xa1,
     ),
@@ -251,6 +252,7 @@ async function bootstrap(): Promise<void> {
         yOffset: -0.05,
         reject,
         exclusionRadius: (s) => 0.9 * s,
+        shadows: { cast: true, receive: true },
       },
       0xa2,
     ),
@@ -297,6 +299,7 @@ async function bootstrap(): Promise<void> {
         scale: { min: 0.6, max: 1.2 },
         reject,
         exclusionRadius: (s) => 0.7 * s,
+        shadows: { cast: true, receive: true },
       },
       0xa5,
     ),
@@ -611,10 +614,21 @@ async function bootstrap(): Promise<void> {
         weatherIntensity: weather.getView().intensity,
       });
 
-      // 9. Site richness regen + weather + sky + headlamp + grass
+      // 9. Site richness regen + weather + sky + headlamp + grass + shadows
       gameStore.getState().regenSites(dt, worldTime);
       weather.update(worldTime, dt, charPos);
       sky.update(worldTime, weather.getView());
+
+      // Capture world-space sun direction BEFORE we offset the light for
+      // shadow-follow. terrain/grass lambert math needs the original
+      // direction; the light's *position* is then translated to keep the
+      // shadow camera frustum centered on the player.
+      const sunDirWorld = renderer.sun.position.clone().normalize();
+      renderer.sun.position.x += charPos.x;
+      renderer.sun.position.z += charPos.z;
+      renderer.sun.target.position.set(charPos.x, 0, charPos.z);
+      renderer.sun.target.updateMatrixWorld();
+
       headlamp.update({
         playerPos: charPos,
         skyHour: getSkyHour(worldTime),
@@ -630,12 +644,8 @@ async function bootstrap(): Promise<void> {
       };
       grass.update(grassLight);
       for (const cover of grassCovers) cover.update(grassLight);
-      // Sun direction comes from the directional light's position relative to
-      // the scene origin — the light "shines from" its position toward (0,0,0)
-      // in Three.js, so the surface normal-aligned direction is the position
-      // unit vector.
       terrain.updateLighting({
-        sunDirection: renderer.sun.position.clone().normalize(),
+        sunDirection: sunDirWorld,
         sunColor: renderer.sun.color,
         sunIntensity: renderer.sun.intensity,
         ambientColor: renderer.ambient.color,
