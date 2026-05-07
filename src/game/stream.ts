@@ -46,6 +46,8 @@ export interface PanningSite {
   streamId: string;
   /** Read-only baseline yaw used for the visual "stream direction" hint. */
   streamYaw: number;
+  /** Optional yield multiplier — used by special sites (e.g. cave) to boost rewards. */
+  bonusYield?: number;
 }
 
 export interface Stream {

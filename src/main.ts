@@ -172,7 +172,13 @@ async function bootstrap(): Promise<void> {
   const oldPete = createOldPete(renderer.scene, (x, z) => terrain.getHeightAt(x, z));
 
   // ---- Mine entrance ----
-  const mine = createMineEntrance(renderer.scene, (x, z) => terrain.getHeightAt(x, z));
+  const mine = createMineEntrance(renderer.scene, physics.rapier, (x, z) =>
+    terrain.getHeightAt(x, z),
+  );
+  // If the player loaded a save where they already had shovel T3, the mine
+  // should already be open at boot — otherwise the boards block the way back
+  // out for someone who unlocked it last session.
+  mine.tryUnlock(gameStore.getState().save.equipment.ownedTiers.shovel);
 
   // ---- Headlamp ----
   const headlamp = createHeadlamp(renderer.scene);
@@ -443,7 +449,8 @@ async function bootstrap(): Promise<void> {
         !nearPete &&
         !nearMine &&
         camp.isPlayerNear(charPos);
-      const nearestSite =
+      // Closest panning site across both streams and the cave (if unlocked).
+      const candidateStreamSite =
         !inSession &&
         nearestVendor === null &&
         !nearStore &&
@@ -453,6 +460,16 @@ async function bootstrap(): Promise<void> {
         !nearCamp
           ? streams.findNearestSite(charPos)
           : null;
+      const candidateCaveSite =
+        !inSession && nearestVendor === null && !nearStore && !nearInn && !nearPete
+          ? mine.findNearestSite(charPos)
+          : null;
+      const nearestSite =
+        candidateStreamSite && candidateCaveSite
+          ? candidateStreamSite.distance < candidateCaveSite.distance
+            ? candidateStreamSite
+            : candidateCaveSite
+          : (candidateStreamSite ?? candidateCaveSite);
 
       streams.update(
         worldTime,
@@ -630,11 +647,11 @@ async function bootstrap(): Promise<void> {
         dialogue = startDialogue('old_pete', OLD_PETE_DIALOGUE);
         console.log('[dialogue] opened old_pete');
       } else if (nearMine && interactJustPressed) {
-        // Phase 10a: entrance is locked. 10b will open the interior when the
-        // player has a pickaxe (shovel T3).
         const shovelTier = gameStore.getState().save.equipment.ownedTiers.shovel;
-        if (mine.isUnlocked(shovelTier)) {
-          console.log('[mine] open — interior coming in Phase 10b');
+        if (mine.tryUnlock(shovelTier)) {
+          console.log('[mine] opened — pickaxe knocked the boards loose');
+        } else if (mine.isOpen()) {
+          console.log('[mine] already open — walk inside');
         } else {
           console.log('[mine] sealed — needs a pickaxe (Shovel T3)');
         }
@@ -650,7 +667,8 @@ async function bootstrap(): Promise<void> {
         const firstEver = actionCount === 1;
         const equipMult = computeYieldMultiplier(gameStore.getState().save.equipment.ownedTiers);
         const survivalMult = computeSurvivalYieldFactor(gameStore.getState().save.player.meters);
-        const yieldMultiplier = equipMult * survivalMult;
+        const siteBonus = nearestSite.site.bonusYield ?? 1.0;
+        const yieldMultiplier = equipMult * survivalMult * siteBonus;
         prospect.start({
           siteId: nearestSite.site.id,
           siteRichness: site.richnessRemaining,
@@ -658,8 +676,9 @@ async function bootstrap(): Promise<void> {
           firstEver,
           yieldMultiplier,
         });
+        const bonusTag = siteBonus !== 1 ? ` × site${siteBonus.toFixed(2)}` : '';
         console.log(
-          `[prospect] start ${nearestSite.site.id} (richness=${site.richnessRemaining.toFixed(2)}, firstEver=${firstEver}, yield=${yieldMultiplier.toFixed(2)} = equip${equipMult.toFixed(2)} × survival${survivalMult.toFixed(2)})`,
+          `[prospect] start ${nearestSite.site.id} (richness=${site.richnessRemaining.toFixed(2)}, firstEver=${firstEver}, yield=${yieldMultiplier.toFixed(2)} = equip${equipMult.toFixed(2)} × survival${survivalMult.toFixed(2)}${bonusTag})`,
         );
       }
 
@@ -671,8 +690,9 @@ async function bootstrap(): Promise<void> {
             ? '□'
             : 'X'
           : 'E';
-      const shovelTierForPrompt = gameStore.getState().save.equipment.ownedTiers.shovel;
-      const mineLocked = !mine.isUnlocked(shovelTierForPrompt);
+      const minePromptText = mine.isOpen()
+        ? 'Mine is open — walk inside'
+        : 'Mine sealed — needs a pickaxe';
       const promptInfo = inSession
         ? null
         : nearestVendor
@@ -684,10 +704,7 @@ async function bootstrap(): Promise<void> {
               : nearPete
                 ? { text: 'Talk to Old Pete', glyph: interactGlyph }
                 : nearMine
-                  ? {
-                      text: mineLocked ? 'Mine sealed — needs a pickaxe' : 'Enter Mine',
-                      glyph: interactGlyph,
-                    }
+                  ? { text: minePromptText, glyph: interactGlyph }
                   : nearCamp
                     ? { text: 'Rest at Camp (4h)', glyph: interactGlyph }
                     : nearestSite
