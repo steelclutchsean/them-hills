@@ -23,11 +23,25 @@ export interface ScatterConfig {
   randomYaw?: boolean;
   /** Cast/receive shadow flags. Default: cast=false, receive=true. */
   shadows?: { cast?: boolean; receive?: boolean };
+  /**
+   * Returns the approximate ground-footprint radius (meters) of an instance
+   * placed at the given world scale. Reported back in `ScatterResult.positions`
+   * so downstream consumers (e.g. the ground-cover grass field) can avoid
+   * placing detail inside this object.
+   */
+  exclusionRadius?: (worldScale: number) => number;
+}
+
+export interface ScatteredPosition {
+  x: number;
+  z: number;
+  radius: number;
 }
 
 export interface ScatterResult {
   placed: number;
   skipped: number;
+  positions: ScatteredPosition[];
 }
 
 const TERRAIN_EXTENT_HALF = 95; // a bit inside the 100×100 half-extent to keep models off the edge
@@ -43,7 +57,7 @@ export async function scatterAssets(
   config: ScatterConfig,
   seed: number,
 ): Promise<ScatterResult> {
-  if (config.models.length === 0) return { placed: 0, skipped: 0 };
+  if (config.models.length === 0) return { placed: 0, skipped: 0, positions: [] };
 
   const rng = createRng(seed);
   const models = await loadModels(config.models);
@@ -53,12 +67,14 @@ export async function scatterAssets(
   const yOffset = config.yOffset ?? 0;
   const shadowCast = config.shadows?.cast ?? false;
   const shadowReceive = config.shadows?.receive ?? true;
+  const exclusionRadius = config.exclusionRadius;
 
   const root = new THREE.Group();
   root.name = `scatter:${seed.toString(16)}`;
 
   let placed = 0;
   let skipped = 0;
+  const positions: ScatteredPosition[] = [];
   const maxAttempts = config.count * 6;
   let attempts = 0;
 
@@ -74,15 +90,19 @@ export async function scatterAssets(
     const modelRoot = models[modelIdx];
     if (!modelRoot) continue;
 
+    const worldScale = rng.range(config.scale.min, config.scale.max);
     const inst = modelRoot.clone(true);
     inst.position.set(x, y, z);
     if (yawRandom) inst.rotation.y = rng.range(0, Math.PI * 2);
-    inst.scale.setScalar(rng.range(config.scale.min, config.scale.max));
+    inst.scale.setScalar(worldScale);
     configureShadows(inst, shadowCast, shadowReceive);
     root.add(inst);
+    if (exclusionRadius) {
+      positions.push({ x, z, radius: exclusionRadius(worldScale) });
+    }
     placed++;
   }
 
   scene.add(root);
-  return { placed, skipped };
+  return { placed, skipped, positions };
 }

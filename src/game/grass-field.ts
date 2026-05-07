@@ -12,8 +12,8 @@ import { createRng } from './rng';
 // don't move in lockstep. A small custom shader sways the tip with sin(time)
 // scaled by a tip-bias so the base stays anchored.
 
-const BLADE_HEIGHT = 0.55;
-const BLADE_HALF_BASE = 0.04;
+const DEFAULT_BLADE_HEIGHT = 0.55;
+const DEFAULT_BLADE_HALF_BASE = 0.04;
 
 const BASE_VS = /* glsl */ `
   attribute vec3 aOffset;
@@ -27,15 +27,17 @@ const BASE_VS = /* glsl */ `
   uniform float uSunIntensity;
   uniform vec3 uAmbientColor;
   uniform float uAmbientIntensity;
+  uniform float uBladeHeight;
+  uniform float uWindAmp;
   varying vec3 vColor;
 
   void main() {
     // Local position scaled by per-instance scale.
     vec3 pos = position * aScale;
     // Wind sway: more displacement at the tip than the root.
-    float tipBias = clamp(pos.y / 0.55, 0.0, 1.0);
-    float wind = sin(uTime * 1.4 + aPhase) * 0.10 * tipBias * tipBias;
-    float gust = sin(uTime * 0.7 + aPhase * 0.6) * 0.06 * tipBias;
+    float tipBias = clamp(pos.y / uBladeHeight, 0.0, 1.0);
+    float wind = sin(uTime * 1.4 + aPhase) * uWindAmp * tipBias * tipBias;
+    float gust = sin(uTime * 0.7 + aPhase * 0.6) * (uWindAmp * 0.6) * tipBias;
     pos.x += wind;
     pos.z += gust;
     // Rotate around Y by per-instance angle.
@@ -65,6 +67,17 @@ export interface GrassFieldOpts {
   /** Reject sampler — return true to skip this position (e.g. stream water). */
   reject?: (x: number, z: number) => boolean;
   seed?: number;
+  /** Blade height in meters. Default 0.55 (knee-high). Use 0.08–0.12 for ground cover. */
+  bladeHeight?: number;
+  /** Half-base width in meters. Default 0.04. */
+  bladeHalfBase?: number;
+  /** Per-instance scale jitter range. Default 0.85–1.4. */
+  scaleRange?: { min: number; max: number };
+  /** Wind sway tip-displacement (meters). Default 0.10; lower for short blades. */
+  windAmplitude?: number;
+  /** Override the per-instance color jitter palette. Each component is rgb min..max. */
+  baseColor?: { r: [number, number]; g: [number, number]; b: [number, number] };
+  tipColor?: { r: [number, number]; g: [number, number]; b: [number, number] };
 }
 
 export interface GrassField {
@@ -79,14 +92,25 @@ export interface GrassField {
 }
 
 export function createGrassField(terrain: Terrain, opts: GrassFieldOpts): GrassField {
-  const { count, extent, reject, seed = 0xa9 } = opts;
+  const {
+    count,
+    extent,
+    reject,
+    seed = 0xa9,
+    bladeHeight = DEFAULT_BLADE_HEIGHT,
+    bladeHalfBase = DEFAULT_BLADE_HALF_BASE,
+    scaleRange = { min: 0.85, max: 1.4 },
+    windAmplitude = 0.1,
+    baseColor = { r: [0.12, 0.18], g: [0.32, 0.44], b: [0.08, 0.13] },
+    tipColor = { r: [0.42, 0.52], g: [0.55, 0.73], b: [0.16, 0.24] },
+  } = opts;
 
   // Single-triangle blade in local space — base centered on origin, tip up.
   const baseGeom = new THREE.BufferGeometry();
   baseGeom.setAttribute(
     'position',
     new THREE.BufferAttribute(
-      new Float32Array([-BLADE_HALF_BASE, 0, 0, BLADE_HALF_BASE, 0, 0, 0, BLADE_HEIGHT, 0]),
+      new Float32Array([-bladeHalfBase, 0, 0, bladeHalfBase, 0, 0, 0, bladeHeight, 0]),
       3,
     ),
   );
@@ -116,18 +140,14 @@ export function createGrassField(terrain: Terrain, opts: GrassFieldOpts): GrassF
     offsets[placed * 3 + 2] = z;
     phases[placed] = rng.next() * Math.PI * 2;
     rotsY[placed] = rng.next() * Math.PI;
-    scales[placed] = 0.85 + rng.next() * 0.55;
+    scales[placed] = scaleRange.min + rng.next() * (scaleRange.max - scaleRange.min);
 
-    // Slight color variation per blade — base in dark green, tip in
-    // yellow-green. Small jitter avoids a flat lawn look.
-    const baseGreen = 0.32 + rng.next() * 0.12;
-    const tipGreen = 0.55 + rng.next() * 0.18;
-    colorBase[placed * 3 + 0] = 0.12 + rng.next() * 0.06;
-    colorBase[placed * 3 + 1] = baseGreen;
-    colorBase[placed * 3 + 2] = 0.08 + rng.next() * 0.05;
-    colorTip[placed * 3 + 0] = 0.42 + rng.next() * 0.1;
-    colorTip[placed * 3 + 1] = tipGreen;
-    colorTip[placed * 3 + 2] = 0.16 + rng.next() * 0.08;
+    colorBase[placed * 3 + 0] = baseColor.r[0] + rng.next() * (baseColor.r[1] - baseColor.r[0]);
+    colorBase[placed * 3 + 1] = baseColor.g[0] + rng.next() * (baseColor.g[1] - baseColor.g[0]);
+    colorBase[placed * 3 + 2] = baseColor.b[0] + rng.next() * (baseColor.b[1] - baseColor.b[0]);
+    colorTip[placed * 3 + 0] = tipColor.r[0] + rng.next() * (tipColor.r[1] - tipColor.r[0]);
+    colorTip[placed * 3 + 1] = tipColor.g[0] + rng.next() * (tipColor.g[1] - tipColor.g[0]);
+    colorTip[placed * 3 + 2] = tipColor.b[0] + rng.next() * (tipColor.b[1] - tipColor.b[0]);
 
     placed++;
   }
@@ -156,6 +176,8 @@ export function createGrassField(terrain: Terrain, opts: GrassFieldOpts): GrassF
       uSunIntensity: { value: 1.0 },
       uAmbientColor: { value: new THREE.Color(0xffffff) },
       uAmbientIntensity: { value: 0.5 },
+      uBladeHeight: { value: bladeHeight },
+      uWindAmp: { value: windAmplitude },
     },
     vertexShader: BASE_VS,
     fragmentShader: BASE_FS,

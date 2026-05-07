@@ -166,6 +166,12 @@ async function bootstrap(): Promise<void> {
   });
   renderer.scene.add(grass.mesh);
 
+  // Ground-cover grass layer is created AFTER the scatter promises settle
+  // (since it needs every placement's exclusion radius). The array starts
+  // empty and the per-frame tick iterates it, so we don't have to gate the
+  // game loop on async asset loading.
+  const grassCovers: ReturnType<typeof createGrassField>[] = [];
+
   // ---- Vendors ----
   const vendors = createVendors(renderer.scene, (x, z) => terrain.getHeightAt(x, z));
 
@@ -218,6 +224,7 @@ async function bootstrap(): Promise<void> {
         ],
         scale: { min: 0.7, max: 1.4 },
         reject,
+        exclusionRadius: (s) => 1.4 * s,
       },
       0xa1,
     ),
@@ -230,6 +237,7 @@ async function bootstrap(): Promise<void> {
         scale: { min: 0.6, max: 1.6 },
         yOffset: -0.05,
         reject,
+        exclusionRadius: (s) => 0.9 * s,
       },
       0xa2,
     ),
@@ -259,6 +267,7 @@ async function bootstrap(): Promise<void> {
         models: ASSETS.vegetation.grass,
         scale: { min: 0.6, max: 1.2 },
         reject,
+        exclusionRadius: (s) => 0.4 * s,
       },
       0xa4,
     ),
@@ -274,6 +283,7 @@ async function bootstrap(): Promise<void> {
         ],
         scale: { min: 0.6, max: 1.2 },
         reject,
+        exclusionRadius: (s) => 0.7 * s,
       },
       0xa5,
     ),
@@ -285,6 +295,7 @@ async function bootstrap(): Promise<void> {
         models: [...ASSETS.vegetation.flowers, ...ASSETS.vegetation.mushrooms],
         scale: { min: 0.7, max: 1.3 },
         reject,
+        exclusionRadius: (s) => 0.3 * s,
       },
       0xa6,
     ),
@@ -293,6 +304,29 @@ async function bootstrap(): Promise<void> {
     .then((results) => {
       const total = results.reduce((sum, r) => sum + r.placed, 0);
       console.log(`[scatter] environment populated (${total} instances)`);
+
+      // Build a spatial grid of every scatter placement and create the
+      // ground-cover grass layer that fills *between* the megakit detail.
+      const allPositions = results.flatMap((r) => r.positions);
+      const exclusion = buildExclusionGrid(allPositions);
+      const grassCover = createGrassField(terrain, {
+        count: 28000,
+        extent: 95,
+        seed: 0xb1,
+        bladeHeight: 0.11,
+        bladeHalfBase: 0.018,
+        scaleRange: { min: 0.7, max: 1.4 },
+        windAmplitude: 0.025,
+        // Ground-cover blades are short, so go a bit darker / less vivid
+        // than the tall layer — they read as moss/lawn underlayer rather
+        // than fresh prairie growth.
+        baseColor: { r: [0.1, 0.16], g: [0.26, 0.38], b: [0.07, 0.12] },
+        tipColor: { r: [0.36, 0.46], g: [0.5, 0.62], b: [0.16, 0.22] },
+        reject: (x, z) => streams.isInStreamZone(x, z, 0.5) || exclusion.isExcluded(x, z),
+      });
+      renderer.scene.add(grassCover.mesh);
+      grassCovers.push(grassCover);
+      console.log(`[grass-cover] ready; ${allPositions.length} exclusion zones`);
     })
     .catch((err) => console.error('[scatter] failed', err));
 
@@ -508,13 +542,15 @@ async function bootstrap(): Promise<void> {
         weather: weather.getView(),
         gearTier: gameStore.getState().save.equipment.ownedTiers.gear,
       });
-      grass.update({
+      const grassLight = {
         time: worldTime,
         sunColor: renderer.sun.color,
         sunIntensity: renderer.sun.intensity,
         ambientColor: renderer.ambient.color,
         ambientIntensity: renderer.ambient.intensity,
-      });
+      };
+      grass.update(grassLight);
+      for (const cover of grassCovers) cover.update(grassLight);
 
       // 10. Session state machine — dialogue → store → vendor → prospecting → camp → idle.
       if (inDialogueSession) {
@@ -873,6 +909,47 @@ function buildStoreOverlay(
     };
   });
   return { rows, selectedIndex: selectionIdx, walletBalance };
+}
+
+// Spatial-grid index of every scatter placement, used by the ground-cover
+// grass field to skip positions inside trees, rocks, bushes, etc. Cells are
+// 3m on a side; isExcluded() checks the candidate cell + its 8 neighbors so
+// large radii at cell corners still get caught.
+function buildExclusionGrid(
+  positions: { x: number; z: number; radius: number }[],
+  cellSize = 3,
+): { isExcluded(x: number, z: number): boolean } {
+  const grid = new Map<string, { x: number; z: number; radius: number }[]>();
+  const key = (cx: number, cz: number): string => `${cx},${cz}`;
+  for (const p of positions) {
+    const cx = Math.floor(p.x / cellSize);
+    const cz = Math.floor(p.z / cellSize);
+    const k = key(cx, cz);
+    let bucket = grid.get(k);
+    if (!bucket) {
+      bucket = [];
+      grid.set(k, bucket);
+    }
+    bucket.push(p);
+  }
+  return {
+    isExcluded(x, z) {
+      const cx = Math.floor(x / cellSize);
+      const cz = Math.floor(z / cellSize);
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dz = -1; dz <= 1; dz++) {
+          const bucket = grid.get(key(cx + dx, cz + dz));
+          if (!bucket) continue;
+          for (const p of bucket) {
+            const ex = p.x - x;
+            const ez = p.z - z;
+            if (ex * ex + ez * ez < p.radius * p.radius) return true;
+          }
+        }
+      }
+      return false;
+    },
+  };
 }
 
 // Snapshot of the dialogue UI for the HUD: speaker, body line, and the list
