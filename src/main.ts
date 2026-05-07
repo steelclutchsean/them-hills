@@ -44,6 +44,7 @@ import type { SaveV1 } from '@/save/schema';
 import { gameStore } from '@/state/store';
 import { mountHud } from '@/ui/hud';
 import { mountMinimap, type MinimapLandmark, type MinimapStream } from '@/ui/minimap';
+import { createAudioSystem } from '@/audio/system';
 
 async function bootstrap(): Promise<void> {
   const canvas = document.getElementById('game-canvas') as HTMLCanvasElement | null;
@@ -366,7 +367,24 @@ async function bootstrap(): Promise<void> {
     initialPitch: 0.25,
   });
 
+  // ---- Audio system ----
+  // Browser audio policy requires a user gesture before AudioContext can
+  // produce sound, so we wire tryEnable() into the existing canvas click
+  // handler (and the first keydown) — first interaction unlocks audio
+  // for the rest of the session.
+  const audio = createAudioSystem();
+  let audioEnabledOnce = false;
+  function nudgeAudioEnabled(): void {
+    audio.tryEnable();
+    if (audio.isEnabled() && !audioEnabledOnce) {
+      audioEnabledOnce = true;
+      console.log('[audio] enabled');
+    }
+  }
+  window.addEventListener('keydown', nudgeAudioEnabled, { once: false });
+
   canvas.addEventListener('click', () => {
+    nudgeAudioEnabled();
     if (document.pointerLockElement !== canvas) {
       canvas.requestPointerLock?.();
     }
@@ -568,10 +586,30 @@ async function bootstrap(): Promise<void> {
       mine.update(worldTime, nearMine);
       camp.update(worldTime, nearCamp);
 
-      // 8. Survival meter drain + stream-site epoch check
+      // 8. Survival meter drain + stream-site epoch check + audio ambient
       const inStreamWater = streams.isPlayerInAnyStream(charPos);
       gameStore.getState().tickMeters(dt, inStreamWater);
       streams.setEpoch(Math.floor(worldTime / SITE_EPOCH_SEC));
+      // Distance to the nearest stream water rectangle; 0 if standing in water.
+      let nearestStreamDist = Infinity;
+      for (const sCfg of STREAM_CONFIGS) {
+        const dCross =
+          sCfg.orientation === 'NS'
+            ? Math.abs(charPos.x - sCfg.centerX)
+            : Math.abs(charPos.z - sCfg.centerZ);
+        const dAlong =
+          sCfg.orientation === 'NS'
+            ? Math.abs(charPos.z - sCfg.centerZ)
+            : Math.abs(charPos.x - sCfg.centerX);
+        const dx = Math.max(0, dCross - sCfg.halfWidth);
+        const dz = Math.max(0, dAlong - sCfg.halfLength);
+        const d = Math.hypot(dx, dz);
+        if (d < nearestStreamDist) nearestStreamDist = d;
+      }
+      audio.update({
+        distanceToNearestStream: nearestStreamDist,
+        weatherIntensity: weather.getView().intensity,
+      });
 
       // 9. Site richness regen + weather + sky + headlamp + grass
       gameStore.getState().regenSites(dt, worldTime);
@@ -620,13 +658,16 @@ async function bootstrap(): Promise<void> {
           }
           if (toolNextJustPressed && opts.length > 0) {
             dialogue!.selectionIdx = (dialogue!.selectionIdx + 1) % opts.length;
+            audio.playUITap();
           }
           if (toolPrevJustPressed && opts.length > 0) {
             dialogue!.selectionIdx = (dialogue!.selectionIdx - 1 + opts.length) % opts.length;
+            audio.playUITap();
           }
           if (interactJustPressed && node) {
             const resolved = opts[dialogue!.selectionIdx];
             if (resolved && resolved.enabled) {
+              audio.playUITap();
               const action = resolved.source.action;
               if (action.kind === 'leave') {
                 dialogue = null;
@@ -658,12 +699,14 @@ async function bootstrap(): Promise<void> {
                 gameStore.getState().acceptQuest(action.questId, worldTime);
                 dialogue!.currentNodeId = action.acceptedNode ?? 'questAccepted';
                 dialogue!.selectionIdx = 0;
+                audio.playConfirm();
                 console.log(`[quest] accepted ${action.questId}`);
               } else if (action.kind === 'turnInQuest') {
                 const reward = gameStore.getState().turnInQuest(action.questId, worldTime);
                 if (reward > 0) {
                   dialogue!.currentNodeId = action.completeNode ?? 'questComplete';
                   dialogue!.selectionIdx = 0;
+                  audio.playQuestChime();
                   console.log(`[quest] turned in ${action.questId} for $${reward.toFixed(2)}`);
                 }
               }
@@ -677,10 +720,12 @@ async function bootstrap(): Promise<void> {
         } else {
           if (toolNextJustPressed) {
             storeSelectionIdx = (storeSelectionIdx + 1) % ALL_CATEGORIES.length;
+            audio.playUITap();
           }
           if (toolPrevJustPressed) {
             storeSelectionIdx =
               (storeSelectionIdx - 1 + ALL_CATEGORIES.length) % ALL_CATEGORIES.length;
+            audio.playUITap();
           }
           if (interactJustPressed) {
             const category = ALL_CATEGORIES[storeSelectionIdx]!;
@@ -691,6 +736,7 @@ async function bootstrap(): Promise<void> {
                 .getState()
                 .purchaseUpgrade(category, next.cost, next.toTier, worldTime);
               if (ok) {
+                audio.playConfirm();
                 console.log(
                   `[store] purchased ${category} ${next.label} for $${next.cost.toFixed(2)}`,
                 );
@@ -708,6 +754,7 @@ async function bootstrap(): Promise<void> {
           const carry = gameStore.getState().save.inventory.carry.gold;
           const totalG = carry.flake_g + carry.picker_g + carry.nugget_g;
           if (totalG > 1e-6) {
+            audio.playConfirm();
             const result = gameStore
               .getState()
               .sellAllCarry(
