@@ -34,6 +34,23 @@ export type MinigameViz =
       lastSwingScore: number;
       /** True when the equipped shovel is at T3 (visualized as a pickaxe). */
       isPickaxe: boolean;
+    }
+  | {
+      kind: 'classify';
+      /** 0..1 cyclic phase within the beat period. Beat moment lands at 0.5. */
+      beatPhase: number;
+      beatPeriod: number;
+      tapsRemaining: number;
+      /** Number of visible sieves in the classifier (1, 3, or 5 per tier). */
+      layerCount: 1 | 3 | 5;
+      /** Which layer the current taps are scoring against (0 = upper, 1 = lower). */
+      currentLayer: number;
+      /** Tight scoring window in seconds (perfect tap distance). */
+      tightWindowSec: number;
+      /** Seconds since the most recent tap — drives flash animation. */
+      lastTapFlashSec: number;
+      /** Score of the most recent tap in [0.5, 2.0]. 0 if no tap yet. */
+      lastTapScore: number;
     };
 
 export interface MinigameProgress {

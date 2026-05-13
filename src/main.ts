@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import {
   ALL_CATEGORIES,
   EQUIPMENT,
@@ -28,8 +29,13 @@ import { createInn } from '@/game/inn';
 import { createMineEntrance } from '@/game/mine';
 import { createOldPete } from '@/game/old-pete';
 import { createProspectingController } from '@/game/prospecting';
+import { createClassifyMeterView } from '@/game/minigames/classify-meter';
 import { createDigMeterView } from '@/game/minigames/dig-meter';
-import { createPickaxeMesh, createShovelMesh } from '@/game/minigames/tool-models';
+import {
+  createClassifierMesh,
+  createPickaxeMesh,
+  createShovelMesh,
+} from '@/game/minigames/tool-models';
 import { scatterAssets } from '@/game/scatter';
 import { SKY_SECONDS_PER_DAY, createSkyController, formatClock, getSkyHour } from '@/game/sky';
 import { createStream, createStreamRegistry, type StreamConfig } from '@/game/stream';
@@ -394,8 +400,21 @@ async function bootstrap(): Promise<void> {
   pickaxeMesh.visible = false;
   renderer.camera.add(shovelMesh);
   renderer.camera.add(pickaxeMesh);
+  // Classifier viewmodels — one per tier so we can swap by tier on entry
+  // without rebuilding geometry mid-frame. Each one hidden by default.
+  const classifierMeshes: Record<1 | 2 | 3, THREE.Group> = {
+    1: createClassifierMesh(1),
+    2: createClassifierMesh(2),
+    3: createClassifierMesh(3),
+  };
+  for (const m of Object.values(classifierMeshes)) {
+    m.visible = false;
+    renderer.camera.add(m);
+  }
   const digMeter = createDigMeterView();
   renderer.camera.add(digMeter.group);
+  const classifyMeter = createClassifyMeterView();
+  renderer.camera.add(classifyMeter.group);
   let prospectWasActive = false;
 
   // ---- Audio system ----
@@ -570,29 +589,46 @@ async function bootstrap(): Promise<void> {
         cameraMode.exitProspectView();
         shovelMesh.visible = false;
         pickaxeMesh.visible = false;
+        for (const m of Object.values(classifierMeshes)) m.visible = false;
         digMeter.setVisible(false);
+        classifyMeter.setVisible(false);
       }
       prospectWasActive = prospecting;
 
       if (prospecting) {
         cameraMode.updateProspectView(charPosForCamera);
-        // Drive per-stage viewmodels from the latest snapshot. Stage swap
-        // is implicit — we read snapshot.step and snapshot.viz each frame.
+        // Drive per-stage viewmodels from the latest snapshot. Each stage
+        // shows its own tool + meter; everything else stays hidden.
         const snap = prospect.getSnapshot();
         if (snap) {
-          const isDig = snap.step === 'dig' && snap.viz?.kind === 'dig';
-          if (isDig && snap.viz?.kind === 'dig') {
-            const usePickaxe = snap.viz.isPickaxe;
+          const v = snap.viz;
+          // DIG ----------------------------------------------------------
+          if (v?.kind === 'dig') {
+            const usePickaxe = v.isPickaxe;
             shovelMesh.visible = !usePickaxe;
             pickaxeMesh.visible = usePickaxe;
-            digMeter.update(snap.viz);
+            for (const m of Object.values(classifierMeshes)) m.visible = false;
+            digMeter.update(v);
             digMeter.setVisible(true);
-          } else {
-            // Outside the dig stage (M3): hide dig tools + meter. M4–M6
-            // will swap in their own viewmodels for later stages.
+            classifyMeter.setVisible(false);
+          } else if (v?.kind === 'classify') {
+            // CLASSIFY ---------------------------------------------------
             shovelMesh.visible = false;
             pickaxeMesh.visible = false;
+            const tierKey: 1 | 2 | 3 = v.layerCount === 1 ? 1 : v.layerCount === 3 ? 2 : 3;
+            for (const [k, m] of Object.entries(classifierMeshes)) {
+              m.visible = Number(k) === tierKey;
+            }
+            classifyMeter.update(v);
+            classifyMeter.setVisible(true);
             digMeter.setVisible(false);
+          } else {
+            // PAN / COLLECT — M5/M6 stubs, no viewmodel yet.
+            shovelMesh.visible = false;
+            pickaxeMesh.visible = false;
+            for (const m of Object.values(classifierMeshes)) m.visible = false;
+            digMeter.setVisible(false);
+            classifyMeter.setVisible(false);
           }
         }
       } else {
