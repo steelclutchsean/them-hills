@@ -1,18 +1,23 @@
-// Save schema v2 — v1 is documented in /save-schema-v1.md.
+// Save schema v3 — v1 is documented in /save-schema-v1.md.
 // Every PR that bumps CURRENT_SAVE_VERSION must add a migrator and a fixture test.
 //
 // v2 changes:
 //   - EquipmentState.ownedTiers gains `headlamp: 1 | 2`. Standalone item,
 //     purchasable from the General Store. Existing saves with gear ≥ 2
 //     auto-grant headlamp = 2 in the migrator to preserve old behavior.
+// v3 changes:
+//   - SiteState replaces continuous `richnessRemaining` with discrete
+//     `digsRemaining` + `maxDigs`. Each site rolls maxDigs ∈ [3, 15] at
+//     creation; each pan decrements digsRemaining by 1; the site
+//     visually vanishes at 0. Daily in-game midnight respawns all sites.
 
-export const CURRENT_SAVE_VERSION = 2;
+export const CURRENT_SAVE_VERSION = 3;
 export const BUILD_VERSION = '0.1.12-phase10b';
 
 // ---------- Top-level shape ----------
 
 export interface SaveV1 {
-  version: 2;
+  version: 3;
   metadata: SaveMetadata;
   player: PlayerState;
   inventory: InventoryState;
@@ -133,7 +138,13 @@ export type Season = 'spring' | 'summer' | 'fall' | 'winter';
 export type WeatherState = 'clear' | 'overcast' | 'rain' | 'fog' | 'snow';
 
 export interface SiteState {
-  richnessRemaining: number;
+  /** How many more pans this site can take before it visually vanishes.
+   *  Decremented by 1 per pan; site disappears at 0; daily midnight
+   *  respawn regenerates fresh sites with a new maxDigs roll. */
+  digsRemaining: number;
+  /** Initial roll for this site (random 3–15 for streams, 8–15 for
+   *  mines). Used to compute the per-dig yield falloff. */
+  maxDigs: number;
   lastWorkedAt: number;
   totalTimesWorked: number;
 }
@@ -249,7 +260,7 @@ export function createDefaultSave(): SaveV1 {
   const now = Date.now();
   const seed = Math.floor(Math.random() * 2 ** 31);
   return {
-    version: 2,
+    version: 3,
     metadata: {
       createdAt: now,
       lastSavedAt: now,

@@ -23,6 +23,32 @@ const migrators: Record<number, MigratorFn> = {
       },
     };
   },
+  // v2 → v3: SiteState swaps continuous `richnessRemaining` for discrete
+  // `digsRemaining` + `maxDigs`. Convert each existing site: maxDigs
+  // defaults to 10; digsRemaining = ceil(richnessRemaining × 10) so a
+  // partially-depleted site stays partially-depleted.
+  2: (v2) => {
+    const world = (v2.world as Record<string, unknown>) ?? {};
+    const sites = (world.sites as Record<string, Record<string, unknown>>) ?? {};
+    const migrated: Record<string, unknown> = {};
+    for (const [id, site] of Object.entries(sites)) {
+      const richness =
+        typeof site.richnessRemaining === 'number' ? (site.richnessRemaining as number) : 1;
+      const maxDigs = 10;
+      const digsRemaining = Math.max(0, Math.min(maxDigs, Math.ceil(richness * maxDigs)));
+      migrated[id] = {
+        digsRemaining,
+        maxDigs,
+        lastWorkedAt: site.lastWorkedAt ?? 0,
+        totalTimesWorked: site.totalTimesWorked ?? 0,
+      };
+    }
+    return {
+      ...v2,
+      version: 3,
+      world: { ...world, sites: migrated },
+    };
+  },
 };
 
 export function migrate(raw: unknown): SaveV1 {

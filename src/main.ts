@@ -165,11 +165,13 @@ async function bootstrap(): Promise<void> {
   for (const s of streamList) renderer.scene.add(s.group);
   const streams = createStreamRegistry(streamList);
 
-  // Site respawn: every 12 in-game hours, all streams regenerate fresh sites
-  // at new positions. SKY_SECONDS_PER_DAY/2 real-seconds = one epoch.
-  const SITE_EPOCH_SEC = SKY_SECONDS_PER_DAY / 2;
-  const initialEpoch = Math.floor(gameStore.getState().save.world.gameTime / SITE_EPOCH_SEC);
-  streams.setEpoch(initialEpoch);
+  // Site respawn: every in-game midnight, all streams regenerate fresh
+  // sites at new positions. The epoch number = day index (worldTime in
+  // real-seconds, SKY_SECONDS_PER_DAY = real-seconds per in-game day).
+  // Sites also vanish in-day once their digsRemaining hits 0 — see
+  // state/store touchSite + stream.ts marker visibility.
+  let currentDay = Math.floor(gameStore.getState().save.world.gameTime / SKY_SECONDS_PER_DAY);
+  streams.setEpoch(currentDay);
 
   // ---- Grass field (instanced blades) ----
   const grass = createGrassField(terrain, {
@@ -718,6 +720,10 @@ async function bootstrap(): Promise<void> {
         worldTime,
         charPos,
         prospecting ? (prospect.getSnapshot()?.siteId ?? null) : (nearestSite?.site.id ?? null),
+        (siteId) => {
+          const s = gameStore.getState().save.world.sites[siteId];
+          return s !== undefined && s.digsRemaining <= 0;
+        },
       );
       vendors.update(worldTime, activeVendor?.id ?? nearestVendor?.vendor.id ?? null);
       generalStore.update(worldTime, storeOpen || nearStore);
@@ -726,10 +732,16 @@ async function bootstrap(): Promise<void> {
       mine.update(worldTime, nearMine);
       camp.update(worldTime, nearCamp);
 
-      // 8. Survival meter drain + stream-site epoch check + audio ambient
+      // 8. Survival meter drain + daily site respawn + audio ambient
       const inStreamWater = streams.isPlayerInAnyStream(charPos);
       gameStore.getState().tickMeters(dt, inStreamWater);
-      streams.setEpoch(Math.floor(worldTime / SITE_EPOCH_SEC));
+      // Midnight respawn: when the in-game day index advances, regenerate
+      // every stream's sites at fresh positions with a new maxDigs roll.
+      const dayNow = Math.floor(worldTime / SKY_SECONDS_PER_DAY);
+      if (dayNow !== currentDay) {
+        currentDay = dayNow;
+        streams.setEpoch(currentDay);
+      }
       // Distance to the nearest stream water rectangle; 0 if standing in water.
       let nearestStreamDist = Infinity;
       for (const sCfg of STREAM_CONFIGS) {
@@ -766,8 +778,9 @@ async function bootstrap(): Promise<void> {
         footstepTimer = 0;
       }
 
-      // 9. Site richness regen + weather + sky + headlamp + grass + shadows
-      gameStore.getState().regenSites(dt, worldTime);
+      // 9. Weather + sky + headlamp + grass + shadows. Sites no longer
+      // regen continuously — they vanish on full depletion and respawn
+      // wholesale at the next in-game midnight (handled above).
       weather.update(worldTime, dt, charPos);
       sky.update(worldTime, weather.getView());
 
@@ -959,7 +972,7 @@ async function bootstrap(): Promise<void> {
           if (result) {
             gameStore.getState().addGoldToCarry(result.reward);
             gameStore.getState().applyGoldToQuests(result.reward);
-            gameStore.getState().touchSite(result.siteId, result.richnessDepletion, worldTime);
+            gameStore.getState().touchSite(result.siteId, worldTime);
             const totalG = result.reward.flake_g + result.reward.picker_g + result.reward.nugget_g;
             const scoreFmt = result.stageScores.map((s) => s.toFixed(2)).join(' / ');
             console.log(
@@ -998,25 +1011,33 @@ async function bootstrap(): Promise<void> {
         );
       } else if (nearestSite && interactJustPressed) {
         const site = gameStore.getState().getOrCreateSite(nearestSite.site.id);
-        const actionCount = gameStore.getState().incrementPanCount();
-        const firstEver = actionCount === 1;
-        const equipMult = computeYieldMultiplier(gameStore.getState().save.equipment.ownedTiers);
-        const survivalMult = computeSurvivalYieldFactor(gameStore.getState().save.player.meters);
-        const siteBonus = nearestSite.site.bonusYield ?? 1.0;
-        const yieldMultiplier = equipMult * survivalMult * siteBonus;
-        prospect.start({
-          siteId: nearestSite.site.id,
-          siteRichness: site.richnessRemaining,
-          actionCount,
-          firstEver,
-          yieldMultiplier,
-          toolTiers: gameStore.getState().save.equipment.ownedTiers,
-        });
-        audio.playSplash();
-        const bonusTag = siteBonus !== 1 ? ` × site${siteBonus.toFixed(2)}` : '';
-        console.log(
-          `[prospect] start ${nearestSite.site.id} (richness=${site.richnessRemaining.toFixed(2)}, firstEver=${firstEver}, yield=${yieldMultiplier.toFixed(2)} = equip${equipMult.toFixed(2)} × survival${survivalMult.toFixed(2)}${bonusTag})`,
-        );
+        // Skip if this site has already been depleted (digsRemaining=0).
+        // Defensive — the proximity probe in stream.ts also hides depleted
+        // markers, so this branch should rarely fire.
+        if (site.digsRemaining <= 0) {
+          console.log(`[prospect] site ${nearestSite.site.id} is depleted`);
+        } else {
+          const actionCount = gameStore.getState().incrementPanCount();
+          const firstEver = actionCount === 1;
+          const equipMult = computeYieldMultiplier(gameStore.getState().save.equipment.ownedTiers);
+          const survivalMult = computeSurvivalYieldFactor(gameStore.getState().save.player.meters);
+          const siteBonus = nearestSite.site.bonusYield ?? 1.0;
+          const yieldMultiplier = equipMult * survivalMult * siteBonus;
+          prospect.start({
+            siteId: nearestSite.site.id,
+            digsRemaining: site.digsRemaining,
+            maxDigs: site.maxDigs,
+            actionCount,
+            firstEver,
+            yieldMultiplier,
+            toolTiers: gameStore.getState().save.equipment.ownedTiers,
+          });
+          audio.playSplash();
+          const bonusTag = siteBonus !== 1 ? ` × site${siteBonus.toFixed(2)}` : '';
+          console.log(
+            `[prospect] start ${nearestSite.site.id} (digs=${site.digsRemaining}/${site.maxDigs}, firstEver=${firstEver}, yield=${yieldMultiplier.toFixed(2)} = equip${equipMult.toFixed(2)} × survival${survivalMult.toFixed(2)}${bonusTag})`,
+          );
+        }
       }
 
       // 11. HUD

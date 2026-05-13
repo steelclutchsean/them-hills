@@ -34,8 +34,6 @@ const PAN_QUALITY_FLAKE = 0.85;
 const PAN_QUALITY_PICKER = 0.13;
 const PAN_QUALITY_NUGGET = 0.02;
 
-const RICHNESS_DEPLETION_PER_PROSPECT = 0.08;
-
 export interface ProspectingSnapshot {
   active: boolean;
   siteId: string;
@@ -68,7 +66,6 @@ export interface ProspectingFrameInput {
 export interface ProspectingResult {
   siteId: string;
   reward: GoldStash;
-  richnessDepletion: number;
   /** Per-stage skill scores in [0.5, 2.0] (4 entries) — for logging / tuning. */
   stageScores: readonly number[];
   /** Combined skillBonus (geometric mean of stageScores). */
@@ -85,7 +82,12 @@ export interface ProspectingController {
   getSnapshot(): ProspectingSnapshot | null;
   start(opts: {
     siteId: string;
-    siteRichness: number;
+    /** Dig-count remaining on this site BEFORE the current dig (used by
+     *  the yield formula's per-dig falloff curve). */
+    digsRemaining: number;
+    /** Initial roll of digsRemaining for this site (the denominator of
+     *  the per-dig falloff). */
+    maxDigs: number;
     actionCount: number;
     firstEver: boolean;
     /** Geometric mean of active tool tier multipliers (T1=1.00 baseline). */
@@ -99,7 +101,8 @@ export interface ProspectingController {
 
 interface Session {
   siteId: string;
-  siteRichness: number;
+  digsRemaining: number;
+  maxDigs: number;
   actionCount: number;
   firstEver: boolean;
   yieldMultiplier: number;
@@ -154,8 +157,12 @@ export function createProspectingController(
     const rng = createRng(seed);
 
     const skillBonus = combineStageScores(session.stageScores);
-    const richnessFactor = 0.2 + 0.8 * session.siteRichness;
-    let totalGrams = BASE_YIELD_GRAMS * richnessFactor * skillBonus * session.yieldMultiplier;
+    // Per-dig falloff: a fresh site yields 1.0× of base; the last
+    // available dig yields ~0.4× so late digs still feel like the seam
+    // is running out. Curve runs digsRemaining → digCountFactor.
+    const digRatio = session.maxDigs > 0 ? session.digsRemaining / session.maxDigs : 0;
+    const digCountFactor = 0.4 + 0.6 * Math.max(0, Math.min(1, digRatio));
+    let totalGrams = BASE_YIELD_GRAMS * digCountFactor * skillBonus * session.yieldMultiplier;
 
     // Rig the very first prospect ever: at least one visible flake.
     if (session.firstEver && totalGrams < 0.05) {
@@ -172,7 +179,6 @@ export function createProspectingController(
     const result: ProspectingResult = {
       siteId: session.siteId,
       reward,
-      richnessDepletion: RICHNESS_DEPLETION_PER_PROSPECT,
       stageScores: [...session.stageScores],
       skillBonus,
     };
@@ -184,7 +190,7 @@ export function createProspectingController(
   return {
     isActive: () => session !== null,
     getSnapshot: snapshot,
-    start({ siteId, siteRichness, actionCount, firstEver, yieldMultiplier, toolTiers }) {
+    start({ siteId, digsRemaining, maxDigs, actionCount, firstEver, yieldMultiplier, toolTiers }) {
       if (session !== null) return false;
       const stages = [
         createDigMinigame(),
@@ -203,7 +209,8 @@ export function createProspectingController(
       stages[0].start(stageTiers[0]!);
       session = {
         siteId,
-        siteRichness: Math.max(0, Math.min(1, siteRichness)),
+        digsRemaining: Math.max(0, digsRemaining),
+        maxDigs: Math.max(1, maxDigs),
         actionCount,
         firstEver,
         yieldMultiplier,

@@ -67,7 +67,15 @@ export interface Stream {
   group: THREE.Group;
   /** Currently-visible sites. Replaced wholesale by setEpoch(). */
   sites: readonly PanningSite[];
-  update(time: number, playerPos: THREE.Vector3, focusedSiteId: string | null): void;
+  update(
+    time: number,
+    playerPos: THREE.Vector3,
+    focusedSiteId: string | null,
+    /** Look up site dig-state for marker visibility. Sites with
+     *  digsRemaining <= 0 hide their marker AND drop out of
+     *  findNearestSite results until the next midnight respawn. */
+    isDepleted: (siteId: string) => boolean,
+  ): void;
   findNearestSite(playerPos: THREE.Vector3): { site: PanningSite; distance: number } | null;
   /**
    * Swap in a fresh set of sites at new positions seeded by (epoch, streamId).
@@ -333,9 +341,15 @@ export function createStream(terrain: Terrain, cfg: StreamConfig): Stream {
     get sites() {
       return sites;
     },
-    update(time, playerPos, focusedSiteId) {
+    update(time, playerPos, focusedSiteId, isDepleted) {
       waterMat.uniforms.uTime!.value = time;
       for (const site of sites) {
+        const depleted = isDepleted(site.id);
+        if (depleted) {
+          site.marker.visible = false;
+          continue;
+        }
+        site.marker.visible = true;
         const isFocused = site.id === focusedSiteId;
         const dx = site.position.x - playerPos.x;
         const dz = site.position.z - playerPos.z;
@@ -351,6 +365,7 @@ export function createStream(terrain: Terrain, cfg: StreamConfig): Stream {
     findNearestSite(playerPos) {
       let best: { site: PanningSite; distance: number } | null = null;
       for (const site of sites) {
+        if (!site.marker.visible) continue; // depleted sites don't probe
         const dx = site.position.x - playerPos.x;
         const dz = site.position.z - playerPos.z;
         const d = Math.hypot(dx, dz);
@@ -386,7 +401,12 @@ function stringHash(s: string): number {
 
 export interface StreamRegistry {
   streams: readonly Stream[];
-  update(time: number, playerPos: THREE.Vector3, focusedSiteId: string | null): void;
+  update(
+    time: number,
+    playerPos: THREE.Vector3,
+    focusedSiteId: string | null,
+    isDepleted: (siteId: string) => boolean,
+  ): void;
   findNearestSite(playerPos: THREE.Vector3): { site: PanningSite; distance: number } | null;
   isPlayerInAnyStream(playerPos: { x: number; z: number }): boolean;
   /** True if (x, z) is within `padding` meters of any stream's water surface. */
@@ -400,8 +420,8 @@ export interface StreamRegistry {
 export function createStreamRegistry(streams: Stream[]): StreamRegistry {
   return {
     streams,
-    update(time, playerPos, focusedSiteId) {
-      for (const s of streams) s.update(time, playerPos, focusedSiteId);
+    update(time, playerPos, focusedSiteId, isDepleted) {
+      for (const s of streams) s.update(time, playerPos, focusedSiteId, isDepleted);
     },
     findNearestSite(playerPos) {
       let best: { site: PanningSite; distance: number } | null = null;
