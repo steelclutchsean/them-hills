@@ -863,10 +863,15 @@ async function bootstrap(): Promise<void> {
       gameStore.getState().tickMeters(dt, inStreamWater);
       // Midnight respawn: when the in-game day index advances, regenerate
       // every stream's sites at fresh positions with a new maxDigs roll.
+      // Tied to worldTime (in-game seconds, not IRL clock).
       const dayNow = Math.floor(worldTime / SKY_SECONDS_PER_DAY);
       if (dayNow !== currentDay) {
         currentDay = dayNow;
         streams.setEpoch(currentDay);
+        const hour = getSkyHour(worldTime);
+        console.log(
+          `[sites] respawned at in-game midnight (day ${currentDay}, worldTime=${worldTime.toFixed(1)}s, hour=${hour.toFixed(2)})`,
+        );
       }
       // Distance to the nearest stream water rectangle; 0 if standing in water.
       let nearestStreamDist = Infinity;
