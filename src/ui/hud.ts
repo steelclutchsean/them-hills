@@ -153,16 +153,90 @@ function makeBar(value: number, length = BAR_LENGTH): string {
 const STYLE = `
   .hud-info, .hud-inventory {
     position: fixed;
-    font-size: 13px;
-    line-height: 1.6;
     color: rgba(255,255,255,0.92);
-    text-shadow: 0 1px 2px rgba(0,0,0,0.85);
     pointer-events: none;
     user-select: none;
     font-variant-numeric: tabular-nums;
+    background: rgba(10, 12, 14, 0.62);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    padding: 10px 14px;
+    backdrop-filter: blur(6px);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+    font-size: 13px;
+    line-height: 1.5;
   }
-  .hud-info { top: 12px; left: 12px; max-width: 40vw; }
-  .hud-inventory { top: 12px; right: 12px; min-width: 200px; text-align: right; }
+  .hud-info { top: 12px; left: 12px; max-width: 28vw; min-width: 220px; }
+  .hud-inventory { top: 12px; right: 12px; min-width: 220px; text-align: left; }
+  /* Section titles for both info + inventory cards. */
+  .hud-info .card-title, .hud-inventory .card-title {
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #c89b3b;
+    margin-bottom: 8px;
+    font-weight: 600;
+  }
+  /* Default row layout: label on the left, value on the right. */
+  .hud-info .row, .hud-inventory .row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .hud-info .row .label, .hud-inventory .row .label {
+    color: rgba(255, 255, 255, 0.62);
+    font-size: 12px;
+  }
+  .hud-info .row .val, .hud-inventory .row .val {
+    color: rgba(255, 255, 255, 0.96);
+  }
+  .hud-info .row .val.big, .hud-inventory .row .val.big {
+    font-size: 16px;
+    font-weight: 700;
+    color: #ffe39b;
+  }
+  /* Slim meter bars (stamina / hunger / thirst). */
+  .hud-info .meter {
+    display: flex; align-items: center; gap: 8px;
+  }
+  .hud-info .meter .label { width: 64px; }
+  .hud-info .meter .bar {
+    flex: 1;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .hud-info .meter .bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 80ms linear, background-color 200ms;
+  }
+  .hud-info .meter .pct { width: 36px; text-align: right; font-size: 11px; color: rgba(255,255,255,0.62); }
+  /* Quality-coded gold dots in inventory. */
+  .hud-inventory .gold-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-right: 8px;
+    vertical-align: 0.04em;
+    box-shadow: 0 0 4px currentColor;
+  }
+  .hud-inventory .gold-dot.flake { background: #ffe26a; color: #ffe26a; }
+  .hud-inventory .gold-dot.picker { background: #f0b145; color: #f0b145; }
+  .hud-inventory .gold-dot.nugget { background: #c66a2a; color: #c66a2a; }
+  /* Divider between sections inside the inventory card. */
+  .hud-inventory .divider {
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    margin: 8px 0;
+  }
+  /* Dimmed dev-debug rows kept visible but quiet. */
+  .hud-info .debug-row {
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 11px;
+    margin-top: 2px;
+  }
   .hud-compass {
     position: fixed;
     top: 12px; left: 50%; transform: translateX(-50%);
@@ -432,41 +506,127 @@ export function mountHud(root: HTMLElement): MountedHud {
   questTracker.hidden = true;
   document.body.appendChild(questTracker);
 
-  const lines: Record<string, HTMLDivElement> = {};
-  const addInfoLine = (key: string): HTMLDivElement => {
-    const el = document.createElement('div');
-    info.appendChild(el);
-    lines[key] = el;
-    return el;
-  };
-  const addInvLine = (key: string): HTMLDivElement => {
-    const el = document.createElement('div');
-    inventory.appendChild(el);
-    lines[key] = el;
-    return el;
-  };
+  const lines: Record<string, HTMLElement> = {};
+  const meters: Record<string, { fill: HTMLElement; pct: HTMLElement }> = {};
 
-  addInfoLine('title').textContent = 'Them Hills — Phase 10b (Cave interior)';
-  addInfoLine('clock');
-  addInfoLine('weather');
-  addInfoLine('device');
-  addInfoLine('state');
-  addInfoLine('stamina');
-  addInfoLine('hunger');
-  addInfoLine('thirst');
-  addInfoLine('position');
-  addInfoLine('actions');
-  addInfoLine('fps');
+  // Info card (top-left) ——————————————————————————————————————
+  const infoTitle = document.createElement('div');
+  infoTitle.className = 'card-title';
+  infoTitle.textContent = 'STATUS';
+  info.appendChild(infoTitle);
 
-  addInvLine('invTitle').textContent = 'Carry';
-  addInvLine('invFlake');
-  addInvLine('invPicker');
-  addInvLine('invNugget');
-  addInvLine('invTotal');
-  addInvLine('invValue');
-  addInvLine('invSpacer').innerHTML = '&nbsp;';
-  addInvLine('invWallet');
-  addInvLine('invSpot');
+  function makeRow(parent: HTMLElement, key: string, labelText: string): HTMLElement {
+    const row = document.createElement('div');
+    row.className = 'row';
+    const lab = document.createElement('span');
+    lab.className = 'label';
+    lab.textContent = labelText;
+    const val = document.createElement('span');
+    val.className = 'val';
+    row.appendChild(lab);
+    row.appendChild(val);
+    parent.appendChild(row);
+    lines[key] = val;
+    return val;
+  }
+  function makeMeterRow(parent: HTMLElement, key: string, labelText: string): void {
+    const row = document.createElement('div');
+    row.className = 'meter';
+    const lab = document.createElement('span');
+    lab.className = 'label';
+    lab.textContent = labelText;
+    const bar = document.createElement('div');
+    bar.className = 'bar';
+    const fill = document.createElement('div');
+    fill.className = 'bar-fill';
+    bar.appendChild(fill);
+    const pct = document.createElement('span');
+    pct.className = 'pct';
+    row.appendChild(lab);
+    row.appendChild(bar);
+    row.appendChild(pct);
+    parent.appendChild(row);
+    meters[key] = { fill, pct };
+  }
+  function makeDebugRow(parent: HTMLElement, key: string): void {
+    const row = document.createElement('div');
+    row.className = 'debug-row';
+    parent.appendChild(row);
+    lines[key] = row;
+  }
+
+  makeRow(info, 'clock', '🕐 Time');
+  makeRow(info, 'weather', '☁ Weather');
+  makeRow(info, 'headlamp', '◉ Headlamp');
+  makeMeterRow(info, 'stamina', '⚡ Stamina');
+  makeMeterRow(info, 'hunger', '🍞 Hunger');
+  makeMeterRow(info, 'thirst', '💧 Thirst');
+  makeDebugRow(info, 'position');
+  makeDebugRow(info, 'state');
+  makeDebugRow(info, 'device');
+  makeDebugRow(info, 'fps');
+
+  // Inventory card (top-right) ——————————————————————————————————
+  const invTitle = document.createElement('div');
+  invTitle.className = 'card-title';
+  invTitle.textContent = 'CARRY';
+  inventory.appendChild(invTitle);
+
+  function makeGoldRow(key: string, dotClass: string, label: string): void {
+    const row = document.createElement('div');
+    row.className = 'row';
+    const lab = document.createElement('span');
+    lab.className = 'label';
+    const dot = document.createElement('span');
+    dot.className = `gold-dot ${dotClass}`;
+    lab.appendChild(dot);
+    lab.appendChild(document.createTextNode(label));
+    const val = document.createElement('span');
+    val.className = 'val';
+    row.appendChild(lab);
+    row.appendChild(val);
+    inventory.appendChild(row);
+    lines[key] = val;
+  }
+  makeGoldRow('invFlake', 'flake', 'Flake');
+  makeGoldRow('invPicker', 'picker', 'Picker');
+  makeGoldRow('invNugget', 'nugget', 'Nugget');
+
+  const div1 = document.createElement('div');
+  div1.className = 'divider';
+  inventory.appendChild(div1);
+
+  const totalRow = document.createElement('div');
+  totalRow.className = 'row';
+  const totalLab = document.createElement('span');
+  totalLab.className = 'label';
+  totalLab.textContent = 'Total';
+  const totalVal = document.createElement('span');
+  totalVal.className = 'val big';
+  totalRow.appendChild(totalLab);
+  totalRow.appendChild(totalVal);
+  inventory.appendChild(totalRow);
+  lines.invTotal = totalVal;
+
+  makeRow(inventory, 'invValue', '≈ Assayer');
+
+  const div2 = document.createElement('div');
+  div2.className = 'divider';
+  inventory.appendChild(div2);
+
+  const walletRow = document.createElement('div');
+  walletRow.className = 'row';
+  const walletLab = document.createElement('span');
+  walletLab.className = 'label';
+  walletLab.textContent = '💵 Wallet';
+  const walletVal = document.createElement('span');
+  walletVal.className = 'val big';
+  walletRow.appendChild(walletLab);
+  walletRow.appendChild(walletVal);
+  inventory.appendChild(walletRow);
+  lines.invWallet = walletVal;
+
+  makeRow(inventory, 'invSpot', 'Spot / oz');
 
   let frameCount = 0;
   let lastFpsTime = performance.now();
@@ -474,8 +634,7 @@ export function mountHud(root: HTMLElement): MountedHud {
 
   return {
     update(s) {
-      lines.clock!.textContent = `Time: ${s.clockText}`;
-      const wPct = (s.weather.intensity * 100).toFixed(0);
+      lines.clock!.textContent = s.clockText;
       const wIcon =
         s.weather.state === 'clear'
           ? '☀'
@@ -484,24 +643,23 @@ export function mountHud(root: HTMLElement): MountedHud {
             : s.weather.state === 'rain'
               ? '☂'
               : '◐';
-      const lampSuffix = s.headlampOn ? '   ◉ headlamp on' : '';
-      lines.weather!.textContent = `Weather: ${wIcon} ${s.weather.state} (${wPct}%)${lampSuffix}`;
-      const padInfo = s.gamepadGlyph === 'unknown' ? 'no pad' : `pad: ${s.gamepadGlyph}`;
-      lines.device!.textContent = `Input: ${s.device} (${padInfo})`;
-      lines.state!.textContent = `State: ${s.characterState}`;
-      lines.stamina!.textContent = `Stamina: ${makeBar(s.stamina)} ${(s.stamina * 100).toFixed(0)}%`;
-      lines.hunger!.textContent = `Hunger:  ${makeBar(s.hunger)} ${(s.hunger * 100).toFixed(0)}%`;
-      const thirstSuffix = s.inStreamWater ? '  (drinking)' : '';
-      lines.thirst!.textContent = `Thirst:  ${makeBar(s.thirst)} ${(s.thirst * 100).toFixed(0)}%${thirstSuffix}`;
-      lines.position!.textContent = `Pos: ${s.position.x.toFixed(1)}, ${s.position.y.toFixed(1)}, ${s.position.z.toFixed(1)}`;
+      const wPct = (s.weather.intensity * 100).toFixed(0);
+      lines.weather!.textContent = `${wIcon} ${s.weather.state} ${wPct}%`;
+      // Headlamp row collapses to a low-key dash when off.
+      lines.headlamp!.textContent = s.headlampOn ? 'on' : 'off';
+      lines.headlamp!.style.color = s.headlampOn ? '#ffe39b' : 'rgba(255,255,255,0.4)';
 
-      const active: string[] = [];
-      for (const [name, a] of Object.entries(s.actions)) {
-        if (a.active) {
-          active.push(a.value < 1 ? `${name}(${a.value.toFixed(2)})` : name);
-        }
-      }
-      lines.actions!.textContent = active.length ? `Active: ${active.join(', ')}` : 'Active: —';
+      setMeter(meters.stamina!, s.stamina);
+      setMeter(meters.hunger!, s.hunger);
+      const thirstSuffix = s.inStreamWater ? '  (drinking)' : '';
+      setMeter(meters.thirst!, s.thirst, thirstSuffix);
+
+      const padInfo = s.gamepadGlyph === 'unknown' ? 'no pad' : `pad: ${s.gamepadGlyph}`;
+      lines.device!.textContent = `Input: ${s.device} (${padInfo})  •  State: ${s.characterState}`;
+      lines.position!.textContent = `Pos: ${s.position.x.toFixed(1)}, ${s.position.y.toFixed(1)}, ${s.position.z.toFixed(1)}`;
+      // Drop the verbose Active-actions debug line entirely from the
+      // polished card; it was dev-only noise.
+      lines.state!.textContent = '';
 
       frameCount++;
       const now = performance.now();
@@ -510,21 +668,21 @@ export function mountHud(root: HTMLElement): MountedHud {
         frameCount = 0;
         lastFpsTime = now;
       }
-      lines.fps!.textContent = `FPS: ${fps.toFixed(0)}`;
+      lines.fps!.textContent = `FPS ${fps.toFixed(0)}`;
 
       // Compass
       drawCompass(compassCtx, s.bearingDeg);
 
       // Inventory
       const totalG = s.inventory.flake_g + s.inventory.picker_g + s.inventory.nugget_g;
-      lines.invFlake!.textContent = `Flake:  ${s.inventory.flake_g.toFixed(3)} g`;
-      lines.invPicker!.textContent = `Picker: ${s.inventory.picker_g.toFixed(3)} g`;
-      lines.invNugget!.textContent = `Nugget: ${s.inventory.nugget_g.toFixed(3)} g`;
-      lines.invTotal!.textContent = `Total:  ${totalG.toFixed(3)} g`;
+      lines.invFlake!.textContent = `${s.inventory.flake_g.toFixed(3)} g`;
+      lines.invPicker!.textContent = `${s.inventory.picker_g.toFixed(3)} g`;
+      lines.invNugget!.textContent = `${s.inventory.nugget_g.toFixed(3)} g`;
+      lines.invTotal!.textContent = `${totalG.toFixed(3)} g`;
       const dollarEst = (totalG / GRAMS_PER_OZT) * s.spotPricePerOzt * ASSAYER_MULT;
-      lines.invValue!.textContent = `≈ $${dollarEst.toFixed(2)} (Assayer)`;
+      lines.invValue!.textContent = `$${dollarEst.toFixed(2)}`;
 
-      lines.invWallet!.textContent = `Wallet: $${s.walletBalance.toFixed(2)}`;
+      lines.invWallet!.textContent = `$${s.walletBalance.toFixed(2)}`;
 
       // Live spot price + source indicator (live = filled circle, cached =
       // half, baseline = empty). Updated by the spot-price service every 15 min.
@@ -534,7 +692,7 @@ export function mountHud(root: HTMLElement): MountedHud {
           : s.spotPriceSource === 'cached'
             ? '◐ cached'
             : '○ baseline';
-      lines.invSpot!.textContent = `Spot: $${s.spotPricePerOzt.toFixed(2)}/oz  ${sourceLabel}`;
+      lines.invSpot!.textContent = `$${s.spotPricePerOzt.toFixed(2)}  ${sourceLabel}`;
 
       // Prompt
       if (s.prompt) {
@@ -756,6 +914,20 @@ export function mountHud(root: HTMLElement): MountedHud {
       }
     },
   };
+}
+
+function setMeter(
+  m: { fill: HTMLElement; pct: HTMLElement },
+  value: number,
+  suffix = '',
+): void {
+  const clamped = Math.max(0, Math.min(1, value));
+  m.fill.style.width = `${(clamped * 100).toFixed(0)}%`;
+  // Color shifts red → amber → green as the meter fills.
+  const color =
+    clamped < 0.25 ? '#d65454' : clamped < 0.55 ? '#e0a542' : '#7cbf6c';
+  m.fill.style.background = color;
+  m.pct.textContent = `${(clamped * 100).toFixed(0)}%${suffix}`;
 }
 
 function stepNumber(step: ProspectingSnapshot['step']): number {
