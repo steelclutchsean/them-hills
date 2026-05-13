@@ -1,20 +1,29 @@
 import { createRng, hashString } from './rng';
 import type { GoldStash } from '@/save/schema';
+import {
+  combineStageScores,
+  createClassifyMinigame,
+  createCollectMinigame,
+  createDigMinigame,
+  createPanMinigame,
+  type Minigame,
+  type MinigameProgress,
+} from './minigames';
 
-// Four-step prospecting loop with each step distinguished by interaction style:
-//   dig      — HOLD to fill (passive)
-//   classify — TAP rapidly; idle decays progress (active, fast)
-//   pan      — PACED taps (4 separate presses, min 0.4s apart) (active, deliberate)
-//   collect  — SINGLE TAP to claim
-// Cancellable via the controller's cancel() method (bound to PAUSE in main.ts).
+// Four-step prospecting loop. Each step is its own minigame module under
+// `src/game/minigames/`; this controller is just a thin orchestrator that
+// runs the current stage, collects its skill score on completion, then
+// advances to the next stage. After all four stages finish, the four
+// scores (each in [0.5, 2.0]) are geometric-meaned and used as the
+// `skillBonus` term in the yield formula.
+//
+// M1 status: minigames are stubs that preserve the prior tap/hold
+// mechanics and return a flat 1.0 score. Real per-stage skill challenges
+// land in M3–M6.
 
 export type StepKind = 'dig' | 'classify' | 'pan' | 'collect';
 
-const DIG_DURATION = 2.0;
-const CLASSIFY_TAP_GAIN = 0.13;
-const CLASSIFY_DECAY_PER_SEC = 0.05;
-const PAN_REQUIRED_TAPS = 4;
-const PAN_MIN_TAP_GAP = 0.4;
+const STEP_ORDER: readonly StepKind[] = ['dig', 'classify', 'pan', 'collect'] as const;
 
 // Per-prospect base yield at full richness. Real numbers come from economy-model.md;
 // this is a Phase 2 placeholder that gives satisfying immediate feedback during testing.
@@ -38,6 +47,10 @@ export interface ProspectingResult {
   siteId: string;
   reward: GoldStash;
   richnessDepletion: number;
+  /** Per-stage skill scores in [0.5, 2.0] (4 entries) — for logging / tuning. */
+  stageScores: readonly number[];
+  /** Combined skillBonus (geometric mean of stageScores). */
+  skillBonus: number;
 }
 
 export interface ProspectingController {
@@ -61,19 +74,12 @@ interface Session {
   actionCount: number;
   firstEver: boolean;
   yieldMultiplier: number;
-  step: StepKind;
-  progress: number;
-  panTaps: number;
-  lastPanTapAt: number;
-  sessionTime: number;
+  stageIdx: number;
+  stages: readonly Minigame[];
+  stageScores: number[];
+  /** Latest progress snapshot from the active stage. Drives the HUD. */
+  current: MinigameProgress;
 }
-
-const STEP_MESSAGES: Record<StepKind, string> = {
-  dig: 'HOLD to dig',
-  classify: 'TAP rapidly to classify',
-  pan: 'TAP with rhythm to pan (every ~0.5s)',
-  collect: 'TAP to collect your gold',
-};
 
 export function createProspectingController(): ProspectingController {
   let session: Session | null = null;
@@ -84,10 +90,10 @@ export function createProspectingController(): ProspectingController {
     return {
       active: true,
       siteId: session.siteId,
-      step: session.step,
-      progress: session.progress,
-      panTapsRemaining: Math.max(0, PAN_REQUIRED_TAPS - session.panTaps),
-      message: STEP_MESSAGES[session.step],
+      step: STEP_ORDER[session.stageIdx]!,
+      progress: session.current.progress,
+      panTapsRemaining: session.current.panTapsRemaining,
+      message: session.current.message,
     };
   }
 
@@ -96,7 +102,7 @@ export function createProspectingController(): ProspectingController {
     const seed = hashString(session.siteId) ^ (session.actionCount + 1);
     const rng = createRng(seed);
 
-    const skillBonus = 0.6 + rng.next() * 0.4; // 0.6..1.0
+    const skillBonus = combineStageScores(session.stageScores);
     const richnessFactor = 0.2 + 0.8 * session.siteRichness;
     let totalGrams = BASE_YIELD_GRAMS * richnessFactor * skillBonus * session.yieldMultiplier;
 
@@ -116,6 +122,8 @@ export function createProspectingController(): ProspectingController {
       siteId: session.siteId,
       reward,
       richnessDepletion: RICHNESS_DEPLETION_PER_PROSPECT,
+      stageScores: [...session.stageScores],
+      skillBonus,
     };
     session = null;
     wasInteractDown = false;
@@ -127,71 +135,50 @@ export function createProspectingController(): ProspectingController {
     getSnapshot: snapshot,
     start({ siteId, siteRichness, actionCount, firstEver, yieldMultiplier }) {
       if (session !== null) return false;
+      const stages = [
+        createDigMinigame(),
+        createClassifyMinigame(),
+        createPanMinigame(),
+        createCollectMinigame(),
+      ] as const;
+      // Stages currently don't read tool tier (stubs); later milestones
+      // will pass shovel / classifier / pan / snuffer tiers respectively.
+      stages[0].start(1);
       session = {
         siteId,
         siteRichness: Math.max(0, Math.min(1, siteRichness)),
         actionCount,
         firstEver,
         yieldMultiplier,
-        step: 'dig',
-        progress: 0,
-        panTaps: 0,
-        lastPanTapAt: -999,
-        sessionTime: 0,
+        stageIdx: 0,
+        stages,
+        stageScores: [],
+        current: { progress: 0, message: '', panTapsRemaining: 0 },
       };
       wasInteractDown = false;
       return true;
     },
     update(dt, isInteractDown) {
       if (!session) return null;
-      const justPressed = isInteractDown && !wasInteractDown;
+      const justPressedInteract = isInteractDown && !wasInteractDown;
       wasInteractDown = isInteractDown;
-      session.sessionTime += dt;
 
-      switch (session.step) {
-        case 'dig':
-          if (isInteractDown) {
-            session.progress = Math.min(1, session.progress + dt / DIG_DURATION);
-            if (session.progress >= 1) {
-              session.step = 'classify';
-              session.progress = 0;
-            }
-          }
-          break;
-        case 'classify':
-          if (justPressed) {
-            session.progress = Math.min(1, session.progress + CLASSIFY_TAP_GAIN);
-            if (session.progress >= 1) {
-              session.step = 'pan';
-              session.progress = 0;
-              session.panTaps = 0;
-              session.lastPanTapAt = -999;
-            }
-          } else {
-            session.progress = Math.max(0, session.progress - CLASSIFY_DECAY_PER_SEC * dt);
-          }
-          break;
-        case 'pan': {
-          if (justPressed) {
-            const since = session.sessionTime - session.lastPanTapAt;
-            if (since >= PAN_MIN_TAP_GAP) {
-              session.panTaps += 1;
-              session.lastPanTapAt = session.sessionTime;
-              session.progress = session.panTaps / PAN_REQUIRED_TAPS;
-              if (session.panTaps >= PAN_REQUIRED_TAPS) {
-                session.step = 'collect';
-                session.progress = 0;
-              }
-            }
-            // Tap was too fast — silently ignored (no fail state)
-          }
-          break;
+      const stage = session.stages[session.stageIdx];
+      if (!stage) return null;
+      const upd = stage.update({ dt, isInteractDown, justPressedInteract });
+      session.current = upd.progress;
+
+      if (upd.kind === 'complete') {
+        session.stageScores.push(upd.score);
+        session.stageIdx += 1;
+        if (session.stageIdx >= STEP_ORDER.length) {
+          return finalizeReward();
         }
-        case 'collect':
-          if (justPressed) {
-            return finalizeReward();
-          }
-          break;
+        const next = session.stages[session.stageIdx];
+        if (next) next.start(1);
+        // Consume the press that completed this stage so the next stage
+        // doesn't see a stale just-pressed event.
+        wasInteractDown = isInteractDown;
       }
       return null;
     },
