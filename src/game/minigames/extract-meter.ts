@@ -50,21 +50,53 @@ export function createExtractMeterView(): ExtractMeterView {
   spark.position.z = 0.002;
   group.add(spark);
 
+  // Vein chunk — a small rock mesh with embedded gold flecks. Scales
+  // up with progress so the player visibly sees the chunk emerging
+  // from the rock face. Hosts its own little group below the bar.
+  const chunkGroup = new THREE.Group();
+  const rockMat = new THREE.MeshBasicMaterial({ color: 0x4a4544 });
+  const rock = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.05, 0.04), rockMat);
+  chunkGroup.add(rock);
+  const fleckMat = new THREE.MeshBasicMaterial({ color: 0xffd96a });
+  for (let i = 0; i < 5; i++) {
+    const fleck = new THREE.Mesh(new THREE.SphereGeometry(0.006, 6, 5), fleckMat);
+    fleck.position.set(
+      (Math.random() - 0.5) * 0.05,
+      (Math.random() - 0.5) * 0.035,
+      0.022,
+    );
+    chunkGroup.add(fleck);
+  }
+  chunkGroup.position.set(0, -0.04, 0);
+  group.add(chunkGroup);
+
   group.position.set(0, 0.08, -0.55);
 
   function update(viz: ExtractViz): void {
     const p = Math.max(0, Math.min(1, viz.progress));
     fill.scale.x = p > 0 ? p : 0.001;
 
-    // Spark sits at the current fill edge.
+    // Spark sits at the current fill edge. On near-perfect taps shift
+    // its color from yellow toward white.
     spark.position.x = (p - 0.5) * BAR_WIDTH;
 
     if (viz.lastTapFlashSec < FLASH_DURATION_SEC) {
       const t = Math.max(0, Math.min(1, viz.lastTapFlashSec / FLASH_DURATION_SEC));
       sparkMat.opacity = 0.85 * (1 - t);
+      // Brief vibration on the chunk during the flash window.
+      const wobble = (1 - t) * 0.005;
+      chunkGroup.position.x = (Math.random() - 0.5) * wobble * 2;
+      chunkGroup.position.y = -0.04 + (Math.random() - 0.5) * wobble * 2;
     } else {
       sparkMat.opacity = 0;
+      chunkGroup.position.x = 0;
+      chunkGroup.position.y = -0.04;
     }
+
+    // Chunk grows with progress — from 30% scale (barely poking out)
+    // to 1.0 (fully emerged). Reads as the seam giving up its prize.
+    const chunkScale = 0.3 + p * 0.7;
+    chunkGroup.scale.setScalar(chunkScale);
   }
 
   function setVisible(v: boolean): void {

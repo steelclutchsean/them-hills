@@ -49,7 +49,7 @@ export function createExtractMinigame(): Minigame {
       sessionTime = 0;
       lastTapAt = -999;
     },
-    update({ dt, justPressedInteract, audio }): MinigameUpdate {
+    update({ dt, justPressedInteract, audio, effects }): MinigameUpdate {
       sessionTime += dt;
 
       // Idle decay — meter slips a little every frame.
@@ -67,6 +67,13 @@ export function createExtractMinigame(): Minigame {
         // target, low if we've over-tapped).
         const q = Math.max(0, 1 - tapsTaken / (profile.tapsTarget * TAPS_SLACK));
         audio.playClassifyBeat(q);
+        // Gold-dust burst at the meter's spark position (leading-edge
+        // of the fill bar in extract-meter). Bar runs along x from
+        // -0.21 to +0.21 — translate progress to local x.
+        const sparkX = (progress - 0.5) * 0.42;
+        effects.burst({ x: sparkX, y: 0.08, z: -0.55 }, 0xffd96a, 8);
+        // Tiny shake on each chip.
+        effects.shake(0.008, 0.08);
       }
 
       const viz: MinigameViz = {
