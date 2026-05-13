@@ -134,12 +134,19 @@ export function createMineEntrance(
 
   // ---- Cave interior (always visible through the gaps in the boards) ----
   // Coordinates relative to the group; positive Z is "into the hill".
-  const CAVE_DEPTH = 7; // along Z, into the hill
-  const CAVE_HALF_WIDTH = 3.5; // along X
+  // Roomier than v1 — old dims (7×7×2.8) felt cramped at the boosted
+  // movement speeds and jumps could punch through the ceiling. New
+  // size is roughly double in horizontal extent + tall enough that a
+  // jumping player can't clip the ceiling box.
+  const CAVE_DEPTH = 14; // along Z, into the hill (was 7)
+  const CAVE_HALF_WIDTH = 6.5; // along X (was 3.5)
   const CAVE_FLOOR_Y = -0.4;
-  const CAVE_CEIL_Y = 2.4;
+  const CAVE_CEIL_Y = 4.0; // was 2.4 — head + jump clearance
   const CAVE_BACK_Z = -CAVE_DEPTH; // far wall
   const CAVE_FRONT_Z = -0.05; // just behind the boarded entrance
+  // Thicker wall colliders so fast sprint-speed traversal can't phase
+  // through (was 0.15 → 0.4m).
+  const WALL_HALF_T = 0.4;
 
   const stoneMat = new THREE.MeshStandardMaterial({
     color: 0x35332f,
@@ -283,27 +290,37 @@ export function createMineEntrance(
   addStaticBox(
     position.x,
     position.y + (CAVE_CEIL_Y + CAVE_FLOOR_Y) / 2,
-    position.z + CAVE_BACK_Z - 0.15,
+    position.z + CAVE_BACK_Z - WALL_HALF_T,
     CAVE_HALF_WIDTH + 0.2,
     (CAVE_CEIL_Y - CAVE_FLOOR_Y) / 2,
-    0.15,
+    WALL_HALF_T,
   );
   // Left wall
   addStaticBox(
-    position.x - CAVE_HALF_WIDTH - 0.15,
+    position.x - CAVE_HALF_WIDTH - WALL_HALF_T,
     position.y + (CAVE_CEIL_Y + CAVE_FLOOR_Y) / 2,
     position.z + CAVE_FRONT_Z - CAVE_DEPTH / 2,
-    0.15,
+    WALL_HALF_T,
     (CAVE_CEIL_Y - CAVE_FLOOR_Y) / 2,
     CAVE_DEPTH / 2,
   );
   // Right wall
   addStaticBox(
-    position.x + CAVE_HALF_WIDTH + 0.15,
+    position.x + CAVE_HALF_WIDTH + WALL_HALF_T,
     position.y + (CAVE_CEIL_Y + CAVE_FLOOR_Y) / 2,
     position.z + CAVE_FRONT_Z - CAVE_DEPTH / 2,
-    0.15,
+    WALL_HALF_T,
     (CAVE_CEIL_Y - CAVE_FLOOR_Y) / 2,
+    CAVE_DEPTH / 2,
+  );
+  // Ceiling collider — previously missing, which let jumping players
+  // punch through the visual ceiling mesh into the sky.
+  addStaticBox(
+    position.x,
+    position.y + CAVE_CEIL_Y + WALL_HALF_T,
+    position.z + CAVE_FRONT_Z - CAVE_DEPTH / 2,
+    CAVE_HALF_WIDTH + 0.4,
+    WALL_HALF_T,
     CAVE_DEPTH / 2,
   );
 
