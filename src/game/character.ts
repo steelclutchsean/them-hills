@@ -61,13 +61,14 @@ export interface Character {
   };
 }
 
-const WALK_SPEED = 2.5;
-const RUN_SPEED = 5.5;
+const WALK_SPEED = 3.75; // +50% of old 2.5
+const RUN_SPEED = 11.0; // +100% of old 5.5
 const JUMP_VELOCITY = 7.0;
 const GRAVITY = -25;
 const MAX_FALL_SPEED = -55;
 
-const STAMINA_DRAIN_PER_SEC = 0.15;
+// 4× sprint duration vs. the original 0.15/s (≈6.5 s of sprint → ≈33 s).
+const STAMINA_DRAIN_PER_SEC = 0.03;
 const STAMINA_REGEN_PER_SEC = 0.25;
 const STAMINA_MIN_FOR_SPRINT = 0.15;
 const STAMINA_LOCKOUT_THRESHOLD = 0.05;
