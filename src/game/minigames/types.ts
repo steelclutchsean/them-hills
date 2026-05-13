@@ -14,6 +14,14 @@ export interface MinigameAudio {
   playFlakeCollect(): void;
 }
 
+/** Visual-effects surface — sparks, screen shake. Decoupled the same
+ *  way audio is. Minigames trigger; main loop ticks the underlying
+ *  particle pool and applies shake to the camera. */
+export interface MinigameEffects {
+  burst(origin: { x: number; y: number; z: number }, color: number, count?: number): void;
+  shake(intensity: number, durationSec?: number): void;
+}
+
 export interface MinigameContext {
   dt: number;
   isInteractDown: boolean;
@@ -29,6 +37,8 @@ export interface MinigameContext {
   /** Procedural sound hooks. Stages call these on player-meaningful
    *  events (a swing, a tap, a completed swirl, a flake collected). */
   audio: MinigameAudio;
+  /** Visual effects — particle bursts + camera shake. */
+  effects: MinigameEffects;
 }
 
 /**

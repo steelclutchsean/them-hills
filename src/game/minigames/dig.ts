@@ -79,7 +79,7 @@ export function createDigMinigame(): Minigame {
       lastSwingAt = -999;
       lastSwingScore = 0;
     },
-    update({ dt, justPressedInteract, audio }): MinigameUpdate {
+    update({ dt, justPressedInteract, audio, effects }): MinigameUpdate {
       sessionTime += dt;
       const indicator = indicatorPosition(sessionTime);
 
@@ -92,7 +92,21 @@ export function createDigMinigame(): Minigame {
         lastSwingScore = score;
         // Quality from [SCORE_FLOOR, SCORE_CENTER] mapped to [0, 1] —
         // bad swings thud, perfect swings get the sharp upper harmonic.
-        audio.playDigSwing((score - SCORE_FLOOR) / (SCORE_CENTER - SCORE_FLOOR));
+        const quality = (score - SCORE_FLOOR) / (SCORE_CENTER - SCORE_FLOOR);
+        audio.playDigSwing(quality);
+        // Spark burst at the meter's indicator position (camera-local
+        // ~upper-center where dig-meter mounts). Color is amber, more
+        // particles + longer life on better hits.
+        const meterX = (indicator - 0.5) * 0.36;
+        effects.burst(
+          { x: meterX, y: 0.08, z: -0.55 },
+          0xffc35a,
+          Math.round(6 + quality * 10),
+        );
+        // Subtle screen shake — proportional to how good the swing was.
+        if (quality > 0.3) {
+          effects.shake(0.012 + quality * 0.018, 0.16);
+        }
       }
 
       const swingsRemaining = Math.max(0, profile.swings - swingsDone);

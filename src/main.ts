@@ -32,6 +32,7 @@ import { createProspectingController } from '@/game/prospecting';
 import { createClassifyMeterView } from '@/game/minigames/classify-meter';
 import { createCollectView } from '@/game/minigames/collect-view';
 import { createDigMeterView } from '@/game/minigames/dig-meter';
+import { createEffectSystem } from '@/game/minigames/effects';
 import { createExtractMeterView } from '@/game/minigames/extract-meter';
 import { createPanView } from '@/game/minigames/pan-view';
 import { createStrikeMeterView } from '@/game/minigames/strike-meter';
@@ -39,6 +40,8 @@ import {
   createClassifierMesh,
   createPickaxeMesh,
   createShovelMesh,
+  triggerToolSwing,
+  updateToolSwing,
 } from '@/game/minigames/tool-models';
 import { scatterAssets } from '@/game/scatter';
 import { SKY_SECONDS_PER_DAY, createSkyController, formatClock, getSkyHour } from '@/game/sky';
@@ -446,6 +449,17 @@ async function bootstrap(): Promise<void> {
   renderer.camera.add(strikeMeter.group);
   const extractMeter = createExtractMeterView();
   renderer.camera.add(extractMeter.group);
+  // Shared particle pool + camera-shake for all minigame stages.
+  // Parent the particle group to the camera so bursts render in
+  // viewmodel space; the shake offset is applied to the camera each
+  // frame AFTER cameraMode positions it.
+  const fx = createEffectSystem();
+  renderer.camera.add(fx.particlesGroup);
+  // Per-stage swing trackers — tool meshes animate on rising-edge
+  // detection of `lastSwingFlashSec` (a value that drops to ~0 on each
+  // fresh swing). Initial value > 0 ensures the first frame doesn't
+  // false-fire.
+  let lastDigSwingFlash = 999;
   let prospectWasActive = false;
 
   // ---- Audio system ----
@@ -539,7 +553,13 @@ async function bootstrap(): Promise<void> {
   });
 
   // ---- Prospecting ----
-  const prospect = createProspectingController({ audio });
+  const prospect = createProspectingController({
+    audio,
+    effects: {
+      burst: (origin, color, count = 12) => fx.burst({ origin, color, count }),
+      shake: (intensity, durationSec) => fx.shake(intensity, durationSec),
+    },
+  });
 
   // Edge-detection state (input manager doesn't expose just-pressed; tracked here).
   let interactWasDown = false;
@@ -684,8 +704,19 @@ async function bootstrap(): Promise<void> {
         extractMeter.setVisible(false);
       }
 
+      // Tick the FX system every frame (particle motion + shake decay)
+      // regardless of prospect state — the cost is tiny and it lets
+      // particles finish out cleanly if a stage ends mid-burst.
+      fx.update(dt);
+      // Per-frame tool-swing animation. No-op when no swing is queued.
+      updateToolSwing(shovelMesh, dt);
+      updateToolSwing(pickaxeMesh, dt);
+
       if (prospecting) {
         cameraMode.updateProspectView(charPosForCamera);
+        // Shake rides ON TOP of the base camera placement during the
+        // prospect view. It's a per-frame offset and never permanent.
+        fx.applyShakeTo(renderer.camera);
         const snap = prospect.getSnapshot();
         if (snap) {
           const v = snap.viz;
@@ -700,6 +731,11 @@ async function bootstrap(): Promise<void> {
             pickaxeMesh.visible = usePickaxe;
             digMeter.update(v);
             digMeter.setVisible(true);
+            // Rising-edge: lastSwingFlashSec drops on a new swing.
+            if (v.lastSwingFlashSec < lastDigSwingFlash) {
+              triggerToolSwing(usePickaxe ? pickaxeMesh : shovelMesh);
+            }
+            lastDigSwingFlash = v.lastSwingFlashSec;
           } else if (v?.kind === 'classify') {
             const tierKey: 1 | 2 | 3 = v.layerCount === 1 ? 1 : v.layerCount === 3 ? 2 : 3;
             for (const [k, m] of Object.entries(classifierMeshes)) {

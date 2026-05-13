@@ -3,6 +3,7 @@ export type {
   Minigame,
   MinigameAudio,
   MinigameContext,
+  MinigameEffects,
   MinigameProgress,
   MinigameUpdate,
   MinigameViz,

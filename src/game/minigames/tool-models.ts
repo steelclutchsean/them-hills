@@ -1,6 +1,60 @@
 import * as THREE from 'three';
 import { forceTopDraw } from './_util';
 
+// Tool swing animation — used by dig and strike. Each animated tool
+// stashes its rest rotation + a swing-progress accumulator on userData;
+// callers fire `triggerToolSwing()` on input events and `updateToolSwing()`
+// each frame to advance the animation. The rotation interpolates from
+// rest → swing-down → rest over SWING_DURATION_SEC seconds.
+
+interface SwingState {
+  active: boolean;
+  t: number; // 0..1 across the animation
+  restX: number;
+  restY: number;
+  restZ: number;
+}
+
+const SWING_DURATION_SEC = 0.45;
+const SWING_DOWN_RAD = 0.65;
+
+function getSwing(group: THREE.Group): SwingState {
+  if (!group.userData.swing) {
+    group.userData.swing = {
+      active: false,
+      t: 0,
+      restX: group.rotation.x,
+      restY: group.rotation.y,
+      restZ: group.rotation.z,
+    };
+  }
+  return group.userData.swing as SwingState;
+}
+
+export function triggerToolSwing(group: THREE.Group): void {
+  const s = getSwing(group);
+  s.active = true;
+  s.t = 0;
+}
+
+export function updateToolSwing(group: THREE.Group, dt: number): void {
+  const s = getSwing(group);
+  if (!s.active) return;
+  s.t += dt / SWING_DURATION_SEC;
+  if (s.t >= 1) {
+    s.active = false;
+    group.rotation.set(s.restX, s.restY, s.restZ);
+    return;
+  }
+  // Triangle wave: 0 → 1 → 0 across t ∈ [0, 1] with peak at 0.3 (faster
+  // wind-up than recovery — reads as a swing-then-return motion).
+  const peak = 0.3;
+  const phase = s.t < peak ? s.t / peak : 1 - (s.t - peak) / (1 - peak);
+  const offset = phase * SWING_DOWN_RAD;
+  // Swing rotates around local X (forward-tilt) so the head dips down.
+  group.rotation.x = s.restX + offset;
+}
+
 // Procedural tool meshes for the prospect minigames. Each tool is a
 // THREE.Group built from primitives so we don't have to ship .glb assets
 // up front — silhouettes can be replaced later with authored models, and

@@ -89,6 +89,8 @@ export interface ProspectingResult {
 export interface ProspectingControllerOpts {
   /** Audio sink for per-stage event sounds + stage-complete chimes. */
   audio: MinigameAudio & { playStageComplete(stageIdx: number): void };
+  /** Visual effects (sparks + camera shake). */
+  effects: import('./minigames').MinigameEffects;
 }
 
 export interface ProspectingController {
@@ -325,6 +327,7 @@ export function createProspectingController(
         justPressedUseTool,
         axes,
         audio: opts.audio,
+        effects: opts.effects,
       });
       session.current = upd.progress;
 
