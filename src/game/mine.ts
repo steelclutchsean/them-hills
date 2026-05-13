@@ -16,8 +16,24 @@ import type { PanningSite } from './stream';
 const MINE_INTERACT_RADIUS = 2.4;
 const CAVE_SITE_INTERACT_RADIUS = 1.5;
 
-/** Yield multiplier applied to prospects done at the cave site. */
-export const CAVE_YIELD_BONUS = 2.5;
+/** Default yield multiplier applied to prospects done at a cave site —
+ *  overridden per-mine via MineConfig.yieldBonus. Kept exported so older
+ *  callers don't break. */
+export const CAVE_YIELD_BONUS = 3.0;
+
+export interface MineConfig {
+  /** Stable identifier — used in site IDs and the unlock-state map. */
+  id: string;
+  /** Player-facing label, baked onto the entrance sign. */
+  displayName: string;
+  /** World X/Z of the archway. Y is sampled from the terrain. */
+  x: number;
+  z: number;
+  /** Multiplier applied to the cave site's prospect yield. */
+  yieldBonus: number;
+  /** Shovel tier required to break through the boards (1–3). */
+  unlockTier: number;
+}
 
 export interface MineInfo {
   id: string;
@@ -54,13 +70,12 @@ export function createMineEntrance(
   scene: THREE.Scene,
   world: RAPIER.World,
   getGroundY: (x: number, z: number) => number,
+  config: MineConfig,
 ): MineInfo {
-  // Far north-west corner of the world so finding it requires intentional
-  // exploration past the streams and town.
-  const position = new THREE.Vector3(-45, getGroundY(-45, -45), -45);
+  const position = new THREE.Vector3(config.x, getGroundY(config.x, config.z), config.z);
 
   const group = new THREE.Group();
-  group.name = 'mine_north';
+  group.name = `mine_${config.id}`;
   group.position.copy(position);
 
   const beamMat = new THREE.MeshStandardMaterial({
@@ -95,7 +110,7 @@ export function createMineEntrance(
   plank.castShadow = true;
   group.add(plank);
 
-  const signTex = makeMineSign('MINE');
+  const signTex = makeMineSign(config.displayName.toUpperCase());
   const signMat = new THREE.MeshStandardMaterial({
     map: signTex,
     color: 0xffffff,
@@ -212,12 +227,12 @@ export function createMineEntrance(
     position.z + caveSiteMarker.position.z,
   );
   const caveSite: PanningSite & { bonusYield: number } = {
-    id: 'mine_north_cave',
+    id: `mine_${config.id}_cave`,
     position: caveSiteWorldPos,
     marker: caveSiteMarker,
-    streamId: 'mine_north',
+    streamId: `mine_${config.id}`,
     streamYaw: 0,
-    bonusYield: CAVE_YIELD_BONUS,
+    bonusYield: config.yieldBonus,
   };
 
   // ---- Halo on the ground in front of the entrance ----
@@ -295,7 +310,7 @@ export function createMineEntrance(
   let unlocked = false;
 
   return {
-    id: 'mine_north',
+    id: `mine_${config.id}`,
     group,
     position: position.clone(),
     marker,
@@ -314,11 +329,11 @@ export function createMineEntrance(
       caveMatRef.emissiveIntensity = 0.5 + 0.25 * Math.sin(_time * 2.5);
     },
     isUnlocked(shovelTier) {
-      return shovelTier >= 3;
+      return shovelTier >= config.unlockTier;
     },
     tryUnlock(shovelTier) {
       if (unlocked) return false;
-      if (shovelTier < 3) return false;
+      if (shovelTier < config.unlockTier) return false;
       unlocked = true;
       // Hide boards
       boardGroup.visible = false;

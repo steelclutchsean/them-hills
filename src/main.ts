@@ -26,7 +26,7 @@ import { createGeneralStore } from '@/game/general-store';
 import { createGrassField } from '@/game/grass-field';
 import { createHeadlamp } from '@/game/headlamp';
 import { createInn } from '@/game/inn';
-import { createMineEntrance } from '@/game/mine';
+import { createMineEntrance, type MineConfig, type MineInfo } from '@/game/mine';
 import { createOldPete } from '@/game/old-pete';
 import { createProspectingController } from '@/game/prospecting';
 import { createClassifyMeterView } from '@/game/minigames/classify-meter';
@@ -40,7 +40,12 @@ import {
 } from '@/game/minigames/tool-models';
 import { scatterAssets } from '@/game/scatter';
 import { SKY_SECONDS_PER_DAY, createSkyController, formatClock, getSkyHour } from '@/game/sky';
-import { createStream, createStreamRegistry, type StreamConfig } from '@/game/stream';
+import {
+  createStream,
+  createStreamRegistry,
+  type PanningSite,
+  type StreamConfig,
+} from '@/game/stream';
 import { CAMP_REST_TIME_ADVANCE, computeSurvivalYieldFactor } from '@/game/survival';
 import { createTerrain, type ChannelConfig } from '@/game/terrain';
 import { createWeatherController } from '@/game/weather';
@@ -203,21 +208,31 @@ async function bootstrap(): Promise<void> {
   // ---- Old Pete ----
   const oldPete = createOldPete(renderer.scene, (x, z) => terrain.getHeightAt(x, z));
 
-  // ---- Mine entrance ----
-  const mine = createMineEntrance(renderer.scene, physics.rapier, (x, z) =>
-    terrain.getHeightAt(x, z),
+  // ---- Mine entrances ----
+  // Four mines spread around the map. The original "north" stays as the
+  // starter mine (shovel T3 gates all of them). Yield bonuses range
+  // 3.0× → 5.0× so deeper exploration rewards stronger pans.
+  const MINE_CONFIGS: readonly MineConfig[] = [
+    { id: 'north', displayName: 'North Mine', x: -45, z: -45, yieldBonus: 3.0, unlockTier: 3 },
+    { id: 'south', displayName: 'South Mine', x:  40, z: -55, yieldBonus: 4.0, unlockTier: 3 },
+    { id: 'east',  displayName: 'East Mine',  x:  65, z:  20, yieldBonus: 5.0, unlockTier: 3 },
+    { id: 'west',  displayName: 'West Mine',  x: -55, z:  35, yieldBonus: 3.5, unlockTier: 3 },
+  ];
+  const mines: MineInfo[] = MINE_CONFIGS.map((cfg) =>
+    createMineEntrance(renderer.scene, physics.rapier, (x, z) => terrain.getHeightAt(x, z), cfg),
   );
-  // If the player loaded a save where they already had shovel T3, the mine
-  // should already be open at boot — otherwise the boards block the way back
-  // out for someone who unlocked it last session.
-  mine.tryUnlock(gameStore.getState().save.equipment.ownedTiers.shovel);
+  // Auto-open any mine the player already qualifies for at boot, so they
+  // don't get re-blocked after returning to a save where they'd unlocked
+  // these mines previously.
+  const loadedShovelTier = gameStore.getState().save.equipment.ownedTiers.shovel;
+  for (const m of mines) m.tryUnlock(loadedShovelTier);
 
-  // ---- Boulders (along stream banks, in-stream, near mine) ----
+  // ---- Boulders (along stream banks, in-stream, near mines) ----
   const boulders = placeBoulders({
     scene: renderer.scene,
     terrain,
     streams: STREAM_CONFIGS,
-    minePos: mine.position,
+    minePos: mines[0]!.position,
     seed: 0xb0,
   });
   console.log(`[boulders] placed ${boulders.count} boulders`);
@@ -472,8 +487,11 @@ async function bootstrap(): Promise<void> {
     { x: -13, z: 10, label: 'Inn', color: '#d47a2a', shape: 'square' },
     { x: -7, z: 5, label: 'Camp', color: '#ff8844', shape: 'dot' },
     { x: -4, z: 6, label: 'Old Pete', color: '#a57850', shape: 'dot' },
-    // Mine
-    { x: -45, z: -45, label: 'Mine', color: '#886644', shape: 'mine' },
+    // Mines — all four
+    { x: -45, z: -45, label: 'North Mine', color: '#886644', shape: 'mine' },
+    { x: 40, z: -55, label: 'South Mine', color: '#886644', shape: 'mine' },
+    { x: 65, z: 20, label: 'East Mine', color: '#886644', shape: 'mine' },
+    { x: -55, z: 35, label: 'West Mine', color: '#886644', shape: 'mine' },
   ];
   const minimap = mountMinimap({
     streams: minimapStreams,
@@ -679,13 +697,18 @@ async function bootstrap(): Promise<void> {
         !nearStore &&
         !nearInn &&
         oldPete.isPlayerNear(charPos);
-      const nearMine =
-        !inSession &&
-        nearestVendor === null &&
-        !nearStore &&
-        !nearInn &&
-        !nearPete &&
-        mine.isPlayerNear(charPos);
+      // Find the mine the player is closest to (only one can be "near" at
+      // a time given the interact-radius gating). null if not near any.
+      let nearestMine: MineInfo | null = null;
+      if (!inSession && nearestVendor === null && !nearStore && !nearInn && !nearPete) {
+        for (const m of mines) {
+          if (m.isPlayerNear(charPos)) {
+            nearestMine = m;
+            break;
+          }
+        }
+      }
+      const nearMine = nearestMine !== null;
       const nearCamp =
         !inSession &&
         nearestVendor === null &&
@@ -705,10 +728,17 @@ async function bootstrap(): Promise<void> {
         !nearCamp
           ? streams.findNearestSite(charPos)
           : null;
-      const candidateCaveSite =
-        !inSession && nearestVendor === null && !nearStore && !nearInn && !nearPete
-          ? mine.findNearestSite(charPos)
-          : null;
+      // Cave site lookup: pick the nearest of all mines' cave sites. Each
+      // mine returns null when locked, so this naturally skips them.
+      let candidateCaveSite: { site: PanningSite; distance: number } | null = null;
+      if (!inSession && nearestVendor === null && !nearStore && !nearInn && !nearPete) {
+        for (const m of mines) {
+          const c = m.findNearestSite(charPos);
+          if (c && (candidateCaveSite === null || c.distance < candidateCaveSite.distance)) {
+            candidateCaveSite = c;
+          }
+        }
+      }
       const nearestSite =
         candidateStreamSite && candidateCaveSite
           ? candidateStreamSite.distance < candidateCaveSite.distance
@@ -729,7 +759,7 @@ async function bootstrap(): Promise<void> {
       generalStore.update(worldTime, storeOpen || nearStore);
       inn.update(worldTime, dialogue !== null || nearInn);
       oldPete.update(worldTime, (dialogue !== null && dialogue.treeId === 'old_pete') || nearPete);
-      mine.update(worldTime, nearMine);
+      for (const m of mines) m.update(worldTime, m === nearestMine);
       camp.update(worldTime, nearCamp);
 
       // 8. Survival meter drain + daily site respawn + audio ambient
@@ -788,7 +818,14 @@ async function bootstrap(): Promise<void> {
       // clamp ambient near-zero so the interior reads as actually dark.
       // sky.update() rewrites ambient.intensity fresh each frame, so we don't
       // need to restore on exit — the override only sticks while inside.
-      const inCave = mine.isPlayerInside(charPos);
+      // True if the player is inside ANY of the four mines' cave interiors.
+      let inCave = false;
+      for (const m of mines) {
+        if (m.isPlayerInside(charPos)) {
+          inCave = true;
+          break;
+        }
+      }
       if (inCave) renderer.ambient.intensity = 0.06;
 
       // Capture world-space sun direction BEFORE we offset the light for
@@ -994,14 +1031,14 @@ async function bootstrap(): Promise<void> {
       } else if (nearPete && interactJustPressed) {
         dialogue = startDialogue('old_pete', OLD_PETE_DIALOGUE);
         console.log('[dialogue] opened old_pete');
-      } else if (nearMine && interactJustPressed) {
+      } else if (nearMine && nearestMine && interactJustPressed) {
         const shovelTier = gameStore.getState().save.equipment.ownedTiers.shovel;
-        if (mine.tryUnlock(shovelTier)) {
-          console.log('[mine] opened — pickaxe knocked the boards loose');
-        } else if (mine.isOpen()) {
-          console.log('[mine] already open — walk inside');
+        if (nearestMine.tryUnlock(shovelTier)) {
+          console.log(`[mine] ${nearestMine.id} opened — pickaxe knocked the boards loose`);
+        } else if (nearestMine.isOpen()) {
+          console.log(`[mine] ${nearestMine.id} already open — walk inside`);
         } else {
-          console.log('[mine] sealed — needs a pickaxe (Shovel T3)');
+          console.log(`[mine] ${nearestMine.id} sealed — needs a pickaxe (Shovel T3)`);
         }
       } else if (nearCamp && interactJustPressed) {
         gameStore.getState().restAtCamp();
@@ -1010,7 +1047,12 @@ async function bootstrap(): Promise<void> {
           `[camp] rested — meters refilled, time advanced ${(CAMP_REST_TIME_ADVANCE / 3600).toFixed(0)}h`,
         );
       } else if (nearestSite && interactJustPressed) {
-        const site = gameStore.getState().getOrCreateSite(nearestSite.site.id);
+        // Mine cave sites get a higher dig-count range than stream sites
+        // (more gold per location). Detect by the optional bonusYield field
+        // that mines tag onto their PanningSite.
+        const isMineSite = nearestSite.site.bonusYield !== undefined;
+        const digsRange = isMineSite ? { min: 8, max: 15 } : { min: 3, max: 15 };
+        const site = gameStore.getState().getOrCreateSite(nearestSite.site.id, digsRange);
         // Skip if this site has already been depleted (digsRemaining=0).
         // Defensive — the proximity probe in stream.ts also hides depleted
         // markers, so this branch should rarely fire.
@@ -1048,9 +1090,10 @@ async function bootstrap(): Promise<void> {
             ? '□'
             : 'X'
           : 'E';
-      const minePromptText = mine.isOpen()
-        ? 'Mine is open — walk inside'
-        : 'Mine sealed — needs a pickaxe';
+      const minePromptText =
+        nearestMine && nearestMine.isOpen()
+          ? 'Mine is open — walk inside'
+          : 'Mine sealed — needs a pickaxe';
       const promptInfo = inSession
         ? null
         : nearestVendor
