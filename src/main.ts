@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {
   ALL_CATEGORIES,
   EQUIPMENT,
-  computeYieldMultiplier,
+  getGlobalYieldMultiplier,
   getNextUpgrade,
   type EquipmentCategory,
 } from '@/economy/equipment';
@@ -1058,10 +1058,13 @@ async function bootstrap(): Promise<void> {
         } else {
           const actionCount = gameStore.getState().incrementPanCount();
           const firstEver = actionCount === 1;
-          const equipMult = computeYieldMultiplier(gameStore.getState().save.equipment.ownedTiers);
+          // M6: only Gear is the "global" tool multiplier now — the rest
+          // (pan/shovel/classifier/snuffer/detector) apply per-stage
+          // inside the prospect controller.
+          const globalMult = getGlobalYieldMultiplier(gameStore.getState().save.equipment.ownedTiers);
           const survivalMult = computeSurvivalYieldFactor(gameStore.getState().save.player.meters);
           const siteBonus = nearestSite.site.bonusYield ?? 1.0;
-          const yieldMultiplier = equipMult * survivalMult * siteBonus;
+          const yieldMultiplier = globalMult * survivalMult * siteBonus;
           prospect.start({
             siteId: nearestSite.site.id,
             context: isMineSite ? 'mining' : 'panning',
@@ -1075,7 +1078,7 @@ async function bootstrap(): Promise<void> {
           audio.playSplash();
           const bonusTag = siteBonus !== 1 ? ` × site${siteBonus.toFixed(2)}` : '';
           console.log(
-            `[prospect] start ${nearestSite.site.id} (digs=${site.digsRemaining}/${site.maxDigs}, firstEver=${firstEver}, yield=${yieldMultiplier.toFixed(2)} = equip${equipMult.toFixed(2)} × survival${survivalMult.toFixed(2)}${bonusTag})`,
+            `[prospect] start ${nearestSite.site.id} (digs=${site.digsRemaining}/${site.maxDigs}, firstEver=${firstEver}, yield=${yieldMultiplier.toFixed(2)} = gear${globalMult.toFixed(2)} × survival${survivalMult.toFixed(2)}${bonusTag})`,
           );
         }
       }

@@ -1,4 +1,5 @@
 import { createRng, hashString } from './rng';
+import { getStageTierMultiplier } from '@/economy/equipment';
 import type { EquipmentState, GoldStash } from '@/save/schema';
 import {
   combineStageScores,
@@ -124,9 +125,14 @@ interface Session {
   maxDigs: number;
   actionCount: number;
   firstEver: boolean;
+  /** Final-pass multiplier — Gear tier × survival × site-bonus. */
   yieldMultiplier: number;
-  /** Tier per stage idx — index aligns with `steps`. */
+  /** Tier per stage idx — index aligns with `steps`. Used by minigames. */
   stageTiers: readonly number[];
+  /** Per-stage yield multipliers (1.0 / 1.45 / 1.95 per tool tier).
+   *  Index aligns with `steps`. Applied to each stage's skill score
+   *  inside finalizeReward before combining. */
+  stageTierMults: readonly number[];
   stageIdx: number;
   stages: readonly Minigame[];
   stageScores: number[];
@@ -175,7 +181,15 @@ export function createProspectingController(
     const seed = hashString(session.siteId) ^ (session.actionCount + 1);
     const rng = createRng(seed);
 
-    const skillBonus = combineStageScores(session.stageScores);
+    // M6: each stage's skill score is multiplied by the tier of the tool
+    // that owns that stage BEFORE combining. So upgrading e.g. Pan T3
+    // visibly lifts the pan-stage contribution to the final yield, not
+    // a vague overall-pool number like the old geometric-mean model.
+    const mults = session.stageTierMults;
+    const stageScoresAdjusted = session.stageScores.map(
+      (s, i) => s * (mults[i] ?? 1),
+    );
+    const skillBonus = combineStageScores(stageScoresAdjusted);
     // Per-dig falloff: a fresh site yields 1.0× of base; the last
     // available dig yields ~0.4× so late digs still feel like the seam
     // is running out. Curve runs digsRemaining → digCountFactor.
@@ -239,6 +253,11 @@ export function createProspectingController(
         context === 'mining'
           ? [toolTiers.shovel, toolTiers.detector, toolTiers.snuffer]
           : [toolTiers.shovel, toolTiers.classifier, toolTiers.pan, toolTiers.snuffer];
+      // Per-stage yield multipliers from those same tools. Pre-computed
+      // once at start so finalizeReward doesn't have to look them up.
+      const stageTierMults: readonly number[] = steps.map((step) =>
+        getStageTierMultiplier(step, toolTiers),
+      );
       stages[0]!.start(stageTiers[0]!);
       session = {
         siteId,
@@ -250,6 +269,7 @@ export function createProspectingController(
         firstEver,
         yieldMultiplier,
         stageTiers,
+        stageTierMults,
         stageIdx: 0,
         stages,
         stageScores: [],

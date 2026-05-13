@@ -5,15 +5,20 @@ import type { EquipmentState } from '@/save/schema';
 //
 // Two systems live here:
 //
-//   1. Tier upgrade *catalog* — what each upgrade costs and what tier it unlocks.
-//      Indexed by category. The General Store reads this to render its UI.
+//   1. Tier upgrade *catalog* — what each upgrade costs and what tier it
+//      unlocks. Indexed by category. The General Store reads this to
+//      render its UI.
 //
-//   2. Yield multiplier *calculation* — given a save's owned tiers, returns the
-//      effective gold-yield multiplier applied to prospecting rewards. Per the
-//      design model, this is the geometric mean of 5 active tools (pan, shovel,
-//      classifier, detector, gear). Sluice and dredge contribute additive bonuses
-//      that are NOT modeled here yet (sluice is a deployable, dredge is endgame
-//      and quest-gated) — separate from the active prospecting cycle.
+//   2. Yield-multiplier helpers — given a save's owned tiers, return
+//      multipliers used by the prospecting reward formula.
+//
+//      M6 refactor: tier multipliers split per-stage instead of being
+//      pooled into one overall geometric mean. Each prospecting stage
+//      pulls the tier of the tool that "owns" it (dig/strike → shovel,
+//      classify → classifier, pan → pan, collect → snuffer, extract →
+//      detector). Gear stays as a global multiplier (warmer / safer →
+//      can prospect longer / cleaner). Sluice + dredge are still
+//      separate from the active prospecting cycle (deployables).
 
 export type EquipmentCategory = keyof EquipmentState['ownedTiers'];
 
@@ -32,14 +37,39 @@ export const ALL_CATEGORIES: readonly EquipmentCategory[] = [
 /** Per-tier multipliers (T1=1.00, T2=1.45, T3=1.95). Index by `tier - 1`. */
 const TIER_MULTIPLIERS: readonly number[] = [1.0, 1.45, 1.95];
 
-/** Tools whose tier multipliers contribute to active prospecting yield. */
-const ACTIVE_YIELD_TOOLS: readonly EquipmentCategory[] = [
-  'pan',
-  'shovel',
-  'classifier',
-  'detector',
-  'gear',
-];
+function tierMult(tier: number): number {
+  return TIER_MULTIPLIERS[Math.max(0, Math.min(2, tier - 1))] ?? 1;
+}
+
+/** Map a prospecting stage to the tool whose tier scales its yield.
+ *  Panning + mining share collect (snuffer) and the dig/strike stages
+ *  share shovel — Pickaxe is just Shovel T3. */
+export function getStageTierMultiplier(
+  stage: 'dig' | 'classify' | 'pan' | 'collect' | 'strike' | 'extract',
+  owned: EquipmentState['ownedTiers'],
+): number {
+  switch (stage) {
+    case 'dig':
+    case 'strike':
+      return tierMult(owned.shovel);
+    case 'classify':
+      return tierMult(owned.classifier);
+    case 'pan':
+      return tierMult(owned.pan);
+    case 'extract':
+      return tierMult(owned.detector);
+    case 'collect':
+      return tierMult(owned.snuffer);
+  }
+}
+
+/** Single global yield multiplier — applies once to the final reward.
+ *  Currently driven by Gear tier (warmer / safer → can prospect deeper
+ *  + cleaner). The per-stage tools used to share this pot via geometric
+ *  mean before the M6 refactor. */
+export function getGlobalYieldMultiplier(owned: EquipmentState['ownedTiers']): number {
+  return tierMult(owned.gear);
+}
 
 export interface TierUpgrade {
   /** Owned tier this upgrade applies to (e.g. 1 means "you have T1, this buys T2"). */
@@ -152,15 +182,10 @@ export function getNextUpgrade(
 }
 
 /**
- * Geometric mean of the 5 active tool tier multipliers. With all tools at T1
- * this returns 1.0 (baseline yield); with all at T3 it returns 1.95.
+ * @deprecated Replaced by per-stage `getStageTierMultiplier()` + the
+ * single-tool `getGlobalYieldMultiplier()` in M6. Kept temporarily as
+ * a thin alias to the global mult so any stragglers compile.
  */
 export function computeYieldMultiplier(ownedTiers: EquipmentState['ownedTiers']): number {
-  let product = 1;
-  for (const cat of ACTIVE_YIELD_TOOLS) {
-    const tier = ownedTiers[cat];
-    const mult = TIER_MULTIPLIERS[tier - 1] ?? 1;
-    product *= mult;
-  }
-  return Math.pow(product, 1 / ACTIVE_YIELD_TOOLS.length);
+  return getGlobalYieldMultiplier(ownedTiers);
 }
