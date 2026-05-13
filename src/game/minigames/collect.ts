@@ -3,41 +3,39 @@ import type { CollectFlakeViz, Minigame, MinigameUpdate, MinigameViz } from './t
 
 // Collect minigame — pluck visible gold flakes out of the freshly-washed
 // pan with a snuffer. The player moves a cursor with look input and
-// holds INTERACT to suck nearby flakes into the snuffer's vials.
+// clicks USE_TOOL on a flake to suck it instantly into the snuffer.
+// No hold required — one click per flake.
 //
 // Score = collected / total mapped to [floor, 2.0]:
 //   collected / total = 0   → score 0.5  (or 0.7 floor on T3)
 //   collected / total = 1   → score 2.0
 //
-// Time-boxed at 5 s; any flakes not collected when the timer runs out
+// Time-boxed at 9 s; any flakes not collected when the timer runs out
 // "wash away" (visualized as fading off). Soft-fail.
 //
-// Tier evolution (Snuffer category):
-//   T1 (basic):  suction radius 0.06, suck time 0.3 s — must precisely
-//                position cursor on each flake and hold INTERACT briefly.
-//   T2 (glass + 3 vials):  radius 0.15, suck time 0.15 s — forgiving
-//                cone-of-effect pulls nearby flakes; faster intake.
-//   T3 (pro + scale): radius 0.15, suck time 0.12 s, AND all "fine"
-//                flakes auto-collect on stage start (snap immediately
-//                to collecting state). Only "pickers" need manual
-//                pluck. Score floor 0.7 catches edge cases.
+// Tier evolution (Snuffer category) — the click is instant either way;
+// tier only widens the click hit-radius and lifts the score floor:
+//   T1 (basic):  suction radius 0.08 — precise click required.
+//   T2 (glass + 3 vials):  radius 0.16 — forgiving click target.
+//   T3 (pro + scale): radius 0.16, AND all "fine" flakes auto-collect
+//                on stage start (snap immediately to collecting state).
+//                Only "pickers" need manual pluck. Score floor 0.7.
 
 interface TierProfile {
   snufferTier: 1 | 2 | 3;
   suctionRadius: number;
-  suckTimeSec: number;
   autoCollectFines: boolean;
   floorScore: number;
 }
 
 const TIER_PROFILES: Record<1 | 2 | 3, TierProfile> = {
-  1: { snufferTier: 1, suctionRadius: 0.06, suckTimeSec: 0.3, autoCollectFines: false, floorScore: 0.5 },
-  2: { snufferTier: 2, suctionRadius: 0.15, suckTimeSec: 0.15, autoCollectFines: false, floorScore: 0.5 },
-  3: { snufferTier: 3, suctionRadius: 0.15, suckTimeSec: 0.12, autoCollectFines: true, floorScore: 0.7 },
+  1: { snufferTier: 1, suctionRadius: 0.08, autoCollectFines: false, floorScore: 0.5 },
+  2: { snufferTier: 2, suctionRadius: 0.16, autoCollectFines: false, floorScore: 0.5 },
+  3: { snufferTier: 3, suctionRadius: 0.16, autoCollectFines: true, floorScore: 0.7 },
 };
 
-const STAGE_DURATION_SEC = 5.0;
-const TOTAL_FLAKES = 8;
+const STAGE_DURATION_SEC = 9.0;
+const TOTAL_FLAKES = 11;
 const FINE_RATIO = 0.6;
 // `axes.dx/dy` are per-frame deltas from input.getLookDelta — do NOT
 // multiply by dt below. See the same note in pan.ts.
@@ -57,6 +55,9 @@ interface InternalFlake {
   isFine: boolean;
   pulse: number;
   state: 'present' | 'collecting' | 'gone';
+  /** Held at 1.0 once collected (for the renderer's pop-up visual) or
+   *  at 0.0 when washed away. With the click-to-pluck mechanic the
+   *  progress is now binary — no in-between hold ramp. */
   suckProgress: number;
   fadeT: number;
 }
@@ -110,11 +111,13 @@ export function createCollectMinigame(): Minigame {
       cy = 0;
       spawnFlakes(Date.now() & 0xffffffff);
       // T3: auto-collect fines on entry — kick them straight into the
-      // collecting fade animation without requiring player input.
+      // collecting state (suckProgress=1 so they count toward the
+      // final score) without requiring player input.
       if (profile.autoCollectFines) {
         for (const f of flakes) {
           if (f.isFine) {
             f.state = 'collecting';
+            f.suckProgress = 1;
             f.fadeT = 0;
           }
         }
@@ -122,9 +125,10 @@ export function createCollectMinigame(): Minigame {
       sessionTime = 0;
       washInitiated = false;
     },
-    update({ dt, axes, isUseToolDown, audio }): MinigameUpdate {
-      // Collect uses USE_TOOL (LMB / RT) for the suction press instead of
-      // INTERACT — see the action bindings in src/input/actions.ts.
+    update({ dt, axes, isUseToolDown, justPressedUseTool, audio }): MinigameUpdate {
+      // Collect uses USE_TOOL (LMB / RT) for the click — see the action
+      // bindings in src/input/actions.ts. As of B2, it's a single
+      // just-pressed click per flake (no hold).
       sessionTime += dt;
 
       // Cursor moves with look input — same scheme as the pan stage.
@@ -137,34 +141,34 @@ export function createCollectMinigame(): Minigame {
         cy /= r0;
       }
 
-      // Per-flake update.
+      // Per-flake animation update (pulse + fade-out for already-
+      // collecting flakes). State transitions handled in the click
+      // branch below.
       for (const f of flakes) {
         f.pulse = (f.pulse + dt * PULSE_HZ) % 1;
         if (f.state === 'collecting') {
           f.fadeT += dt / FADE_DURATION_SEC;
           if (f.fadeT >= 1) f.state = 'gone';
-          continue;
         }
-        if (f.state !== 'present') continue;
+      }
 
-        // Suction: cursor within suction radius AND USE_TOOL held.
-        if (isUseToolDown) {
+      // Click-to-pluck: on a fresh USE_TOOL just-press, find the
+      // closest present flake inside suctionRadius and collect it
+      // instantly. One click → one flake.
+      if (justPressedUseTool) {
+        let best: { f: InternalFlake; d: number } | null = null;
+        for (const f of flakes) {
+          if (f.state !== 'present') continue;
           const d = Math.hypot(f.x - cx, f.y - cy);
-          if (d < profile.suctionRadius) {
-            const before = f.suckProgress;
-            f.suckProgress = Math.min(1, f.suckProgress + dt / profile.suckTimeSec);
-            if (before < 1 && f.suckProgress >= 1) {
-              f.state = 'collecting';
-              f.fadeT = 0;
-              audio.playFlakeCollect();
-            }
-          } else {
-            // Drift back toward 0 if cursor leaves — but don't reset
-            // hard so it's still rewarding to re-acquire quickly.
-            f.suckProgress = Math.max(0, f.suckProgress - dt * 1.5);
+          if (d < profile.suctionRadius && (best === null || d < best.d)) {
+            best = { f, d };
           }
-        } else {
-          f.suckProgress = Math.max(0, f.suckProgress - dt * 1.5);
+        }
+        if (best) {
+          best.f.state = 'collecting';
+          best.f.suckProgress = 1;
+          best.f.fadeT = 0;
+          audio.playFlakeCollect();
         }
       }
 
@@ -201,8 +205,8 @@ export function createCollectMinigame(): Minigame {
       };
 
       const message = profile.autoCollectFines
-        ? `HOLD to pluck pickers — ${collected}/${flakes.length} — ${timeRemaining.toFixed(1)}s`
-        : `HOLD to pluck flakes — ${collected}/${flakes.length} — ${timeRemaining.toFixed(1)}s`;
+        ? `CLICK pickers — ${collected}/${flakes.length} — ${timeRemaining.toFixed(1)}s`
+        : `CLICK flakes — ${collected}/${flakes.length} — ${timeRemaining.toFixed(1)}s`;
       const reported = {
         progress: Math.min(1, sessionTime / STAGE_DURATION_SEC),
         message,
