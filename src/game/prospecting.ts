@@ -45,6 +45,12 @@ export interface ProspectingSnapshot {
   message: string;
   /** Stage-specific extras for the renderer (timing meter, beat pulse, etc.). */
   viz?: MinigameViz;
+  /** True between a stage finishing and the player pressing INTERACT to
+   *  continue. Renderer shows a multiplier banner during this window. */
+  awaitingConfirm: boolean;
+  /** Score of the most-recently-finished stage in [0.5, 2.5]. 0 before
+   *  the first stage completes. */
+  lastStageScore: number;
 }
 
 export interface ProspectingResult {
@@ -96,6 +102,9 @@ interface Session {
   stageScores: number[];
   /** Latest progress snapshot from the active stage. Drives the HUD. */
   current: MinigameProgress;
+  /** When non-null: this stage just finished and we're waiting for the
+   *  player to press INTERACT to advance to the next one (or finalize). */
+  pendingConfirm: { stageIdx: number; score: number } | null;
 }
 
 export function createProspectingController(
@@ -106,14 +115,21 @@ export function createProspectingController(
 
   function snapshot(): ProspectingSnapshot | null {
     if (!session) return null;
+    const pending = session.pendingConfirm;
+    // While awaiting confirm: show the FINISHED stage (so its viewmodel
+    // stays on screen behind the banner) and report the score for the
+    // HUD to render. Otherwise show the current in-progress stage.
+    const reportedIdx = pending ? pending.stageIdx : session.stageIdx;
     return {
       active: true,
       siteId: session.siteId,
-      step: STEP_ORDER[session.stageIdx]!,
+      step: STEP_ORDER[reportedIdx]!,
       progress: session.current.progress,
       panTapsRemaining: session.current.panTapsRemaining,
       message: session.current.message,
       viz: session.current.viz,
+      awaitingConfirm: pending !== null,
+      lastStageScore: pending?.score ?? 0,
     };
   }
 
@@ -181,6 +197,7 @@ export function createProspectingController(
         stages,
         stageScores: [],
         current: { progress: 0, message: '', panTapsRemaining: 0 },
+        pendingConfirm: null,
       };
       wasInteractDown = false;
       return true;
@@ -189,6 +206,28 @@ export function createProspectingController(
       if (!session) return null;
       const justPressedInteract = isInteractDown && !wasInteractDown;
       wasInteractDown = isInteractDown;
+
+      // If a previous stage finished and we're waiting for player confirm:
+      // freeze the active stage (no further updates), only advance on a
+      // fresh INTERACT press. Snapshot keeps reporting the finished stage
+      // so the banner overlay can display its score.
+      if (session.pendingConfirm !== null) {
+        if (justPressedInteract) {
+          const finishedIdx = session.pendingConfirm.stageIdx;
+          session.pendingConfirm = null;
+          session.stageIdx = finishedIdx + 1;
+          if (session.stageIdx >= STEP_ORDER.length) {
+            return finalizeReward();
+          }
+          const next = session.stages[session.stageIdx];
+          if (next) next.start(session.stageTiers[session.stageIdx] ?? 1);
+          const nextStep = STEP_ORDER[session.stageIdx]!;
+          console.log(`[prospect] → entering ${nextStep}`);
+          // Consume the confirm press so the new stage doesn't see it.
+          wasInteractDown = isInteractDown;
+        }
+        return null;
+      }
 
       const stage = session.stages[session.stageIdx];
       if (!stage) return null;
@@ -209,16 +248,11 @@ export function createProspectingController(
         console.log(
           `[prospect] ${finishedStep} → score ${upd.score.toFixed(2)}`,
         );
-        session.stageIdx += 1;
-        if (session.stageIdx >= STEP_ORDER.length) {
-          return finalizeReward();
-        }
-        const next = session.stages[session.stageIdx];
-        if (next) next.start(session.stageTiers[session.stageIdx] ?? 1);
-        const nextStep = STEP_ORDER[session.stageIdx]!;
-        console.log(`[prospect] → entering ${nextStep}`);
-        // Consume the press that completed this stage so the next stage
-        // doesn't see a stale just-pressed event.
+        // Don't advance immediately — gate behind a player confirmation
+        // press so they see the multiplier they earned for this stage.
+        session.pendingConfirm = { stageIdx: completedStageIdx, score: upd.score };
+        // Consume the press that completed this stage so the confirm
+        // doesn't fire on the SAME frame as the stage finishing.
         wasInteractDown = isInteractDown;
       }
       return null;

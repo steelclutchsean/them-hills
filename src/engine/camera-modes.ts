@@ -17,10 +17,11 @@ const HEAD_HEIGHT = 1.6;
 // down — comfortable for looking at the ground in front of you.
 const LOOK_FORWARD = 1.0;
 const LOOK_DROP = 0.85;
-// FOV during prospect — wider than the third-person 60° so the lower-screen
-// viewmodels (pan, classifier, snuffer) fit comfortably in frame instead of
-// hugging the bottom edge. Restored to whatever the rig had on exit.
-const PROSPECT_FOV = 80;
+// FOV during prospect — much wider than the third-person 60° so the
+// lower-screen viewmodels (pan, classifier, snuffer) fit comfortably in
+// frame. 120° starts to look fisheye-y but the perspective trade-off is
+// worth it for visibility during the minigames. Restored on exit.
+const PROSPECT_FOV = 120;
 
 export interface CameraModeController {
   isInProspectView(): boolean;

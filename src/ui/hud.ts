@@ -235,6 +235,32 @@ const STYLE = `
     color: rgba(255,255,255,0.55);
     margin-top: 4px;
   }
+  .hud-prospect.confirm {
+    background: rgba(0,0,0,0.82);
+    border-color: rgba(200,155,59,0.85);
+  }
+  .hud-prospect .confirm-label {
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #c89b3b;
+    margin-bottom: 6px;
+  }
+  .hud-prospect .confirm-mult {
+    font-size: 36px;
+    font-weight: 700;
+    line-height: 1.05;
+    margin: 6px 0 8px;
+    text-shadow: 0 1px 0 rgba(0,0,0,0.5);
+  }
+  .hud-prospect .confirm-mult.poor { color: #e87a4f; }
+  .hud-prospect .confirm-mult.ok { color: #f0d089; }
+  .hud-prospect .confirm-mult.good { color: #b6e89e; }
+  .hud-prospect .confirm-mult.great { color: #ffe26a; }
+  .hud-prospect .confirm-prompt {
+    font-size: 12px;
+    color: rgba(255,255,255,0.75);
+  }
   .hud-info[hidden], .hud-inventory[hidden],
   .hud-prompt[hidden], .hud-prospect[hidden],
   .hud-compass[hidden], .hud-vendor[hidden], .hud-store[hidden],
@@ -517,30 +543,53 @@ export function mountHud(root: HTMLElement): MountedHud {
       if (s.prospect) {
         prospect.hidden = false;
         prospect.innerHTML = '';
-        const stepLabel = document.createElement('div');
-        stepLabel.className = 'step-label';
-        stepLabel.textContent = `Step ${stepNumber(s.prospect.step)} of 4 — ${s.prospect.step.toUpperCase()}`;
-        prospect.appendChild(stepLabel);
-
-        const bar = document.createElement('div');
-        bar.className = 'step-bar';
-        bar.textContent = makeBar(s.prospect.progress);
-        prospect.appendChild(bar);
-
-        const msg = document.createElement('div');
-        msg.className = 'step-message';
         const glyph = glyphFor(s.device, s.gamepadGlyph, 'INTERACT');
-        msg.textContent = `[${glyph}]  ${s.prospect.message}`;
-        prospect.appendChild(msg);
 
-        if (s.prospect.step === 'pan') {
-          const extra = document.createElement('div');
-          extra.className = 'step-extra';
-          extra.textContent = `${s.prospect.panTapsRemaining} swirl${s.prospect.panTapsRemaining === 1 ? '' : 's'} remaining`;
-          prospect.appendChild(extra);
+        if (s.prospect.awaitingConfirm) {
+          // Between-stage banner: show the multiplier the player just
+          // earned + a press-to-continue prompt.
+          prospect.classList.add('confirm');
+          const label = document.createElement('div');
+          label.className = 'confirm-label';
+          label.textContent = `${s.prospect.step.toUpperCase()} complete`;
+          prospect.appendChild(label);
+
+          const mult = document.createElement('div');
+          mult.className = 'confirm-mult ' + multiplierClass(s.prospect.lastStageScore);
+          mult.textContent = `${s.prospect.lastStageScore.toFixed(2)}× multiplier`;
+          prospect.appendChild(mult);
+
+          const prompt = document.createElement('div');
+          prompt.className = 'confirm-prompt';
+          prompt.textContent = `[${glyph}]  Continue`;
+          prospect.appendChild(prompt);
+        } else {
+          prospect.classList.remove('confirm');
+          const stepLabel = document.createElement('div');
+          stepLabel.className = 'step-label';
+          stepLabel.textContent = `Step ${stepNumber(s.prospect.step)} of 4 — ${s.prospect.step.toUpperCase()}`;
+          prospect.appendChild(stepLabel);
+
+          const bar = document.createElement('div');
+          bar.className = 'step-bar';
+          bar.textContent = makeBar(s.prospect.progress);
+          prospect.appendChild(bar);
+
+          const msg = document.createElement('div');
+          msg.className = 'step-message';
+          msg.textContent = `[${glyph}]  ${s.prospect.message}`;
+          prospect.appendChild(msg);
+
+          if (s.prospect.step === 'pan') {
+            const extra = document.createElement('div');
+            extra.className = 'step-extra';
+            extra.textContent = `${s.prospect.panTapsRemaining} swirl${s.prospect.panTapsRemaining === 1 ? '' : 's'} remaining`;
+            prospect.appendChild(extra);
+          }
         }
       } else {
         prospect.hidden = true;
+        prospect.classList.remove('confirm');
       }
 
       // Vendor sale overlay
@@ -706,4 +755,12 @@ function stepNumber(step: ProspectingSnapshot['step']): number {
     case 'collect':
       return 4;
   }
+}
+
+/** Bucket a per-stage skill score into a quality tier for the banner color. */
+function multiplierClass(score: number): string {
+  if (score >= 1.8) return 'great';
+  if (score >= 1.4) return 'good';
+  if (score >= 1.0) return 'ok';
+  return 'poor';
 }
