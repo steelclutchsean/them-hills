@@ -205,12 +205,18 @@ export function createProspectingController(
       if (upd.kind === 'complete') {
         session.stageScores.push(upd.score);
         opts.audio.playStageComplete(completedStageIdx);
+        const finishedStep = STEP_ORDER[completedStageIdx]!;
+        console.log(
+          `[prospect] ${finishedStep} → score ${upd.score.toFixed(2)}`,
+        );
         session.stageIdx += 1;
         if (session.stageIdx >= STEP_ORDER.length) {
           return finalizeReward();
         }
         const next = session.stages[session.stageIdx];
         if (next) next.start(session.stageTiers[session.stageIdx] ?? 1);
+        const nextStep = STEP_ORDER[session.stageIdx]!;
+        console.log(`[prospect] → entering ${nextStep}`);
         // Consume the press that completed this stage so the next stage
         // doesn't see a stale just-pressed event.
         wasInteractDown = isInteractDown;

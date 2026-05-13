@@ -39,7 +39,9 @@ const TIER_PROFILES: Record<1 | 2 | 3, TierProfile> = {
 const STAGE_DURATION_SEC = 5.0;
 const TOTAL_FLAKES = 8;
 const FINE_RATIO = 0.6;
-const CURSOR_SENSITIVITY = 3.0;
+// `axes.dx/dy` are per-frame deltas from input.getLookDelta — do NOT
+// multiply by dt below. See the same note in pan.ts.
+const CURSOR_SENSITIVITY = 2.0;
 const FADE_DURATION_SEC = 0.3;
 const PULSE_HZ = 1.5;
 const WASH_AWAY_LEAD_TIME = 0.5;
@@ -124,8 +126,9 @@ export function createCollectMinigame(): Minigame {
       sessionTime += dt;
 
       // Cursor moves with look input — same scheme as the pan stage.
-      cx += axes.dx * CURSOR_SENSITIVITY * dt;
-      cy += axes.dy * CURSOR_SENSITIVITY * dt;
+      // axes.dx/dy are per-frame deltas; DO NOT multiply by dt.
+      cx += axes.dx * CURSOR_SENSITIVITY;
+      cy += axes.dy * CURSOR_SENSITIVITY;
       const r0 = Math.sqrt(cx * cx + cy * cy);
       if (r0 > 1) {
         cx /= r0;

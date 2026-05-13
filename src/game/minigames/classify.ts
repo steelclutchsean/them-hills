@@ -30,10 +30,13 @@ interface TierProfile {
   floorScore: number;
 }
 
+// Tight windows are noticeably more forgiving than the original M4 values
+// — perfect taps used to need ±80 ms which felt brutal. ±130 ms still
+// rewards rhythm but doesn't punish a half-beat slip.
 const TIER_PROFILES: Record<1 | 2 | 3, TierProfile> = {
-  1: { tapsTotal: 8, tightWindowSec: 0.08, layerCount: 1, floorScore: 0.5 },
-  2: { tapsTotal: 8, tightWindowSec: 0.1, layerCount: 3, floorScore: 0.5 },
-  3: { tapsTotal: 8, tightWindowSec: 0.12, layerCount: 5, floorScore: 0.8 },
+  1: { tapsTotal: 8, tightWindowSec: 0.13, layerCount: 1, floorScore: 0.5 },
+  2: { tapsTotal: 8, tightWindowSec: 0.16, layerCount: 3, floorScore: 0.5 },
+  3: { tapsTotal: 8, tightWindowSec: 0.18, layerCount: 5, floorScore: 0.8 },
 };
 
 const BEAT_PERIOD_SEC = 0.5;

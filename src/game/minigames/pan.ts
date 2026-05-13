@@ -38,9 +38,12 @@ const TIER_PROFILES: Record<1 | 2 | 3, TierProfile> = {
 };
 
 const STAGE_DURATION_SEC = 6.0;
-// Look-delta → cursor-units. Tuned so a relaxed mouse circle of ~2 rad
-// total arc completes one swirl in ~1 s at radius 0.6. Re-tune in M7.
-const CURSOR_SENSITIVITY = 3.0;
+// Look-delta → cursor-units. `axes.dx/dy` are already per-frame radian
+// deltas (NOT per-second rates) from input.getLookDelta(), so DO NOT
+// multiply by dt below — that would silently divide cursor speed by ~60.
+// A relaxed mouse circle of ~2 rad of total arc completes one swirl in
+// ~0.5 s at radius 0.6 with sensitivity 2.0.
+const CURSOR_SENSITIVITY = 2.0;
 const RIFFLE_BONUS_PER_SWIRL = 0.1;
 const RIFFLE_BONUS_CAP = 0.5;
 const SCORE_FLOOR = 0.5;
@@ -79,8 +82,9 @@ export function createPanMinigame(): Minigame {
       sessionTime += dt;
 
       // Integrate look-delta into cursor XY. Clamp inside the unit pan.
-      cx += axes.dx * CURSOR_SENSITIVITY * dt;
-      cy += axes.dy * CURSOR_SENSITIVITY * dt;
+      // axes.dx/dy are per-frame deltas — see note on CURSOR_SENSITIVITY.
+      cx += axes.dx * CURSOR_SENSITIVITY;
+      cy += axes.dy * CURSOR_SENSITIVITY;
       const r0 = Math.sqrt(cx * cx + cy * cy);
       if (r0 > 1) {
         cx /= r0;
