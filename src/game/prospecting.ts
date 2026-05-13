@@ -276,7 +276,12 @@ export function createProspectingController(
         current: { progress: 0, message: '', panTapsRemaining: 0 },
         pendingConfirm: null,
       };
-      wasInteractDown = false;
+      // Pretend the start-tap is still "down" — that way the first
+      // update() call after start sees justPressedInteract = false and
+      // the dig stage doesn't fire a free swing at the meter's instant
+      // phase. Player must release E + tap again to register a swing.
+      wasInteractDown = true;
+      wasUseToolDown = true;
       return true;
     },
     update(dt, frameInput) {

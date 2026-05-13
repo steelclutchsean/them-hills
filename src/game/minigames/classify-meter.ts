@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { forceTopDraw } from './_util';
 import type { MinigameViz } from './types';
 
 // In-world rhythm meter for the CLASSIFY stage. Two concentric rings sit
@@ -99,5 +100,6 @@ export function createClassifyMeterView(): ClassifyMeterView {
   }
 
   setVisible(false);
+  forceTopDraw(group);
   return { group, update, setVisible };
 }

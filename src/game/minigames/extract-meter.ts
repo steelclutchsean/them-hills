@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { forceTopDraw } from './_util';
 import type { MinigameViz } from './types';
 
 // Chip-out progress meter for the EXTRACT stage. Differs from the strike
@@ -71,5 +72,6 @@ export function createExtractMeterView(): ExtractMeterView {
   }
 
   setVisible(false);
+  forceTopDraw(group);
   return { group, update, setVisible };
 }

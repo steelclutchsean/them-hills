@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { forceTopDraw } from './_util';
 import type { CollectFlakeViz, MinigameViz } from './types';
 
 // Collect-stage viewmodel — wet pan with visible gold flakes, a cursor
@@ -273,5 +274,6 @@ export function createCollectView(): CollectViewMeshes {
   }
 
   setVisible(false);
+  forceTopDraw(root);
   return { group: root, update, setVisible };
 }

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { forceTopDraw } from './_util';
 import type { MinigameViz } from './types';
 
 // Rock-themed timing meter for the STRIKE stage. Same mechanic as the
@@ -67,5 +68,6 @@ export function createStrikeMeterView(): StrikeMeterView {
   }
 
   setVisible(false);
+  forceTopDraw(group);
   return { group, update, setVisible };
 }

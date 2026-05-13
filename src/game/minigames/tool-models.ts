@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { forceTopDraw } from './_util';
 
 // Procedural tool meshes for the prospect minigames. Each tool is a
 // THREE.Group built from primitives so we don't have to ship .glb assets
@@ -39,6 +40,7 @@ function applyDigToolMount(group: THREE.Group): void {
       m.receiveShadow = false;
     }
   });
+  forceTopDraw(group);
 }
 
 /** Hand-held shovel: wooden cylinder handle + tapered metal blade. Mounted
@@ -147,6 +149,7 @@ export function createClassifierMesh(tier: 1 | 2 | 3): THREE.Group {
       m.receiveShadow = false;
     }
   });
+  forceTopDraw(group);
   return group;
 }
 

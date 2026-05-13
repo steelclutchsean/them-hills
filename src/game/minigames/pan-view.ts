@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { forceTopDraw } from './_util';
 import type { MinigameViz } from './types';
 
 // Pan-stage viewmodel — combined mesh + cursor + riffle indicators.
@@ -180,5 +181,6 @@ export function createPanView(): PanViewMeshes {
   }
 
   setVisible(false);
+  forceTopDraw(root);
   return { group: root, update, setVisible };
 }

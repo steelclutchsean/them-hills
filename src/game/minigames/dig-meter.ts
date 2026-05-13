@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { forceTopDraw } from './_util';
 import type { MinigameViz } from './types';
 
 // In-world timing meter for the DIG stage. Mounted as a camera child so it
@@ -78,6 +79,9 @@ export function createDigMeterView(): DigMeterView {
 
   // Hidden until DIG stage actively reports its viz.
   setVisible(false);
+  // Camera-child viewmodel — must render over the stream water box and
+  // any other transparent scene mesh.
+  forceTopDraw(group);
 
   return { group, update, setVisible };
 }
