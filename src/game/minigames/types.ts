@@ -18,6 +18,10 @@ export interface MinigameContext {
   dt: number;
   isInteractDown: boolean;
   justPressedInteract: boolean;
+  /** USE_TOOL = LMB on kb/m, RT on controller. Collect stage uses this
+   *  to fire the snuffer suction; other stages keep using INTERACT. */
+  isUseToolDown: boolean;
+  justPressedUseTool: boolean;
   /** Analog look delta this frame (radians-ish, from input.getLookDelta).
    *  Pan stage uses this to drive its swirl cursor; collect stage drives
    *  the snuffer cursor. Other stages ignore it. */

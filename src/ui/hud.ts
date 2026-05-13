@@ -360,12 +360,24 @@ function injectStyle(): void {
   document.head.appendChild(tag);
 }
 
-function glyphFor(device: InputDevice, glyph: GamepadGlyphStyle, action: 'INTERACT'): string {
+function glyphFor(
+  device: InputDevice,
+  glyph: GamepadGlyphStyle,
+  action: 'INTERACT' | 'USE_TOOL',
+): string {
   if (device === 'gamepad') {
-    if (glyph === 'playstation') return action === 'INTERACT' ? '□' : '?';
-    return action === 'INTERACT' ? 'X' : '?';
+    if (glyph === 'playstation') {
+      if (action === 'INTERACT') return '□';
+      if (action === 'USE_TOOL') return 'R2';
+      return '?';
+    }
+    if (action === 'INTERACT') return 'X';
+    if (action === 'USE_TOOL') return 'RT';
+    return '?';
   }
-  return action === 'INTERACT' ? 'E' : '?';
+  if (action === 'INTERACT') return 'E';
+  if (action === 'USE_TOOL') return 'LMB';
+  return '?';
 }
 
 export function mountHud(root: HTMLElement): MountedHud {
@@ -543,7 +555,9 @@ export function mountHud(root: HTMLElement): MountedHud {
       if (s.prospect) {
         prospect.hidden = false;
         prospect.innerHTML = '';
-        const glyph = glyphFor(s.device, s.gamepadGlyph, 'INTERACT');
+        // Collect uses USE_TOOL for the in-game prompt; everything else
+        // (and all confirmation prompts) uses INTERACT.
+        const glyph = glyphFor(s.device, s.gamepadGlyph, s.prospect.primaryAction);
 
         if (s.prospect.awaitingConfirm) {
           // Between-stage banner: show the multiplier the player just

@@ -51,6 +51,18 @@ export interface ProspectingSnapshot {
   /** Score of the most-recently-finished stage in [0.5, 2.5]. 0 before
    *  the first stage completes. */
   lastStageScore: number;
+  /** Action whose glyph the HUD should show for the current prompt.
+   *  Collect stage uses USE_TOOL (mouse / RT); everything else INTERACT. */
+  primaryAction: 'INTERACT' | 'USE_TOOL';
+}
+
+export interface ProspectingFrameInput {
+  /** INTERACT bound to E / Square. Always available. */
+  interactDown: boolean;
+  /** USE_TOOL bound to LMB / RT. Only the collect stage reads this today. */
+  useToolDown: boolean;
+  /** Per-frame look delta from input.getLookDelta. Pan + collect read this. */
+  axes: { dx: number; dy: number };
 }
 
 export interface ProspectingResult {
@@ -81,11 +93,7 @@ export interface ProspectingController {
     /** Per-tool tiers — each minigame reads the relevant one for evolution. */
     toolTiers: EquipmentState['ownedTiers'];
   }): boolean;
-  update(
-    dt: number,
-    isInteractDown: boolean,
-    axes?: { dx: number; dy: number },
-  ): ProspectingResult | null;
+  update(dt: number, input: ProspectingFrameInput): ProspectingResult | null;
   cancel(): void;
 }
 
@@ -112,6 +120,7 @@ export function createProspectingController(
 ): ProspectingController {
   let session: Session | null = null;
   let wasInteractDown = false;
+  let wasUseToolDown = false;
 
   function snapshot(): ProspectingSnapshot | null {
     if (!session) return null;
@@ -120,16 +129,22 @@ export function createProspectingController(
     // stays on screen behind the banner) and report the score for the
     // HUD to render. Otherwise show the current in-progress stage.
     const reportedIdx = pending ? pending.stageIdx : session.stageIdx;
+    const reportedStep = STEP_ORDER[reportedIdx]!;
+    // Confirmation prompts always use INTERACT; the collect minigame is
+    // the only stage that swaps the in-game prompt to USE_TOOL.
+    const primaryAction: 'INTERACT' | 'USE_TOOL' =
+      pending === null && reportedStep === 'collect' ? 'USE_TOOL' : 'INTERACT';
     return {
       active: true,
       siteId: session.siteId,
-      step: STEP_ORDER[reportedIdx]!,
+      step: reportedStep,
       progress: session.current.progress,
       panTapsRemaining: session.current.panTapsRemaining,
       message: session.current.message,
       viz: session.current.viz,
       awaitingConfirm: pending !== null,
       lastStageScore: pending?.score ?? 0,
+      primaryAction,
     };
   }
 
@@ -202,10 +217,13 @@ export function createProspectingController(
       wasInteractDown = false;
       return true;
     },
-    update(dt, isInteractDown, axes) {
+    update(dt, frameInput) {
       if (!session) return null;
-      const justPressedInteract = isInteractDown && !wasInteractDown;
-      wasInteractDown = isInteractDown;
+      const { interactDown, useToolDown, axes } = frameInput;
+      const justPressedInteract = interactDown && !wasInteractDown;
+      const justPressedUseTool = useToolDown && !wasUseToolDown;
+      wasInteractDown = interactDown;
+      wasUseToolDown = useToolDown;
 
       // If a previous stage finished and we're waiting for player confirm:
       // freeze the active stage (no further updates), only advance on a
@@ -224,7 +242,7 @@ export function createProspectingController(
           const nextStep = STEP_ORDER[session.stageIdx]!;
           console.log(`[prospect] → entering ${nextStep}`);
           // Consume the confirm press so the new stage doesn't see it.
-          wasInteractDown = isInteractDown;
+          wasInteractDown = interactDown;
         }
         return null;
       }
@@ -234,9 +252,11 @@ export function createProspectingController(
       const completedStageIdx = session.stageIdx;
       const upd = stage.update({
         dt,
-        isInteractDown,
+        isInteractDown: interactDown,
         justPressedInteract,
-        axes: axes ?? { dx: 0, dy: 0 },
+        isUseToolDown: useToolDown,
+        justPressedUseTool,
+        axes,
         audio: opts.audio,
       });
       session.current = upd.progress;
@@ -253,7 +273,8 @@ export function createProspectingController(
         session.pendingConfirm = { stageIdx: completedStageIdx, score: upd.score };
         // Consume the press that completed this stage so the confirm
         // doesn't fire on the SAME frame as the stage finishing.
-        wasInteractDown = isInteractDown;
+        wasInteractDown = interactDown;
+        wasUseToolDown = useToolDown;
       }
       return null;
     },

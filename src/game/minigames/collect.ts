@@ -122,7 +122,9 @@ export function createCollectMinigame(): Minigame {
       sessionTime = 0;
       washInitiated = false;
     },
-    update({ dt, axes, isInteractDown, audio }): MinigameUpdate {
+    update({ dt, axes, isUseToolDown, audio }): MinigameUpdate {
+      // Collect uses USE_TOOL (LMB / RT) for the suction press instead of
+      // INTERACT — see the action bindings in src/input/actions.ts.
       sessionTime += dt;
 
       // Cursor moves with look input — same scheme as the pan stage.
@@ -145,8 +147,8 @@ export function createCollectMinigame(): Minigame {
         }
         if (f.state !== 'present') continue;
 
-        // Suction: cursor within suction radius AND interact held.
-        if (isInteractDown) {
+        // Suction: cursor within suction radius AND USE_TOOL held.
+        if (isUseToolDown) {
           const d = Math.hypot(f.x - cx, f.y - cy);
           if (d < profile.suctionRadius) {
             const before = f.suckProgress;
@@ -192,15 +194,15 @@ export function createCollectMinigame(): Minigame {
         flakes: vizForFlakes(),
         snufferTier: profile.snufferTier,
         suctionRadius: profile.suctionRadius,
-        suctionActive: isInteractDown,
+        suctionActive: isUseToolDown,
         flakesCollected: collected,
         flakesTotal: flakes.length,
         timeRemaining,
       };
 
       const message = profile.autoCollectFines
-        ? `PLUCK pickers — ${collected}/${flakes.length} — ${timeRemaining.toFixed(1)}s`
-        : `PLUCK flakes — ${collected}/${flakes.length} — ${timeRemaining.toFixed(1)}s`;
+        ? `HOLD to pluck pickers — ${collected}/${flakes.length} — ${timeRemaining.toFixed(1)}s`
+        : `HOLD to pluck flakes — ${collected}/${flakes.length} — ${timeRemaining.toFixed(1)}s`;
       const reported = {
         progress: Math.min(1, sessionTime / STAGE_DURATION_SEC),
         message,

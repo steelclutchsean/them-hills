@@ -951,7 +951,11 @@ async function bootstrap(): Promise<void> {
           prospect.cancel();
           console.log('[prospect] cancelled');
         } else {
-          const result = prospect.update(dt, interactDown, lookDelta);
+          const result = prospect.update(dt, {
+            interactDown,
+            useToolDown: input.isActive('USE_TOOL'),
+            axes: lookDelta,
+          });
           if (result) {
             gameStore.getState().addGoldToCarry(result.reward);
             gameStore.getState().applyGoldToQuests(result.reward);
