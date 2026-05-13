@@ -31,6 +31,7 @@ import { createOldPete } from '@/game/old-pete';
 import { createProspectingController } from '@/game/prospecting';
 import { createClassifyMeterView } from '@/game/minigames/classify-meter';
 import { createDigMeterView } from '@/game/minigames/dig-meter';
+import { createPanView } from '@/game/minigames/pan-view';
 import {
   createClassifierMesh,
   createPickaxeMesh,
@@ -415,6 +416,8 @@ async function bootstrap(): Promise<void> {
   renderer.camera.add(digMeter.group);
   const classifyMeter = createClassifyMeterView();
   renderer.camera.add(classifyMeter.group);
+  const panView = createPanView();
+  renderer.camera.add(panView.group);
   let prospectWasActive = false;
 
   // ---- Audio system ----
@@ -592,6 +595,7 @@ async function bootstrap(): Promise<void> {
         for (const m of Object.values(classifierMeshes)) m.visible = false;
         digMeter.setVisible(false);
         classifyMeter.setVisible(false);
+        panView.setVisible(false);
       }
       prospectWasActive = prospecting;
 
@@ -622,13 +626,24 @@ async function bootstrap(): Promise<void> {
             classifyMeter.update(v);
             classifyMeter.setVisible(true);
             digMeter.setVisible(false);
+            panView.setVisible(false);
+          } else if (v?.kind === 'pan') {
+            // PAN --------------------------------------------------------
+            shovelMesh.visible = false;
+            pickaxeMesh.visible = false;
+            for (const m of Object.values(classifierMeshes)) m.visible = false;
+            panView.update(v);
+            panView.setVisible(true);
+            digMeter.setVisible(false);
+            classifyMeter.setVisible(false);
           } else {
-            // PAN / COLLECT — M5/M6 stubs, no viewmodel yet.
+            // COLLECT — M6 stub, no viewmodel yet.
             shovelMesh.visible = false;
             pickaxeMesh.visible = false;
             for (const m of Object.values(classifierMeshes)) m.visible = false;
             digMeter.setVisible(false);
             classifyMeter.setVisible(false);
+            panView.setVisible(false);
           }
         }
       } else {
@@ -921,7 +936,7 @@ async function bootstrap(): Promise<void> {
           prospect.cancel();
           console.log('[prospect] cancelled');
         } else {
-          const result = prospect.update(dt, interactDown);
+          const result = prospect.update(dt, interactDown, lookDelta);
           if (result) {
             gameStore.getState().addGoldToCarry(result.reward);
             gameStore.getState().applyGoldToQuests(result.reward);

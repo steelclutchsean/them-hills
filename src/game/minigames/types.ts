@@ -9,6 +9,10 @@ export interface MinigameContext {
   dt: number;
   isInteractDown: boolean;
   justPressedInteract: boolean;
+  /** Analog look delta this frame (radians-ish, from input.getLookDelta).
+   *  Pan stage uses this to drive its swirl cursor; collect stage drives
+   *  the snuffer cursor. Other stages ignore it. */
+  axes: { dx: number; dy: number };
 }
 
 /**
@@ -51,6 +55,26 @@ export type MinigameViz =
       lastTapFlashSec: number;
       /** Score of the most recent tap in [0.5, 2.0]. 0 if no tap yet. */
       lastTapScore: number;
+    }
+  | {
+      kind: 'pan';
+      /** Cursor position relative to pan center, ([-1,1], [-1,1]). */
+      cursorX: number;
+      cursorY: number;
+      /** Cursor distance from center, 0..1. */
+      radius: number;
+      /** Complete 2π swirls accumulated so far. */
+      swirlCount: number;
+      /** Target swirls for max score. */
+      swirlTarget: number;
+      /** Average circularity across completed swirls (0..1). */
+      circularity: number;
+      /** Seconds remaining in the stage. */
+      timeRemaining: number;
+      /** Pan tier — drives mesh swap (1/2/3 = green / steel / riffled). */
+      tier: 1 | 2 | 3;
+      /** Riffle hits on T3 (cosmetic — locked flake snaps). */
+      riffleHits: number;
     };
 
 export interface MinigameProgress {

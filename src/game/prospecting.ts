@@ -69,7 +69,11 @@ export interface ProspectingController {
     /** Per-tool tiers — each minigame reads the relevant one for evolution. */
     toolTiers: EquipmentState['ownedTiers'];
   }): boolean;
-  update(dt: number, isInteractDown: boolean): ProspectingResult | null;
+  update(
+    dt: number,
+    isInteractDown: boolean,
+    axes?: { dx: number; dy: number },
+  ): ProspectingResult | null;
   cancel(): void;
 }
 
@@ -173,14 +177,19 @@ export function createProspectingController(): ProspectingController {
       wasInteractDown = false;
       return true;
     },
-    update(dt, isInteractDown) {
+    update(dt, isInteractDown, axes) {
       if (!session) return null;
       const justPressedInteract = isInteractDown && !wasInteractDown;
       wasInteractDown = isInteractDown;
 
       const stage = session.stages[session.stageIdx];
       if (!stage) return null;
-      const upd = stage.update({ dt, isInteractDown, justPressedInteract });
+      const upd = stage.update({
+        dt,
+        isInteractDown,
+        justPressedInteract,
+        axes: axes ?? { dx: 0, dy: 0 },
+      });
       session.current = upd.progress;
 
       if (upd.kind === 'complete') {
