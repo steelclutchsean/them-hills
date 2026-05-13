@@ -29,6 +29,10 @@ export interface AudioSystem {
   playConfirm(): void;
   /** Three-note ascending chime, ~450ms. For quest turn-in. */
   playQuestChime(): void;
+  /** Per-step footstep tone — caller throttles the cadence. */
+  playFootstep(surface: 'grass' | 'water'): void;
+  /** One-shot splash — fired when a pan-prospect begins. */
+  playSplash(): void;
   /** True if the AudioContext has been created and is running. */
   isEnabled(): boolean;
 }
@@ -154,6 +158,22 @@ export function createAudioSystem(): AudioSystem {
       scheduleTone(523, 0.0, 0.12, 0.1, 'sine');
       scheduleTone(659, 0.09, 0.12, 0.1, 'sine');
       scheduleTone(784, 0.18, 0.32, 0.1, 'sine');
+    },
+    playFootstep(surface) {
+      // Low, brief thump. Triangle wave reads softer than sine for percussive
+      // tones. Water variant sits slightly higher with a quicker decay to
+      // hint at a wetter impact.
+      if (surface === 'water') {
+        scheduleTone(220, 0, 0.09, 0.05, 'triangle');
+      } else {
+        scheduleTone(160, 0, 0.11, 0.045, 'triangle');
+      }
+    },
+    playSplash() {
+      // Descending two-tone strike — high splatter into the lower body of
+      // water. Pairs with the prospecting animation's first dip.
+      scheduleTone(600, 0.0, 0.14, 0.08, 'triangle');
+      scheduleTone(360, 0.06, 0.22, 0.07, 'sine');
     },
   };
 }

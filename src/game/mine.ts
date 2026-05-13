@@ -42,6 +42,12 @@ export interface MineInfo {
   isOpen(): boolean;
   /** Cave panning site — shape-compatible with stream sites for the proximity probe. */
   findNearestSite(playerPos: THREE.Vector3): { site: PanningSite; distance: number } | null;
+  /**
+   * True if the player is currently inside the cave interior. Gated on unlock
+   * — locked mines never report "inside" even if the player somehow clips in.
+   * Used to override ambient light and force the headlamp on.
+   */
+  isPlayerInside(playerPos: THREE.Vector3): boolean;
 }
 
 export function createMineEntrance(
@@ -332,6 +338,21 @@ export function createMineEntrance(
         return { site: caveSite, distance: d };
       }
       return null;
+    },
+    isPlayerInside(playerPos) {
+      if (!unlocked) return false;
+      // AABB test in world space. Cave geometry is positioned relative to the
+      // mine origin; convert player coords into local cave space.
+      const localX = playerPos.x - position.x;
+      const localY = playerPos.y - position.y;
+      const localZ = playerPos.z - position.z;
+      return (
+        Math.abs(localX) < CAVE_HALF_WIDTH &&
+        localY > CAVE_FLOOR_Y &&
+        localY < CAVE_CEIL_Y &&
+        localZ < CAVE_FRONT_Z &&
+        localZ > CAVE_BACK_Z
+      );
     },
   };
 }

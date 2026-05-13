@@ -18,17 +18,17 @@ const EXTENT_X = 200;
 const EXTENT_Z = 200;
 const HEIGHT_SCALE = 6;
 
-// Bank shape — same for every channel. The water plane sits at the channel
-// floor + WATER_OFFSET (defined in stream.ts). The terrain pulls DOWN inside
-// halfWidth (riverbed) and pushes UP across `BANK_WIDTH` meters past the
-// water edge (the rising bank), then linearly transitions back to natural
-// terrain over an additional `BANK_TRANSITION` meters. The river-rocks
-// diffuse texture covers the water-plus-bank zone; the forest-floor diffuse
-// covers everything past the transition. The transition itself is a smooth
-// blend between the two textures driven by a per-vertex bank-mask attribute.
-const BANK_WIDTH = 1.6; // meters past halfWidth where the bank rises
-const BANK_HEIGHT = 0.6; // meters at peak of the bank (above natural)
-const BANK_TRANSITION = 2.4; // meters past bank top where rocks → forest
+// Bank shape — same for every channel. The water plane sits at natural
+// ground level (WATER_OFFSET_ABOVE_FLOOR == channel depth, defined in
+// stream.ts). The terrain pulls DOWN inside halfWidth (riverbed) so the
+// bed is genuinely below the water plane. Banks stay flush with natural
+// terrain — no raised berm — so water meets the surrounding ground with
+// no step. `BANK_WIDTH` and `BANK_TRANSITION` still define the river-rocks
+// texture zone: the river-rocks diffuse covers water + the BANK_WIDTH past
+// the water edge, then a smooth BANK_TRANSITION blend to forest-floor.
+const BANK_WIDTH = 1.6; // meters past halfWidth where rocks texture stays solid
+const BANK_HEIGHT = 0; // flush water — no raised bank
+const BANK_TRANSITION = 2.4; // meters past bank zone where rocks → forest
 
 export type ChannelOrientation = 'NS' | 'EW';
 

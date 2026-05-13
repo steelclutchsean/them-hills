@@ -73,9 +73,16 @@ interface PlaceBouldersOpts {
   seed?: number;
 }
 
+export interface BoulderCollider {
+  pos: THREE.Vector3;
+  radius: number;
+}
+
 export interface BoulderField {
   group: THREE.Group;
   count: number;
+  /** Collision proxies — one ball per boulder, sized to the visual silhouette. */
+  colliders: readonly BoulderCollider[];
 }
 
 export function placeBoulders(opts: PlaceBouldersOpts): BoulderField {
@@ -106,6 +113,7 @@ export function placeBoulders(opts: PlaceBouldersOpts): BoulderField {
   root.name = 'boulders';
   scene.add(root);
   let placed = 0;
+  const colliders: BoulderCollider[] = [];
 
   function placeOne(x: number, z: number, scaleRange: [number, number], submerge: number): void {
     const scale = scaleRange[0] + rng.next() * (scaleRange[1] - scaleRange[0]);
@@ -129,6 +137,16 @@ export function placeBoulders(opts: PlaceBouldersOpts): BoulderField {
     mesh.receiveShadow = true;
     root.add(mesh);
     placed++;
+
+    // Collision proxy: a ball sized to the horizontal silhouette. The visual
+    // boulder is a unit icosahedron with ±18% radial displacement and a
+    // Y-squash, scaled by `scale`. Use ~0.7 × scale so the player capsule
+    // bumps just before the visual surface — slightly forgiving but doesn't
+    // leave a visible gap. Centered on the visual mesh.
+    colliders.push({
+      pos: mesh.position.clone(),
+      radius: scale * 0.7,
+    });
   }
 
   for (const s of streams) {
@@ -171,5 +189,5 @@ export function placeBoulders(opts: PlaceBouldersOpts): BoulderField {
     placeOne(x, z, [0.7, 1.6], 0);
   }
 
-  return { group: root, count: placed };
+  return { group: root, count: placed, colliders };
 }

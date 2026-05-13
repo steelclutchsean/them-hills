@@ -37,7 +37,10 @@ const DEFAULT_SHALLOW = 0x9bd1d8;
 const DEFAULT_DEEP = 0x355d6b;
 const DEFAULT_FOAM = 0xeef8fa;
 
-const WATER_OFFSET_ABOVE_FLOOR = 0.32;
+// Water plane sits this far above the deepest carved riverbed point.
+// Matches CHANNEL_CONFIGS.depth in main.ts — i.e. water rests at natural
+// (uncarved) ground level, with the channel carved that distance below it.
+const WATER_OFFSET_ABOVE_FLOOR = 1.2;
 
 export interface PanningSite {
   id: string;

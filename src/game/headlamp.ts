@@ -20,6 +20,8 @@ export interface HeadlampController {
     skyHour: number;
     weather: WeatherView;
     gearTier: number;
+    /** When true, force-activate regardless of time of day or weather. */
+    isInCave: boolean;
   }): void;
   isOn(): boolean;
 }
@@ -33,13 +35,14 @@ export function createHeadlamp(scene: THREE.Scene): HeadlampController {
   let intensity = 0;
 
   return {
-    update({ playerPos, skyHour, weather, gearTier }) {
+    update({ playerPos, skyHour, weather, gearTier, isInCave }) {
       const eligible = gearTier >= 2;
       const isNight = skyHour >= NIGHT_HOUR_START || skyHour < NIGHT_HOUR_END;
       const isStormy = weather.state === 'rain' || weather.state === 'overcast';
       const stormyContribution = isStormy ? weather.intensity : 0;
-      // Activate when night, or stormy weather is at least half-set.
-      const shouldBeOn = eligible && (isNight || stormyContribution > 0.5);
+      // Activate when night, stormy weather is at least half-set, or the
+      // player is inside the cave (where ambient is clamped near-dark).
+      const shouldBeOn = eligible && (isNight || stormyContribution > 0.5 || isInCave);
 
       const target = shouldBeOn ? 1.2 : 0;
       intensity += (target - intensity) * 0.1;

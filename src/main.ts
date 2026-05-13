@@ -38,7 +38,7 @@ import { createVendors, type Vendor } from '@/game/vendor';
 import { createGameLoop } from '@/engine/loop';
 import { createRenderer } from '@/engine/renderer';
 import { createInputManager } from '@/input/manager';
-import { createPhysicsWorld } from '@/physics/world';
+import { createPhysicsWorld, RAPIER } from '@/physics/world';
 import { initSaveSystem, loadSave, saveCurrentState } from '@/save/store';
 import type { SaveV1 } from '@/save/schema';
 import { gameStore } from '@/state/store';
@@ -139,10 +139,10 @@ async function bootstrap(): Promise<void> {
   const CHANNEL_CONFIGS: ChannelConfig[] = STREAM_CONFIGS.map((s) => ({
     centerX: s.centerX,
     centerZ: s.centerZ,
-    halfWidth: s.halfWidth + 0.2, // slightly wider than the water plane so banks rise visibly
+    halfWidth: s.halfWidth + 0.2, // slightly wider than the water plane so the bed transitions smoothly
     halfLength: s.halfLength + 2.75,
     orientation: s.orientation,
-    depth: 0.45,
+    depth: 1.2,
   }));
 
   // ---- Terrain ----
@@ -208,6 +208,14 @@ async function bootstrap(): Promise<void> {
     seed: 0xb0,
   });
   console.log(`[boulders] placed ${boulders.count} boulders`);
+  // Static ball colliders for each boulder so the player can't walk through
+  // them. Bank-side, in-stream, and mine-ring boulders all block — in-stream
+  // ones become wadeable obstacles you path around.
+  for (const bc of boulders.colliders) {
+    physics.rapier.createCollider(
+      RAPIER.ColliderDesc.ball(bc.radius).setTranslation(bc.pos.x, bc.pos.y, bc.pos.z),
+    );
+  }
 
   // ---- Headlamp ----
   const headlamp = createHeadlamp(renderer.scene);
@@ -432,6 +440,7 @@ async function bootstrap(): Promise<void> {
   let interactWasDown = false;
   let pauseWasDown = false;
   let worldTime = gameStore.getState().save.world.gameTime;
+  let footstepTimer = 0;
 
   // Active vendor session (mutually exclusive with prospecting). When non-null,
   // the player is at a vendor's sale screen — movement frozen, INTERACT confirms
@@ -614,10 +623,32 @@ async function bootstrap(): Promise<void> {
         weatherIntensity: weather.getView().intensity,
       });
 
+      // 8b. Footstep cadence — gated on movement state and surface. Wading
+      // footsteps when the player is inside a stream rectangle; grass tone
+      // everywhere else. Surface treats "anywhere on the map outside a
+      // stream" as grass for now; biome-aware footsteps can come later.
+      const charState = character.getState();
+      const playerMoving = charState === 'walking' || charState === 'running';
+      footstepTimer += dt;
+      const stepInterval = charState === 'running' ? 0.32 : 0.5;
+      if (playerMoving && footstepTimer >= stepInterval) {
+        audio.playFootstep(inStreamWater ? 'water' : 'grass');
+        footstepTimer = 0;
+      } else if (!playerMoving) {
+        footstepTimer = 0;
+      }
+
       // 9. Site richness regen + weather + sky + headlamp + grass + shadows
       gameStore.getState().regenSites(dt, worldTime);
       weather.update(worldTime, dt, charPos);
       sky.update(worldTime, weather.getView());
+
+      // Cave darkness override: when the player is inside the mine cave,
+      // clamp ambient near-zero so the interior reads as actually dark.
+      // sky.update() rewrites ambient.intensity fresh each frame, so we don't
+      // need to restore on exit — the override only sticks while inside.
+      const inCave = mine.isPlayerInside(charPos);
+      if (inCave) renderer.ambient.intensity = 0.06;
 
       // Capture world-space sun direction BEFORE we offset the light for
       // shadow-follow. terrain/grass lambert math needs the original
@@ -634,6 +665,7 @@ async function bootstrap(): Promise<void> {
         skyHour: getSkyHour(worldTime),
         weather: weather.getView(),
         gearTier: gameStore.getState().save.equipment.ownedTiers.gear,
+        isInCave: inCave,
       });
       const grassLight = {
         time: worldTime,
@@ -845,6 +877,7 @@ async function bootstrap(): Promise<void> {
           firstEver,
           yieldMultiplier,
         });
+        audio.playSplash();
         const bonusTag = siteBonus !== 1 ? ` × site${siteBonus.toFixed(2)}` : '';
         console.log(
           `[prospect] start ${nearestSite.site.id} (richness=${site.richnessRemaining.toFixed(2)}, firstEver=${firstEver}, yield=${yieldMultiplier.toFixed(2)} = equip${equipMult.toFixed(2)} × survival${survivalMult.toFixed(2)}${bonusTag})`,
