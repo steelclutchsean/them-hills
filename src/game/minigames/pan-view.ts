@@ -24,6 +24,11 @@ const PAN_RADIUS_T3 = 0.21;
 interface TierVariant {
   group: THREE.Group;
   cursor: THREE.Mesh;
+  /** Inner water disc mat — pulsed on each completed swirl. */
+  waterMat: THREE.MeshBasicMaterial;
+  /** Resting rotation (set once at construction; tilt offsets layer on). */
+  restRotX: number;
+  restRotZ: number;
   riffleDots?: THREE.Mesh[];
   panRadius: number;
 }
@@ -139,7 +144,15 @@ function makePanVariant(tier: 1 | 2 | 3): TierVariant {
   });
 
   variant.visible = false;
-  return { group: variant, cursor, riffleDots, panRadius };
+  return {
+    group: variant,
+    cursor,
+    waterMat,
+    restRotX: variant.rotation.x,
+    restRotZ: variant.rotation.z,
+    riffleDots,
+    panRadius,
+  };
 }
 
 export function createPanView(): PanViewMeshes {
@@ -152,12 +165,38 @@ export function createPanView(): PanViewMeshes {
   };
   for (const v of Object.values(variants)) root.add(v.group);
 
+  // Per-stage state for cursor-driven tilt + swirl pulse.
+  let prevSwirlCount = 0;
+  let pulseT = 1; // 1 = idle, 0 = freshly-pulsed
+  const TILT_MAX_RAD = 0.06;
+  const TILT_LERP = 0.12;
+
   function update(viz: PanViz): void {
     // Show only the active tier's variant.
     for (const [k, v] of Object.entries(variants)) {
       v.group.visible = Number(k) === viz.tier;
     }
     const active = variants[viz.tier];
+
+    // Cursor-driven tilt. cursorY tilts forward/back (rotation.x);
+    // cursorX tilts left/right (rotation.z). Lerp toward target so the
+    // pan settles smoothly rather than snapping.
+    const targetX = active.restRotX + viz.cursorY * TILT_MAX_RAD;
+    const targetZ = active.restRotZ + viz.cursorX * TILT_MAX_RAD;
+    active.group.rotation.x += (targetX - active.group.rotation.x) * TILT_LERP;
+    active.group.rotation.z += (targetZ - active.group.rotation.z) * TILT_LERP;
+
+    // Detect a fresh swirl-count tick and pulse the water disc opacity.
+    // Counter going DOWN means a new prospect session started — reset.
+    if (viz.swirlCount < prevSwirlCount) prevSwirlCount = 0;
+    if (viz.swirlCount > prevSwirlCount) {
+      pulseT = 0;
+    }
+    prevSwirlCount = viz.swirlCount;
+    pulseT = Math.min(1, pulseT + 0.06);
+    // Default opacity 0.55; pulse spikes briefly toward 0.95 on swirl.
+    active.waterMat.opacity = 0.55 + (1 - pulseT) * 0.4;
+
     // Cursor position — cursor.x / .z (since variant is rotated, the
     // pan's local "up" tilts; we move in its local XZ plane).
     active.cursor.position.x = viz.cursorX * active.panRadius * 0.92;

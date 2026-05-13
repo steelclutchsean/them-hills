@@ -78,7 +78,7 @@ export function createPanMinigame(): Minigame {
       swirlCount = 0;
       sessionTime = 0;
     },
-    update({ dt, axes, audio }): MinigameUpdate {
+    update({ dt, axes, audio, effects }): MinigameUpdate {
       sessionTime += dt;
 
       // Integrate look-delta into cursor XY. Clamp inside the unit pan.
@@ -115,6 +115,12 @@ export function createPanMinigame(): Minigame {
         circularitySamples.push(circ);
         swirlCount += 1;
         audio.playPanSwirl();
+        // Gold sparkle burst from the pan center on each completed
+        // revolution. Pan mounts at (0, -0.34, -0.5); fire the burst
+        // a little above the bowl so particles read as "rising."
+        const burstCount = 6 + Math.round(circ * 8);
+        effects.burst({ x: 0, y: -0.3, z: -0.5 }, 0xffd96a, burstCount);
+        effects.shake(0.01, 0.12);
         // Wrap remaining angular travel into the next swirl.
         angularDistance =
           angularDistance > 0
