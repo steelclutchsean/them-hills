@@ -17,7 +17,9 @@ type CollectViz = Extract<MinigameViz, { kind: 'collect' }>;
 const PAN_RADIUS = 0.2;
 const FLAKE_FINE_RADIUS = 0.012;
 const FLAKE_PICKER_RADIUS = 0.018;
-const TOTAL_FLAKE_SLOTS = 8;
+// Matches TOTAL_FLAKES in collect.ts — the view needs at least as many
+// slot meshes as the logic spawns, otherwise the extras are invisible.
+const TOTAL_FLAKE_SLOTS = 11;
 
 const FLAKE_FINE_COLOR = 0xffe26a;
 const FLAKE_PICKER_COLOR = 0xfac545;
