@@ -66,6 +66,98 @@ export interface MineInfo {
   isPlayerInside(playerPos: THREE.Vector3): boolean;
 }
 
+// Shared wood textures — built once, reused across all 4 mines.
+// `beamWood` is the lighter freshly-cut timber for the structural
+// archway; `agedWood` is darker, more weathered, used for the planks
+// and the boarded-up gate.
+let beamWoodTex: THREE.CanvasTexture | null = null;
+let agedWoodTex: THREE.CanvasTexture | null = null;
+
+function makeWoodTexture(opts: {
+  baseR: number;
+  baseG: number;
+  baseB: number;
+  grainStrength: number;
+  knotCount: number;
+}): THREE.CanvasTexture {
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('[mine] wood texture: 2d context unavailable');
+
+  // Base wood color fills the canvas.
+  ctx.fillStyle = `rgb(${opts.baseR}, ${opts.baseG}, ${opts.baseB})`;
+  ctx.fillRect(0, 0, size, size);
+
+  // Vertical grain bands — varying lightness shades along the wood's
+  // length. ~14 bands of width 4–18px, low opacity blend.
+  for (let i = 0; i < 14; i++) {
+    const x = (i / 14) * size + (Math.random() - 0.5) * 14;
+    const w = 4 + Math.random() * 14;
+    const lightness = 0.7 + Math.random() * 0.55;
+    const r = Math.min(255, Math.floor(opts.baseR * lightness));
+    const g = Math.min(255, Math.floor(opts.baseG * lightness));
+    const b = Math.min(255, Math.floor(opts.baseB * lightness));
+    ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+    ctx.globalAlpha = 0.55 * opts.grainStrength;
+    ctx.fillRect(x - w / 2, 0, w, size);
+  }
+  ctx.globalAlpha = 1;
+
+  // Thin cross-grain noise lines — short dark slashes across the
+  // wood length to hint at grain irregularity.
+  for (let i = 0; i < 36; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const w = 16 + Math.random() * 48;
+    ctx.fillStyle = `rgba(20, 12, 4, ${0.1 + Math.random() * 0.18})`;
+    ctx.fillRect(x, y, w, 1);
+  }
+
+  // Knots — dark elliptical spots, fading at the edges.
+  for (let i = 0; i < opts.knotCount; i++) {
+    const kx = Math.random() * size;
+    const ky = Math.random() * size;
+    const kr = 6 + Math.random() * 10;
+    const grad = ctx.createRadialGradient(kx, ky, 0, kx, ky, kr);
+    grad.addColorStop(0, 'rgba(20, 10, 4, 0.95)');
+    grad.addColorStop(0.55, 'rgba(35, 18, 8, 0.55)');
+    grad.addColorStop(1, 'rgba(35, 18, 8, 0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(kx - kr, ky - kr, kr * 2, kr * 2);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function ensureWoodTextures(): { beam: THREE.CanvasTexture; aged: THREE.CanvasTexture } {
+  if (!beamWoodTex) {
+    beamWoodTex = makeWoodTexture({
+      baseR: 90,
+      baseG: 60,
+      baseB: 30,
+      grainStrength: 1.0,
+      knotCount: 3,
+    });
+  }
+  if (!agedWoodTex) {
+    agedWoodTex = makeWoodTexture({
+      baseR: 60,
+      baseG: 36,
+      baseB: 16,
+      grainStrength: 1.1,
+      knotCount: 4,
+    });
+  }
+  return { beam: beamWoodTex, aged: agedWoodTex };
+}
+
 export function createMineEntrance(
   scene: THREE.Scene,
   world: RAPIER.World,
@@ -78,15 +170,20 @@ export function createMineEntrance(
   group.name = `mine_${config.id}`;
   group.position.copy(position);
 
+  const wood = ensureWoodTextures();
+  // map.color = 0xffffff so the texture's own browns come through
+  // un-tinted. Roughness stays high — these are rough-cut timbers.
   const beamMat = new THREE.MeshStandardMaterial({
-    color: 0x3a2618,
-    flatShading: true,
-    roughness: 0.95,
+    map: wood.beam,
+    color: 0xffffff,
+    flatShading: false,
+    roughness: 0.92,
   });
   const aged = new THREE.MeshStandardMaterial({
-    color: 0x2a1808,
-    flatShading: true,
-    roughness: 0.97,
+    map: wood.aged,
+    color: 0xffffff,
+    flatShading: false,
+    roughness: 0.95,
   });
 
   // ---- Archway (always visible) ----
