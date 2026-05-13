@@ -32,7 +32,9 @@ import { createProspectingController } from '@/game/prospecting';
 import { createClassifyMeterView } from '@/game/minigames/classify-meter';
 import { createCollectView } from '@/game/minigames/collect-view';
 import { createDigMeterView } from '@/game/minigames/dig-meter';
+import { createExtractMeterView } from '@/game/minigames/extract-meter';
 import { createPanView } from '@/game/minigames/pan-view';
+import { createStrikeMeterView } from '@/game/minigames/strike-meter';
 import {
   createClassifierMesh,
   createPickaxeMesh,
@@ -438,6 +440,10 @@ async function bootstrap(): Promise<void> {
   renderer.camera.add(panView.group);
   const collectView = createCollectView();
   renderer.camera.add(collectView.group);
+  const strikeMeter = createStrikeMeterView();
+  renderer.camera.add(strikeMeter.group);
+  const extractMeter = createExtractMeterView();
+  renderer.camera.add(extractMeter.group);
   let prospectWasActive = false;
 
   // ---- Audio system ----
@@ -613,6 +619,11 @@ async function bootstrap(): Promise<void> {
       } else if (!prospecting && prospectWasActive) {
         // Edge: just exited prospect view. Hide everything prospect-related.
         cameraMode.exitProspectView();
+        hideAllProspectViewmodels();
+      }
+      prospectWasActive = prospecting;
+
+      function hideAllProspectViewmodels(): void {
         shovelMesh.visible = false;
         pickaxeMesh.visible = false;
         for (const m of Object.values(classifierMeshes)) m.visible = false;
@@ -620,65 +631,51 @@ async function bootstrap(): Promise<void> {
         classifyMeter.setVisible(false);
         panView.setVisible(false);
         collectView.setVisible(false);
+        strikeMeter.setVisible(false);
+        extractMeter.setVisible(false);
       }
-      prospectWasActive = prospecting;
 
       if (prospecting) {
         cameraMode.updateProspectView(charPosForCamera);
-        // Drive per-stage viewmodels from the latest snapshot. Each stage
-        // shows its own tool + meter; everything else stays hidden.
         const snap = prospect.getSnapshot();
         if (snap) {
           const v = snap.viz;
-          // DIG ----------------------------------------------------------
+          // Always start from a hidden baseline, then turn on what the
+          // current stage needs. Simpler than the per-branch if/else
+          // hide-everything-except-mine pattern.
+          hideAllProspectViewmodels();
+
           if (v?.kind === 'dig') {
             const usePickaxe = v.isPickaxe;
             shovelMesh.visible = !usePickaxe;
             pickaxeMesh.visible = usePickaxe;
-            for (const m of Object.values(classifierMeshes)) m.visible = false;
             digMeter.update(v);
             digMeter.setVisible(true);
-            classifyMeter.setVisible(false);
           } else if (v?.kind === 'classify') {
-            // CLASSIFY ---------------------------------------------------
-            shovelMesh.visible = false;
-            pickaxeMesh.visible = false;
             const tierKey: 1 | 2 | 3 = v.layerCount === 1 ? 1 : v.layerCount === 3 ? 2 : 3;
             for (const [k, m] of Object.entries(classifierMeshes)) {
               m.visible = Number(k) === tierKey;
             }
             classifyMeter.update(v);
             classifyMeter.setVisible(true);
-            digMeter.setVisible(false);
-            panView.setVisible(false);
           } else if (v?.kind === 'pan') {
-            // PAN --------------------------------------------------------
-            shovelMesh.visible = false;
-            pickaxeMesh.visible = false;
-            for (const m of Object.values(classifierMeshes)) m.visible = false;
             panView.update(v);
             panView.setVisible(true);
-            digMeter.setVisible(false);
-            classifyMeter.setVisible(false);
-            collectView.setVisible(false);
           } else if (v?.kind === 'collect') {
-            // COLLECT ----------------------------------------------------
-            shovelMesh.visible = false;
-            pickaxeMesh.visible = false;
-            for (const m of Object.values(classifierMeshes)) m.visible = false;
             collectView.update(v);
             collectView.setVisible(true);
-            digMeter.setVisible(false);
-            classifyMeter.setVisible(false);
-            panView.setVisible(false);
-          } else {
-            shovelMesh.visible = false;
-            pickaxeMesh.visible = false;
-            for (const m of Object.values(classifierMeshes)) m.visible = false;
-            digMeter.setVisible(false);
-            classifyMeter.setVisible(false);
-            panView.setVisible(false);
-            collectView.setVisible(false);
+          } else if (v?.kind === 'strike') {
+            // Mining context: hold the pickaxe regardless of shovel tier
+            // (the player is, by definition, in a mine — they have at
+            // least Shovel T3 to be inside). isPickaxe flag still drives
+            // the tier-based difficulty.
+            pickaxeMesh.visible = true;
+            strikeMeter.update(v);
+            strikeMeter.setVisible(true);
+          } else if (v?.kind === 'extract') {
+            pickaxeMesh.visible = true;
+            extractMeter.update(v);
+            extractMeter.setVisible(true);
           }
         }
       } else {
@@ -1067,6 +1064,7 @@ async function bootstrap(): Promise<void> {
           const yieldMultiplier = equipMult * survivalMult * siteBonus;
           prospect.start({
             siteId: nearestSite.site.id,
+            context: isMineSite ? 'mining' : 'panning',
             digsRemaining: site.digsRemaining,
             maxDigs: site.maxDigs,
             actionCount,

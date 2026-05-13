@@ -5,7 +5,9 @@ import {
   createClassifyMinigame,
   createCollectMinigame,
   createDigMinigame,
+  createExtractMinigame,
   createPanMinigame,
+  createStrikeMinigame,
   type Minigame,
   type MinigameAudio,
   type MinigameProgress,
@@ -23,9 +25,14 @@ import {
 // mechanics and return a flat 1.0 score. Real per-stage skill challenges
 // land in M3–M6.
 
-export type StepKind = 'dig' | 'classify' | 'pan' | 'collect';
+export type StepKind = 'dig' | 'classify' | 'pan' | 'collect' | 'strike' | 'extract';
 
-const STEP_ORDER: readonly StepKind[] = ['dig', 'classify', 'pan', 'collect'] as const;
+/** Stages played for a stream prospect — the classic 4-step panning flow. */
+const PANNING_STEPS: readonly StepKind[] = ['dig', 'classify', 'pan', 'collect'] as const;
+/** Stages played for a mine prospect — 3-step pickaxe flow. */
+const MINING_STEPS: readonly StepKind[] = ['strike', 'extract', 'collect'] as const;
+
+export type SiteContext = 'panning' | 'mining';
 
 // Per-prospect base yield at full richness. Real numbers come from economy-model.md;
 // this is a Phase 2 placeholder that gives satisfying immediate feedback during testing.
@@ -37,7 +44,13 @@ const PAN_QUALITY_NUGGET = 0.02;
 export interface ProspectingSnapshot {
   active: boolean;
   siteId: string;
+  /** 'panning' (streams) or 'mining' (mine cave sites). */
+  context: SiteContext;
   step: StepKind;
+  /** 1-based index within the active stage list. */
+  stepIndex: number;
+  /** Total stages for this context (4 panning, 3 mining). */
+  totalSteps: number;
   progress: number; // 0..1 within current step
   panTapsRemaining: number;
   message: string;
@@ -82,6 +95,9 @@ export interface ProspectingController {
   getSnapshot(): ProspectingSnapshot | null;
   start(opts: {
     siteId: string;
+    /** Which stage flow to run — 'panning' (streams, 4 stages) or
+     *  'mining' (mine cave, 3 stages). */
+    context: SiteContext;
     /** Dig-count remaining on this site BEFORE the current dig (used by
      *  the yield formula's per-dig falloff curve). */
     digsRemaining: number;
@@ -101,12 +117,15 @@ export interface ProspectingController {
 
 interface Session {
   siteId: string;
+  context: SiteContext;
+  /** Active step list. PANNING_STEPS for streams, MINING_STEPS for mines. */
+  steps: readonly StepKind[];
   digsRemaining: number;
   maxDigs: number;
   actionCount: number;
   firstEver: boolean;
   yieldMultiplier: number;
-  /** Tier per stage idx — index by STEP_ORDER position. */
+  /** Tier per stage idx — index aligns with `steps`. */
   stageTiers: readonly number[];
   stageIdx: number;
   stages: readonly Minigame[];
@@ -128,11 +147,8 @@ export function createProspectingController(
   function snapshot(): ProspectingSnapshot | null {
     if (!session) return null;
     const pending = session.pendingConfirm;
-    // While awaiting confirm: show the FINISHED stage (so its viewmodel
-    // stays on screen behind the banner) and report the score for the
-    // HUD to render. Otherwise show the current in-progress stage.
     const reportedIdx = pending ? pending.stageIdx : session.stageIdx;
-    const reportedStep = STEP_ORDER[reportedIdx]!;
+    const reportedStep = session.steps[reportedIdx]!;
     // Confirmation prompts always use INTERACT; the collect minigame is
     // the only stage that swaps the in-game prompt to USE_TOOL.
     const primaryAction: 'INTERACT' | 'USE_TOOL' =
@@ -140,7 +156,10 @@ export function createProspectingController(
     return {
       active: true,
       siteId: session.siteId,
+      context: session.context,
       step: reportedStep,
+      stepIndex: reportedIdx + 1,
+      totalSteps: session.steps.length,
       progress: session.current.progress,
       panTapsRemaining: session.current.panTapsRemaining,
       message: session.current.message,
@@ -190,25 +209,41 @@ export function createProspectingController(
   return {
     isActive: () => session !== null,
     getSnapshot: snapshot,
-    start({ siteId, digsRemaining, maxDigs, actionCount, firstEver, yieldMultiplier, toolTiers }) {
+    start({
+      siteId,
+      context,
+      digsRemaining,
+      maxDigs,
+      actionCount,
+      firstEver,
+      yieldMultiplier,
+      toolTiers,
+    }) {
       if (session !== null) return false;
-      const stages = [
-        createDigMinigame(),
-        createClassifyMinigame(),
-        createPanMinigame(),
-        createCollectMinigame(),
-      ] as const;
-      // Per-stage tool tier — index aligns with STEP_ORDER:
-      //   dig → shovel, classify → classifier, pan → pan, collect → snuffer.
-      const stageTiers: readonly number[] = [
-        toolTiers.shovel,
-        toolTiers.classifier,
-        toolTiers.pan,
-        toolTiers.snuffer,
-      ];
-      stages[0].start(stageTiers[0]!);
+      // Build the per-context step list + factory list. The collect stage
+      // is identical between contexts (snuffer pluck).
+      const steps = context === 'mining' ? MINING_STEPS : PANNING_STEPS;
+      const stages: Minigame[] =
+        context === 'mining'
+          ? [createStrikeMinigame(), createExtractMinigame(), createCollectMinigame()]
+          : [
+              createDigMinigame(),
+              createClassifyMinigame(),
+              createPanMinigame(),
+              createCollectMinigame(),
+            ];
+      // Per-stage tool tier — each stage reads the tool that matters for
+      // it. Mining: strike → shovel (pickaxe at T3), extract → detector
+      // (find the seam), collect → snuffer.
+      const stageTiers: readonly number[] =
+        context === 'mining'
+          ? [toolTiers.shovel, toolTiers.detector, toolTiers.snuffer]
+          : [toolTiers.shovel, toolTiers.classifier, toolTiers.pan, toolTiers.snuffer];
+      stages[0]!.start(stageTiers[0]!);
       session = {
         siteId,
+        context,
+        steps,
         digsRemaining: Math.max(0, digsRemaining),
         maxDigs: Math.max(1, maxDigs),
         actionCount,
@@ -241,12 +276,12 @@ export function createProspectingController(
           const finishedIdx = session.pendingConfirm.stageIdx;
           session.pendingConfirm = null;
           session.stageIdx = finishedIdx + 1;
-          if (session.stageIdx >= STEP_ORDER.length) {
+          if (session.stageIdx >= session.steps.length) {
             return finalizeReward();
           }
           const next = session.stages[session.stageIdx];
           if (next) next.start(session.stageTiers[session.stageIdx] ?? 1);
-          const nextStep = STEP_ORDER[session.stageIdx]!;
+          const nextStep = session.steps[session.stageIdx]!;
           console.log(`[prospect] → entering ${nextStep}`);
           // Consume the confirm press so the new stage doesn't see it.
           wasInteractDown = interactDown;
@@ -271,7 +306,7 @@ export function createProspectingController(
       if (upd.kind === 'complete') {
         session.stageScores.push(upd.score);
         opts.audio.playStageComplete(completedStageIdx);
-        const finishedStep = STEP_ORDER[completedStageIdx]!;
+        const finishedStep = session.steps[completedStageIdx]!;
         console.log(
           `[prospect] ${finishedStep} → score ${upd.score.toFixed(2)}`,
         );

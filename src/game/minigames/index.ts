@@ -12,3 +12,5 @@ export { createDigMinigame } from './dig';
 export { createClassifyMinigame } from './classify';
 export { createPanMinigame } from './pan';
 export { createCollectMinigame } from './collect';
+export { createStrikeMinigame } from './strike';
+export { createExtractMinigame } from './extract';

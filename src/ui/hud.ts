@@ -739,7 +739,7 @@ export function mountHud(root: HTMLElement): MountedHud {
           prospect.classList.remove('confirm');
           const stepLabel = document.createElement('div');
           stepLabel.className = 'step-label';
-          stepLabel.textContent = `Step ${stepNumber(s.prospect.step)} of 4 — ${s.prospect.step.toUpperCase()}`;
+          stepLabel.textContent = `Step ${s.prospect.stepIndex} of ${s.prospect.totalSteps} — ${s.prospect.step.toUpperCase()}`;
           prospect.appendChild(stepLabel);
 
           const bar = document.createElement('div');
@@ -930,18 +930,9 @@ function setMeter(
   m.pct.textContent = `${(clamped * 100).toFixed(0)}%${suffix}`;
 }
 
-function stepNumber(step: ProspectingSnapshot['step']): number {
-  switch (step) {
-    case 'dig':
-      return 1;
-    case 'classify':
-      return 2;
-    case 'pan':
-      return 3;
-    case 'collect':
-      return 4;
-  }
-}
+// stepNumber() is no longer needed — the snapshot carries stepIndex /
+// totalSteps directly, so the HUD doesn't have to map step kinds to
+// positions (panning has 4 steps; mining has 3, in a different order).
 
 /** Bucket a per-stage skill score into a quality tier for the banner color. */
 function multiplierClass(score: number): string {

@@ -110,6 +110,27 @@ export type MinigameViz =
       flakesTotal: number;
       /** Seconds remaining in the stage. */
       timeRemaining: number;
+    }
+  | {
+      kind: 'strike';
+      /** 0..1 position of the oscillating indicator along the bar. */
+      indicator: number;
+      sweetCenter: number;
+      sweetHalfWidth: number;
+      swingsRemaining: number;
+      lastSwingFlashSec: number;
+      lastSwingScore: number;
+      /** True when shovel ≥ T3 (rendered as a pickaxe instead of shovel). */
+      isPickaxe: boolean;
+    }
+  | {
+      kind: 'extract';
+      /** 0..1 chip-out progress. Tap INTERACT to add; decays without input. */
+      progress: number;
+      /** Last-tap flash window in seconds (for visual spark). */
+      lastTapFlashSec: number;
+      /** Detector tier 1/2/3 — drives mesh and decay rate. */
+      detectorTier: 1 | 2 | 3;
     };
 
 export interface CollectFlakeViz {

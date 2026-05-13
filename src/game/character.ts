@@ -26,7 +26,7 @@ export type CharacterState = 'idle' | 'walking' | 'running' | 'jumping' | 'falli
 
 /** Optional task overlay; if non-null it overrides movement-state animation. */
 export interface ProspectingActivity {
-  step: 'dig' | 'classify' | 'pan' | 'collect';
+  step: 'dig' | 'classify' | 'pan' | 'collect' | 'strike' | 'extract';
   progress: number;
 }
 
