@@ -28,6 +28,7 @@ import { createInn } from '@/game/inn';
 import { createMineEntrance } from '@/game/mine';
 import { createOldPete } from '@/game/old-pete';
 import { createProspectingController } from '@/game/prospecting';
+import { createShovelMesh } from '@/game/minigames/tool-models';
 import { scatterAssets } from '@/game/scatter';
 import { SKY_SECONDS_PER_DAY, createSkyController, formatClock, getSkyHour } from '@/game/sky';
 import { createStream, createStreamRegistry, type StreamConfig } from '@/game/stream';
@@ -35,6 +36,7 @@ import { CAMP_REST_TIME_ADVANCE, computeSurvivalYieldFactor } from '@/game/survi
 import { createTerrain, type ChannelConfig } from '@/game/terrain';
 import { createWeatherController } from '@/game/weather';
 import { createVendors, type Vendor } from '@/game/vendor';
+import { createCameraModeController } from '@/engine/camera-modes';
 import { createGameLoop } from '@/engine/loop';
 import { createRenderer } from '@/engine/renderer';
 import { createInputManager } from '@/input/manager';
@@ -378,6 +380,18 @@ async function bootstrap(): Promise<void> {
     initialPitch: 0.25,
   });
 
+  // ---- Prospect first-person camera + tool mount ----
+  // The prospect lifecycle swaps the third-person rig out for a fixed
+  // first-person view at the character's head, looking at the ground. The
+  // tool mesh is parented to the camera so it renders as a viewmodel.
+  // Camera must be in the scene tree for its children to render.
+  renderer.scene.add(renderer.camera);
+  const cameraMode = createCameraModeController(renderer.camera);
+  const shovelMesh = createShovelMesh();
+  shovelMesh.visible = false;
+  renderer.camera.add(shovelMesh);
+  let prospectWasActive = false;
+
   // ---- Audio system ----
   // Browser audio policy requires a user gesture before AudioContext can
   // produce sound, so we wire tryEnable() into the existing canvas click
@@ -499,12 +513,17 @@ async function bootstrap(): Promise<void> {
       const pauseJustPressed = pauseDown && !pauseWasDown;
       pauseWasDown = pauseDown;
 
-      // 1. Camera look (always responsive, even during prospecting)
+      // 1. Camera look — consumed always so input doesn't pool, but only
+      // applied to the rig when no prospect minigame is active (the
+      // first-person prospect view is intentionally fixed).
       const lookDelta = input.getLookDelta(dt);
-      cameraRig.applyLook(lookDelta);
+      const prospectingNow = prospect.isActive();
+      if (!prospectingNow) {
+        cameraRig.applyLook(lookDelta);
+      }
 
       // 2. Determine whether character can move (locked during any session)
-      const prospecting = prospect.isActive();
+      const prospecting = prospectingNow;
       const inVendorSession = activeVendor !== null;
       const inStoreSession = storeOpen;
       const inDialogueSession = dialogue !== null;
@@ -534,8 +553,27 @@ async function bootstrap(): Promise<void> {
         : null;
       character.postStep(dt, worldTime, activity);
 
-      // 6. Camera position
-      cameraRig.placeCamera(character.getPosition(), physics.rapier, character.getColliderHandle());
+      // 6. Camera position. During a prospect minigame, swap the spring-arm
+      // rig for the fixed first-person prospect view + tool viewmodel.
+      const charPosForCamera = character.getPosition();
+      if (prospecting && !prospectWasActive) {
+        // Edge: just entered prospect view. Snap camera to first-person and
+        // reveal the tool mesh. Capture the current rig yaw so the view
+        // direction stays consistent with where the player was facing.
+        cameraMode.enterProspectView(charPosForCamera, cameraRig.getYaw());
+        shovelMesh.visible = true;
+      } else if (!prospecting && prospectWasActive) {
+        // Edge: just exited prospect view. Hide tool, drop the override.
+        cameraMode.exitProspectView();
+        shovelMesh.visible = false;
+      }
+      prospectWasActive = prospecting;
+
+      if (prospecting) {
+        cameraMode.updateProspectView(charPosForCamera);
+      } else {
+        cameraRig.placeCamera(charPosForCamera, physics.rapier, character.getColliderHandle());
+      }
 
       // 7. Proximity: precedence is vendor > general store > inn > Pete > mine > camp > site.
       const charPos = character.getPosition();
