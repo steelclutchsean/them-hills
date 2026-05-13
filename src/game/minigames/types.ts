@@ -75,7 +75,41 @@ export type MinigameViz =
       tier: 1 | 2 | 3;
       /** Riffle hits on T3 (cosmetic — locked flake snaps). */
       riffleHits: number;
+    }
+  | {
+      kind: 'collect';
+      cursorX: number;
+      cursorY: number;
+      /** All flakes the player is trying to pluck (live + fading + done). */
+      flakes: readonly CollectFlakeViz[];
+      /** Snuffer tier 1/2/3 — drives mesh + suction radius. */
+      snufferTier: 1 | 2 | 3;
+      /** Current suction radius for this tier (in pan-local 0..1 units). */
+      suctionRadius: number;
+      /** True if the player is holding INTERACT (visual halo). */
+      suctionActive: boolean;
+      /** Manually-collected flake count (excludes auto-fines on T3). */
+      flakesCollected: number;
+      /** Total flake count spawned this stage. */
+      flakesTotal: number;
+      /** Seconds remaining in the stage. */
+      timeRemaining: number;
     };
+
+export interface CollectFlakeViz {
+  id: number;
+  /** Pan-local position, in [-1, 1] × [-1, 1]. */
+  x: number;
+  y: number;
+  /** True for small "fines", false for larger "pickers". */
+  isFine: boolean;
+  /** 0..1 cyclic pulse phase for visual flicker. */
+  pulse: number;
+  /** Render state — present = visible, collecting = animated out, gone = hidden. */
+  state: 'present' | 'collecting' | 'gone';
+  /** Suction progress 0..1 while the cursor is hovering with INTERACT held. */
+  suckProgress: number;
+}
 
 export interface MinigameProgress {
   /** Sub-progress within this stage, 0..1. Drives the HUD bar. */

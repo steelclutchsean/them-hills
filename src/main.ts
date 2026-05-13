@@ -30,6 +30,7 @@ import { createMineEntrance } from '@/game/mine';
 import { createOldPete } from '@/game/old-pete';
 import { createProspectingController } from '@/game/prospecting';
 import { createClassifyMeterView } from '@/game/minigames/classify-meter';
+import { createCollectView } from '@/game/minigames/collect-view';
 import { createDigMeterView } from '@/game/minigames/dig-meter';
 import { createPanView } from '@/game/minigames/pan-view';
 import {
@@ -418,6 +419,8 @@ async function bootstrap(): Promise<void> {
   renderer.camera.add(classifyMeter.group);
   const panView = createPanView();
   renderer.camera.add(panView.group);
+  const collectView = createCollectView();
+  renderer.camera.add(collectView.group);
   let prospectWasActive = false;
 
   // ---- Audio system ----
@@ -596,6 +599,7 @@ async function bootstrap(): Promise<void> {
         digMeter.setVisible(false);
         classifyMeter.setVisible(false);
         panView.setVisible(false);
+        collectView.setVisible(false);
       }
       prospectWasActive = prospecting;
 
@@ -636,14 +640,25 @@ async function bootstrap(): Promise<void> {
             panView.setVisible(true);
             digMeter.setVisible(false);
             classifyMeter.setVisible(false);
+            collectView.setVisible(false);
+          } else if (v?.kind === 'collect') {
+            // COLLECT ----------------------------------------------------
+            shovelMesh.visible = false;
+            pickaxeMesh.visible = false;
+            for (const m of Object.values(classifierMeshes)) m.visible = false;
+            collectView.update(v);
+            collectView.setVisible(true);
+            digMeter.setVisible(false);
+            classifyMeter.setVisible(false);
+            panView.setVisible(false);
           } else {
-            // COLLECT — M6 stub, no viewmodel yet.
             shovelMesh.visible = false;
             pickaxeMesh.visible = false;
             for (const m of Object.values(classifierMeshes)) m.visible = false;
             digMeter.setVisible(false);
             classifyMeter.setVisible(false);
             panView.setVisible(false);
+            collectView.setVisible(false);
           }
         }
       } else {

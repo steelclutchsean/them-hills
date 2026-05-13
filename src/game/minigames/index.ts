@@ -1,4 +1,5 @@
 export type {
+  CollectFlakeViz,
   Minigame,
   MinigameContext,
   MinigameProgress,
