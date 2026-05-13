@@ -199,10 +199,24 @@ export function createCollectView(): CollectViewMeshes {
     2: makeSnufferMesh(2),
     3: makeSnufferMesh(3),
   };
+  // Capture each snuffer's rest position so the per-click lurch can
+  // layer offset on top without drifting over time.
+  const snufferRest: Record<1 | 2 | 3, { x: number; y: number; z: number }> = {
+    1: { x: snufferMeshes[1].position.x, y: snufferMeshes[1].position.y, z: snufferMeshes[1].position.z },
+    2: { x: snufferMeshes[2].position.x, y: snufferMeshes[2].position.y, z: snufferMeshes[2].position.z },
+    3: { x: snufferMeshes[3].position.x, y: snufferMeshes[3].position.y, z: snufferMeshes[3].position.z },
+  };
   for (const m of Object.values(snufferMeshes)) {
     m.visible = false;
     root.add(m);
   }
+
+  // Per-stage state: detect a fresh collect tick (collected count went
+  // up) and lurch the snuffer toward the cursor briefly.
+  let prevCollected = 0;
+  let lurchT = 1; // 1 = idle, 0 = freshly-lurched
+  const LURCH_DURATION_SEC = 0.18;
+  const LURCH_REACH_M = 0.025;
 
   function update(viz: CollectViz): void {
     // Show only the active snuffer tier mesh.
@@ -220,6 +234,26 @@ export function createCollectView(): CollectViewMeshes {
     const haloR = viz.suctionRadius * PAN_RADIUS;
     halo.scale.setScalar(haloR / 0.04);
     haloMat.opacity = viz.suctionActive ? 0.28 : 0.0;
+
+    // Snuffer lurch — detect a fresh collected-count tick and animate
+    // the active snuffer body briefly toward the cursor. Decays on a
+    // ~0.18s window so it reads as a snap-and-settle, not a drift.
+    // Counter going down = new session; reset.
+    if (viz.flakesCollected < prevCollected) prevCollected = 0;
+    if (viz.flakesCollected > prevCollected) {
+      lurchT = 0;
+    }
+    prevCollected = viz.flakesCollected;
+    const lurchDt = 1 / 60; // approximate; snap is short, exact dt doesn't matter
+    lurchT = Math.min(1, lurchT + lurchDt / LURCH_DURATION_SEC);
+    const lurchPhase = lurchT < 0.4 ? lurchT / 0.4 : 1 - (lurchT - 0.4) / 0.6;
+    const lurchAmt = lurchPhase * LURCH_REACH_M;
+    const rest = snufferRest[viz.snufferTier];
+    const active = snufferMeshes[viz.snufferTier];
+    // Push the snuffer slightly toward the cursor on collect.
+    active.position.x = rest.x + viz.cursorX * lurchAmt;
+    active.position.y = rest.y - lurchAmt * 0.5; // slight dip
+    active.position.z = rest.z + viz.cursorY * lurchAmt;
 
     // Flake slots — one mesh per spawn slot, mapped by id.
     for (let i = 0; i < flakeSlots.length; i++) {

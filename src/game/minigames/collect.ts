@@ -125,7 +125,7 @@ export function createCollectMinigame(): Minigame {
       sessionTime = 0;
       washInitiated = false;
     },
-    update({ dt, axes, isUseToolDown, justPressedUseTool, audio }): MinigameUpdate {
+    update({ dt, axes, isUseToolDown, justPressedUseTool, audio, effects }): MinigameUpdate {
       // Collect uses USE_TOOL (LMB / RT) for the click — see the action
       // bindings in src/input/actions.ts. As of B2, it's a single
       // just-pressed click per flake (no hold).
@@ -169,6 +169,20 @@ export function createCollectMinigame(): Minigame {
           best.f.suckProgress = 1;
           best.f.fadeT = 0;
           audio.playFlakeCollect();
+          // Gold sparkle burst at the flake's position. The pan is
+          // mounted at (0, -0.34, -0.5) and tilted; approximate the
+          // flake's screen-space position via cursor-space mapping.
+          const PAN_RADIUS_VIZ = 0.2;
+          effects.burst(
+            {
+              x: best.f.x * PAN_RADIUS_VIZ * 0.9,
+              y: -0.32,
+              z: -0.5 + best.f.y * PAN_RADIUS_VIZ * 0.3,
+            },
+            0xffe26a,
+            10,
+          );
+          effects.shake(0.006, 0.08);
         }
       }
 
