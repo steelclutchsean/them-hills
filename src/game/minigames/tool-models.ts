@@ -55,6 +55,52 @@ export function updateToolSwing(group: THREE.Group, dt: number): void {
   group.rotation.x = s.restX + offset;
 }
 
+// Vertical bounce animation — used by the classifier sieve on rhythm
+// taps. The group dips downward briefly then settles back. Same shape
+// as swing but acting on position.Y instead of rotation.X.
+
+interface BounceState {
+  active: boolean;
+  t: number;
+  restY: number;
+}
+
+const BOUNCE_DURATION_SEC = 0.28;
+const BOUNCE_DROP_M = 0.028;
+
+function getBounce(group: THREE.Group): BounceState {
+  if (!group.userData.bounce) {
+    group.userData.bounce = {
+      active: false,
+      t: 0,
+      restY: group.position.y,
+    };
+  }
+  return group.userData.bounce as BounceState;
+}
+
+export function triggerToolBounce(group: THREE.Group): void {
+  const b = getBounce(group);
+  b.active = true;
+  b.t = 0;
+}
+
+export function updateToolBounce(group: THREE.Group, dt: number): void {
+  const b = getBounce(group);
+  if (!b.active) return;
+  b.t += dt / BOUNCE_DURATION_SEC;
+  if (b.t >= 1) {
+    b.active = false;
+    group.position.y = b.restY;
+    return;
+  }
+  // Same triangle profile as swing but earlier peak — bounce snaps
+  // down fast, recovers smoothly.
+  const peak = 0.25;
+  const phase = b.t < peak ? b.t / peak : 1 - (b.t - peak) / (1 - peak);
+  group.position.y = b.restY - phase * BOUNCE_DROP_M;
+}
+
 // Procedural tool meshes for the prospect minigames. Each tool is a
 // THREE.Group built from primitives so we don't have to ship .glb assets
 // up front — silhouettes can be replaced later with authored models, and

@@ -75,7 +75,7 @@ export function createClassifyMinigame(): Minigame {
       lastTapAt = -999;
       lastTapScore = 0;
     },
-    update({ dt, justPressedInteract, audio }): MinigameUpdate {
+    update({ dt, justPressedInteract, audio, effects }): MinigameUpdate {
       sessionTime += dt;
 
       if (justPressedInteract && tapScores.length < profile.tapsTotal) {
@@ -84,7 +84,19 @@ export function createClassifyMinigame(): Minigame {
         tapScores.push(score);
         lastTapAt = sessionTime;
         lastTapScore = score;
-        audio.playClassifyBeat((score - SCORE_FLOOR) / (SCORE_CENTER - SCORE_FLOOR));
+        const quality = (score - SCORE_FLOOR) / (SCORE_CENTER - SCORE_FLOOR);
+        audio.playClassifyBeat(quality);
+        // Dust puff at the classifier rim — off-white, count scales with
+        // tap quality. The classifier sits lower-center of the view.
+        effects.burst(
+          { x: 0, y: -0.32, z: -0.5 },
+          0xd5d2c4,
+          Math.round(4 + quality * 8),
+        );
+        // Subtle screen shake on near-perfect taps only.
+        if (quality > 0.6) {
+          effects.shake(0.008 + quality * 0.008, 0.1);
+        }
       }
 
       const tapsDone = tapScores.length;

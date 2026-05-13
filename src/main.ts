@@ -40,7 +40,9 @@ import {
   createClassifierMesh,
   createPickaxeMesh,
   createShovelMesh,
+  triggerToolBounce,
   triggerToolSwing,
+  updateToolBounce,
   updateToolSwing,
 } from '@/game/minigames/tool-models';
 import { scatterAssets } from '@/game/scatter';
@@ -460,6 +462,7 @@ async function bootstrap(): Promise<void> {
   // fresh swing). Initial value > 0 ensures the first frame doesn't
   // false-fire.
   let lastDigSwingFlash = 999;
+  let lastClassifyTapFlash = 999;
   let prospectWasActive = false;
 
   // ---- Audio system ----
@@ -708,9 +711,10 @@ async function bootstrap(): Promise<void> {
       // regardless of prospect state — the cost is tiny and it lets
       // particles finish out cleanly if a stage ends mid-burst.
       fx.update(dt);
-      // Per-frame tool-swing animation. No-op when no swing is queued.
+      // Per-frame tool animations. No-op when no anim is queued.
       updateToolSwing(shovelMesh, dt);
       updateToolSwing(pickaxeMesh, dt);
+      for (const m of Object.values(classifierMeshes)) updateToolBounce(m, dt);
 
       if (prospecting) {
         cameraMode.updateProspectView(charPosForCamera);
@@ -743,6 +747,11 @@ async function bootstrap(): Promise<void> {
             }
             classifyMeter.update(v);
             classifyMeter.setVisible(true);
+            // Rising-edge: bounce the visible classifier sieve on each tap.
+            if (v.lastTapFlashSec < lastClassifyTapFlash) {
+              triggerToolBounce(classifierMeshes[tierKey]);
+            }
+            lastClassifyTapFlash = v.lastTapFlashSec;
           } else if (v?.kind === 'pan') {
             panView.update(v);
             panView.setVisible(true);
