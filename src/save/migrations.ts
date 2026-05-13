@@ -1,4 +1,4 @@
-import { CURRENT_SAVE_VERSION, type SaveV1 } from './schema';
+import { CURRENT_SAVE_VERSION, defaultSettings, type SaveV1 } from './schema';
 
 // Migrators run in sequence from saved-version up to CURRENT_SAVE_VERSION.
 // Each one returns the same blob with `version` bumped and any new fields
@@ -49,6 +49,13 @@ const migrators: Record<number, MigratorFn> = {
       world: { ...world, sites: migrated },
     };
   },
+  // v3 → v4: add the `settings` block with defaults. No existing data
+  // to convert — settings were hardcoded constants before this version.
+  3: (v3) => ({
+    ...v3,
+    version: 4,
+    settings: defaultSettings(),
+  }),
 };
 
 export function migrate(raw: unknown): SaveV1 {

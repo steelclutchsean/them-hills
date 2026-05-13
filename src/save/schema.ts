@@ -1,4 +1,4 @@
-// Save schema v3 — v1 is documented in /save-schema-v1.md.
+// Save schema v4 — v1 is documented in /save-schema-v1.md.
 // Every PR that bumps CURRENT_SAVE_VERSION must add a migrator and a fixture test.
 //
 // v2 changes:
@@ -10,14 +10,18 @@
 //     `digsRemaining` + `maxDigs`. Each site rolls maxDigs ∈ [3, 15] at
 //     creation; each pan decrements digsRemaining by 1; the site
 //     visually vanishes at 0. Daily in-game midnight respawns all sites.
+// v4 changes:
+//   - New `settings` block holds player preferences for audio mix, look
+//     sensitivity, and graphics. Defaults match the previously
+//     hardcoded values so behavior is unchanged for fresh saves.
 
-export const CURRENT_SAVE_VERSION = 3;
+export const CURRENT_SAVE_VERSION = 4;
 export const BUILD_VERSION = '0.1.12-phase10b';
 
 // ---------- Top-level shape ----------
 
 export interface SaveV1 {
-  version: 3;
+  version: 4;
   metadata: SaveMetadata;
   player: PlayerState;
   inventory: InventoryState;
@@ -29,6 +33,31 @@ export interface SaveV1 {
   npcs: NPCState;
   progression: ProgressionState;
   rngSeeds: RngSeedState;
+  settings: SettingsState;
+}
+
+// ---------- Settings ----------
+
+export interface SettingsState {
+  audio: {
+    /** 0..1 — top-level volume scaler. */
+    master: number;
+    /** 0..1 — pink-noise stream burble. */
+    ambient: number;
+    /** 0..1 — per-event tones (UI taps, swings, splashes, chimes). */
+    sfx: number;
+  };
+  look: {
+    /** Multiplier on the default mouse sensitivity (default constant
+     *  stays in input/manager.ts; this scales it). 1.0 = unchanged. */
+    mouseSensitivity: number;
+  };
+  graphics: {
+    /** Third-person FOV in degrees. Default 60. */
+    fovDegrees: number;
+    /** Real-time sun shadows. Disable on low-end hardware. */
+    shadowsEnabled: boolean;
+  };
 }
 
 export interface SaveMetadata {
@@ -260,7 +289,7 @@ export function createDefaultSave(): SaveV1 {
   const now = Date.now();
   const seed = Math.floor(Math.random() * 2 ** 31);
   return {
-    version: 3,
+    version: 4,
     metadata: {
       createdAt: now,
       lastSavedAt: now,
@@ -350,5 +379,14 @@ export function createDefaultSave(): SaveV1 {
       weatherSeed: seed ^ 0x5678,
       collectorVisitSeed: seed ^ 0x9abc,
     },
+    settings: defaultSettings(),
+  };
+}
+
+export function defaultSettings(): SettingsState {
+  return {
+    audio: { master: 1.0, ambient: 1.0, sfx: 1.0 },
+    look: { mouseSensitivity: 1.0 },
+    graphics: { fovDegrees: 60, shadowsEnabled: true },
   };
 }

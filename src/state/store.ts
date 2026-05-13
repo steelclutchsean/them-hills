@@ -4,9 +4,11 @@
 import { createStore } from 'zustand/vanilla';
 import {
   createDefaultSave,
+  defaultSettings,
   type ActiveQuest,
   type GoldStash,
   type SaveV1,
+  type SettingsState,
   type SiteState,
   type Transaction,
   type VendorId,
@@ -44,6 +46,19 @@ export interface GameStateStore {
 
   /** Record one dig at a site: decrement digsRemaining, update timestamps. */
   touchSite(siteId: string, gameTime: number): void;
+
+  /** Merge a partial settings patch into save.settings. The patch is
+   *  shallow-merged at the top level; the nested sub-objects (audio,
+   *  look, graphics) are replaced as whole. Use updateSettingsSlice for
+   *  finer updates. */
+  setSettings(patch: Partial<SettingsState>): void;
+
+  /** Merge a partial slice into save.settings[key]. Easier than
+   *  rebuilding the whole audio block to change one slider. */
+  updateSettingsSlice<K extends keyof SettingsState>(
+    key: K,
+    patch: Partial<SettingsState[K]>,
+  ): void;
 
   /** Increment the lifetime pan counter; returns the new value (used as RNG component). */
   incrementPanCount(): number;
@@ -214,6 +229,27 @@ export const gameStore = createStore<GameStateStore>((set, get) => ({
             ...state.save.world,
             sites: { ...state.save.world.sites, [siteId]: next },
           },
+        },
+      };
+    });
+  },
+
+  setSettings(patch) {
+    set((state) => ({
+      save: {
+        ...state.save,
+        settings: { ...(state.save.settings ?? defaultSettings()), ...patch },
+      },
+    }));
+  },
+
+  updateSettingsSlice(key, patch) {
+    set((state) => {
+      const base = state.save.settings ?? defaultSettings();
+      return {
+        save: {
+          ...state.save,
+          settings: { ...base, [key]: { ...base[key], ...patch } },
         },
       };
     });

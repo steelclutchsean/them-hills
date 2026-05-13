@@ -45,11 +45,28 @@ export interface AudioSystem {
   playStageComplete(stageIdx: number): void;
   /** True if the AudioContext has been created and is running. */
   isEnabled(): boolean;
+  /** Settings-driven channel volumes, each in [0, 1]. Live — applies on
+   *  the next audio frame. Defaults are 1.0 across all three. */
+  setMasterVolume(value: number): void;
+  setAmbientVolume(value: number): void;
+  setSfxVolume(value: number): void;
 }
 
 export function createAudioSystem(): AudioSystem {
   let ctx: AudioContext | null = null;
   let masterGain: GainNode | null = null;
+  /** Channel buses — ambient gets the pink-noise stream, sfx gets every
+   *  scheduled-tone event. Both feed into master, which is then
+   *  multiplied by the legacy 0.5 base loudness and routed to
+   *  destination. */
+  let ambientBus: GainNode | null = null;
+  let sfxBus: GainNode | null = null;
+  /** Cached settings values applied to the buses. setX() works before
+   *  the context exists (deferred until ensureContext)). */
+  let masterScale = 1.0;
+  let ambientScale = 1.0;
+  let sfxScale = 1.0;
+  /** Per-stream proximity envelope, separate from the user's volume. */
   let streamGain: GainNode | null = null;
   let started = false;
 
@@ -62,8 +79,14 @@ export function createAudioSystem(): AudioSystem {
       if (!Ctor) return null;
       ctx = new Ctor();
       masterGain = ctx.createGain();
-      masterGain.gain.value = 0.5;
+      masterGain.gain.value = 0.5 * masterScale;
       masterGain.connect(ctx.destination);
+      ambientBus = ctx.createGain();
+      ambientBus.gain.value = ambientScale;
+      ambientBus.connect(masterGain);
+      sfxBus = ctx.createGain();
+      sfxBus.gain.value = sfxScale;
+      sfxBus.connect(masterGain);
     } catch (e) {
       console.warn('[audio] AudioContext init failed', e);
       return null;
@@ -72,7 +95,7 @@ export function createAudioSystem(): AudioSystem {
   }
 
   function startStreamAmbient(): void {
-    if (!ctx || !masterGain || started) return;
+    if (!ctx || !masterGain || !ambientBus || started) return;
     started = true;
 
     // Pink-noise generator using Paul Kellett's filter coefficients — three
@@ -106,7 +129,7 @@ export function createAudioSystem(): AudioSystem {
 
     src.connect(filter);
     filter.connect(streamGain);
-    streamGain.connect(masterGain);
+    streamGain.connect(ambientBus);
     src.start();
   }
 
@@ -117,7 +140,7 @@ export function createAudioSystem(): AudioSystem {
     peakGain: number,
     type: OscillatorType = 'sine',
   ): void {
-    if (!ctx || !masterGain) return;
+    if (!ctx || !sfxBus) return;
     const osc = ctx.createOscillator();
     osc.type = type;
     osc.frequency.value = freqHz;
@@ -127,7 +150,7 @@ export function createAudioSystem(): AudioSystem {
     env.gain.exponentialRampToValueAtTime(peakGain, t0 + 0.008);
     env.gain.exponentialRampToValueAtTime(0.0001, t0 + durationSec);
     osc.connect(env);
-    env.connect(masterGain);
+    env.connect(sfxBus);
     osc.start(t0);
     osc.stop(t0 + durationSec + 0.02);
   }
@@ -215,6 +238,18 @@ export function createAudioSystem(): AudioSystem {
       const f = freqs[Math.max(0, Math.min(3, stageIdx))]!;
       scheduleTone(f, 0, 0.18, 0.08, 'sine');
       scheduleTone(f * 1.5, 0.05, 0.14, 0.05, 'sine');
+    },
+    setMasterVolume(value) {
+      masterScale = Math.max(0, Math.min(1, value));
+      if (masterGain) masterGain.gain.value = 0.5 * masterScale;
+    },
+    setAmbientVolume(value) {
+      ambientScale = Math.max(0, Math.min(1, value));
+      if (ambientBus) ambientBus.gain.value = ambientScale;
+    },
+    setSfxVolume(value) {
+      sfxScale = Math.max(0, Math.min(1, value));
+      if (sfxBus) sfxBus.gain.value = sfxScale;
     },
   };
 }

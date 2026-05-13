@@ -42,9 +42,13 @@ export interface InputManager {
   lastInputDevice(): InputDevice;
   gamepadGlyphStyle(): GamepadGlyphStyle;
   snapshot(): Readonly<Record<ActionId, ActionState>>;
+  /** Multiplier applied on top of the default mouse-look sensitivity.
+   *  Default 1.0 → no change. Driven by settings.look.mouseSensitivity. */
+  setMouseSensitivityMultiplier(value: number): void;
 }
 
-// Mouse pixels → radians. Tunable via Settings later (Phase 9).
+// Mouse pixels → radians. Multiplied by the settings-driven multiplier
+// in getLookDelta (default 1.0 → unchanged behavior).
 const MOUSE_LOOK_SENSITIVITY = 0.0022;
 // Gamepad stick at full deflection turns this many radians per second.
 const STICK_LOOK_RATE_RAD_PER_SEC = 2.6;
@@ -53,6 +57,7 @@ export function createInputManager(): InputManager {
   const kb = new KeyboardInput();
   const gp = new GamepadInput();
   let lastDevice: InputDevice = 'keyboard';
+  let mouseSensitivityMultiplier = 1.0;
 
   // Per-frame consumed mouse delta (set in poll()).
   let frameMouseDx = 0;
@@ -151,11 +156,13 @@ export function createInputManager(): InputManager {
       return { x: 0, y: 0 };
     },
     getLookDelta(dt) {
-      const mouseDx = frameMouseDx * MOUSE_LOOK_SENSITIVITY;
-      const mouseDy = frameMouseDy * MOUSE_LOOK_SENSITIVITY;
-      // Standard mapping: axis 2 = RX, axis 3 = RY.
-      const stickX = gp.getAxis(2) * STICK_LOOK_RATE_RAD_PER_SEC * dt;
-      const stickY = gp.getAxis(3) * STICK_LOOK_RATE_RAD_PER_SEC * dt;
+      const sens = MOUSE_LOOK_SENSITIVITY * mouseSensitivityMultiplier;
+      const mouseDx = frameMouseDx * sens;
+      const mouseDy = frameMouseDy * sens;
+      // Stick rate gets the same multiplier so settings affect both
+      // input methods consistently.
+      const stickX = gp.getAxis(2) * STICK_LOOK_RATE_RAD_PER_SEC * mouseSensitivityMultiplier * dt;
+      const stickY = gp.getAxis(3) * STICK_LOOK_RATE_RAD_PER_SEC * mouseSensitivityMultiplier * dt;
       if (mouseDx !== 0 || mouseDy !== 0) lastDevice = 'keyboard';
       else if (stickX !== 0 || stickY !== 0) lastDevice = 'gamepad';
       return { dx: mouseDx + stickX, dy: mouseDy + stickY };
@@ -168,6 +175,9 @@ export function createInputManager(): InputManager {
         state[a] = { active: isActiveRaw(a), value: getValueRaw(a) };
       }
       return state;
+    },
+    setMouseSensitivityMultiplier(value) {
+      mouseSensitivityMultiplier = Math.max(0.05, Math.min(5, value));
     },
   };
 }

@@ -62,6 +62,8 @@ import type { SaveV1 } from '@/save/schema';
 import { gameStore } from '@/state/store';
 import { mountHud } from '@/ui/hud';
 import { mountMinimap, type MinimapLandmark, type MinimapStream } from '@/ui/minimap';
+import { createSettingsPanel } from '@/ui/settings';
+import { defaultSettings } from '@/save/schema';
 import { createAudioSystem } from '@/audio/system';
 
 async function bootstrap(): Promise<void> {
@@ -504,6 +506,38 @@ async function bootstrap(): Promise<void> {
     landmarks: minimapLandmarks,
   });
 
+  // ---- Settings panel ----
+  // Apply persisted settings to the live runtime at boot so the player
+  // doesn't have to open + tweak the panel on every load.
+  const initialSettings = gameStore.getState().save.settings ?? defaultSettings();
+  audio.setMasterVolume(initialSettings.audio.master);
+  audio.setAmbientVolume(initialSettings.audio.ambient);
+  audio.setSfxVolume(initialSettings.audio.sfx);
+  input.setMouseSensitivityMultiplier(initialSettings.look.mouseSensitivity);
+  renderer.camera.fov = initialSettings.graphics.fovDegrees;
+  renderer.camera.updateProjectionMatrix();
+  renderer.renderer.shadowMap.enabled = initialSettings.graphics.shadowsEnabled;
+  renderer.sun.castShadow = initialSettings.graphics.shadowsEnabled;
+
+  const settings = createSettingsPanel({
+    initial: initialSettings,
+    updateSetting: (key, patch) => gameStore.getState().updateSettingsSlice(key, patch),
+    apply: {
+      masterVolume: (v) => audio.setMasterVolume(v),
+      ambientVolume: (v) => audio.setAmbientVolume(v),
+      sfxVolume: (v) => audio.setSfxVolume(v),
+      mouseSensitivity: (v) => input.setMouseSensitivityMultiplier(v),
+      fov: (v) => {
+        renderer.camera.fov = v;
+        renderer.camera.updateProjectionMatrix();
+      },
+      shadowsEnabled: (v) => {
+        renderer.renderer.shadowMap.enabled = v;
+        renderer.sun.castShadow = v;
+      },
+    },
+  });
+
   // ---- Prospecting ----
   const prospect = createProspectingController({ audio });
 
@@ -567,15 +601,16 @@ async function bootstrap(): Promise<void> {
       interactWasDown = interactDown;
 
       const pauseDown = input.isActive('PAUSE');
-      const pauseJustPressed = pauseDown && !pauseWasDown;
+      let pauseJustPressed = pauseDown && !pauseWasDown;
       pauseWasDown = pauseDown;
 
       // 1. Camera look — consumed always so input doesn't pool, but only
-      // applied to the rig when no prospect minigame is active (the
-      // first-person prospect view is intentionally fixed).
+      // applied to the rig when no prospect minigame is active and the
+      // settings panel isn't open (in both cases we don't want mouse
+      // motion to turn the world view).
       const lookDelta = input.getLookDelta(dt);
       const prospectingNow = prospect.isActive();
-      if (!prospectingNow) {
+      if (!prospectingNow && !settings.isOpen()) {
         cameraRig.applyLook(lookDelta);
       }
 
@@ -585,9 +620,23 @@ async function bootstrap(): Promise<void> {
       const inStoreSession = storeOpen;
       const inDialogueSession = dialogue !== null;
       const inSession = prospecting || inVendorSession || inStoreSession || inDialogueSession;
-      const moveInput = inSession ? { x: 0, y: 0 } : input.getMoveInput();
-      const jumpDown = inSession ? false : input.isActive('JUMP');
-      const sprintDown = inSession ? false : input.isActive('SPRINT');
+
+      // Settings panel: PAUSE toggles open/close from the in-world state.
+      // While the panel is open the player can't move and the press is
+      // consumed so the downstream session handlers don't double-fire.
+      if (pauseJustPressed) {
+        if (settings.isOpen()) {
+          settings.close();
+          pauseJustPressed = false;
+        } else if (!inSession) {
+          settings.open();
+          pauseJustPressed = false;
+        }
+      }
+      const settingsOpen = settings.isOpen();
+      const moveInput = inSession || settingsOpen ? { x: 0, y: 0 } : input.getMoveInput();
+      const jumpDown = inSession || settingsOpen ? false : input.isActive('JUMP');
+      const sprintDown = inSession || settingsOpen ? false : input.isActive('SPRINT');
 
       // Edge-detection for store-cycle inputs (only used inside store session)
       const toolNextDown = input.isActive('TOOL_NEXT');
