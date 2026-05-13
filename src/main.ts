@@ -463,6 +463,7 @@ async function bootstrap(): Promise<void> {
   // false-fire.
   let lastDigSwingFlash = 999;
   let lastClassifyTapFlash = 999;
+  let lastStrikeSwingFlash = 999;
   let prospectWasActive = false;
 
   // ---- Audio system ----
@@ -766,6 +767,10 @@ async function bootstrap(): Promise<void> {
             pickaxeMesh.visible = true;
             strikeMeter.update(v);
             strikeMeter.setVisible(true);
+            if (v.lastSwingFlashSec < lastStrikeSwingFlash) {
+              triggerToolSwing(pickaxeMesh);
+            }
+            lastStrikeSwingFlash = v.lastSwingFlashSec;
           } else if (v?.kind === 'extract') {
             pickaxeMesh.visible = true;
             extractMeter.update(v);

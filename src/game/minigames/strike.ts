@@ -56,7 +56,7 @@ export function createStrikeMinigame(): Minigame {
       lastSwingAt = -999;
       lastSwingScore = 0;
     },
-    update({ dt, justPressedInteract, audio }): MinigameUpdate {
+    update({ dt, justPressedInteract, audio, effects }): MinigameUpdate {
       sessionTime += dt;
       const indicator = indicatorPosition(sessionTime);
 
@@ -67,7 +67,16 @@ export function createStrikeMinigame(): Minigame {
         swingsDone += 1;
         lastSwingAt = sessionTime;
         lastSwingScore = score;
-        audio.playDigSwing((score - SCORE_FLOOR) / (SCORE_CENTER - SCORE_FLOOR));
+        const quality = (score - SCORE_FLOOR) / (SCORE_CENTER - SCORE_FLOOR);
+        audio.playDigSwing(quality);
+        // Rock-chip spark burst at the meter indicator. Mix of steel
+        // grey + amber to read as cold metal struck hot. Heavier than
+        // dig's gravel burst — rocks resist.
+        const meterX = (indicator - 0.5) * 0.42;
+        effects.burst({ x: meterX, y: 0.08, z: -0.55 }, 0xb0a890, 12);
+        effects.burst({ x: meterX, y: 0.08, z: -0.55 }, 0xffb04a, 6);
+        // Stronger shake than dig — rocks have weight.
+        effects.shake(0.025 + quality * 0.025, 0.2);
       }
 
       const swingsRemaining = Math.max(0, profile.swings - swingsDone);
