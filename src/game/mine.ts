@@ -134,18 +134,18 @@ export function createMineEntrance(
 
   // ---- Cave interior (always visible through the gaps in the boards) ----
   // Coordinates relative to the group; positive Z is "into the hill".
-  // Roomier than v1 — old dims (7×7×2.8) felt cramped at the boosted
-  // movement speeds and jumps could punch through the ceiling. New
-  // size is roughly double in horizontal extent + tall enough that a
-  // jumping player can't clip the ceiling box.
-  const CAVE_DEPTH = 14; // along Z, into the hill (was 7)
-  const CAVE_HALF_WIDTH = 6.5; // along X (was 3.5)
+  // F4 pass: dialled the bloated F3 dims back to a more realistic size.
+  // Wider + taller than the original v1 (7×7×2.8) so movement at the
+  // boosted run speed isn't cramped, but not the cavernous 14×13×4
+  // hall that F3 left.
+  const CAVE_DEPTH = 10; // along Z, into the hill
+  const CAVE_HALF_WIDTH = 4.5; // along X
   const CAVE_FLOOR_Y = -0.4;
-  const CAVE_CEIL_Y = 4.0; // was 2.4 — head + jump clearance
+  const CAVE_CEIL_Y = 3.4; // head + jump clearance (JUMP peak ~+1m, head ~1.7m)
   const CAVE_BACK_Z = -CAVE_DEPTH; // far wall
   const CAVE_FRONT_Z = -0.05; // just behind the boarded entrance
   // Thicker wall colliders so fast sprint-speed traversal can't phase
-  // through (was 0.15 → 0.4m).
+  // through. Kept from F3.
   const WALL_HALF_T = 0.4;
 
   const stoneMat = new THREE.MeshStandardMaterial({
@@ -213,19 +213,37 @@ export function createMineEntrance(
   vein.position.set(0, 1.0, CAVE_BACK_Z + 0.4);
   group.add(vein);
 
-  // ---- Cave panning site (at cave center) ----
-  const ringGeom = new THREE.TorusGeometry(0.45, 0.05, 6, 24);
+  // ---- Cave pickaxe site (visible target inside the cave) ----
+  // Bigger + brighter than v1 so the player can spot it from the
+  // entrance. A ring + a small inner ore-chunk both glow.
+  const ringGeom = new THREE.TorusGeometry(0.75, 0.09, 8, 32);
   ringGeom.rotateX(-Math.PI / 2);
   const caveSiteMat = new THREE.MeshStandardMaterial({
-    color: 0xe8c060,
-    emissive: 0x553311,
-    emissiveIntensity: 0.5,
-    roughness: 0.5,
+    color: 0xfdd370,
+    emissive: 0xe6a020,
+    emissiveIntensity: 1.0,
+    roughness: 0.45,
     flatShading: true,
   });
   const caveSiteMarker = new THREE.Mesh(ringGeom, caveSiteMat);
-  caveSiteMarker.position.set(0, CAVE_FLOOR_Y + 0.04, CAVE_FRONT_Z - CAVE_DEPTH * 0.6);
+  // Site is ~40% into the cave so the player sees it clearly from the
+  // entrance instead of having to walk to the far back.
+  caveSiteMarker.position.set(0, CAVE_FLOOR_Y + 0.05, CAVE_FRONT_Z - CAVE_DEPTH * 0.45);
   group.add(caveSiteMarker);
+  // Ore chunk centered in the ring as a visual "target" to pickaxe.
+  const oreChunk = new THREE.Mesh(
+    new THREE.IcosahedronGeometry(0.32, 0),
+    new THREE.MeshStandardMaterial({
+      color: 0xc89a45,
+      emissive: 0x8a5e1c,
+      emissiveIntensity: 0.7,
+      roughness: 0.5,
+      flatShading: true,
+    }),
+  );
+  oreChunk.position.set(0, CAVE_FLOOR_Y + 0.32, CAVE_FRONT_Z - CAVE_DEPTH * 0.45);
+  oreChunk.castShadow = true;
+  group.add(oreChunk);
 
   // World-space position for the proximity probe
   const caveSiteWorldPos = new THREE.Vector3(

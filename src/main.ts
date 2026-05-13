@@ -221,9 +221,13 @@ async function bootstrap(): Promise<void> {
   // Four mines spread around the map. The original "north" stays as the
   // starter mine (shovel T3 gates all of them). Yield bonuses range
   // 3.0× → 5.0× so deeper exploration rewards stronger pans.
+  // Buckeye Run flows east-west along z=-55, ±2.4m halfWidth, and the
+  // south mine was previously placed AT z=-55 (the same line) which
+  // dropped the stream box straight through the cave interior. Shift
+  // the south mine well south of the Buckeye corridor.
   const MINE_CONFIGS: readonly MineConfig[] = [
     { id: 'north', displayName: 'North Mine', x: -45, z: -45, yieldBonus: 3.0, unlockTier: 3 },
-    { id: 'south', displayName: 'South Mine', x:  40, z: -55, yieldBonus: 4.0, unlockTier: 3 },
+    { id: 'south', displayName: 'South Mine', x:  40, z: -78, yieldBonus: 4.0, unlockTier: 3 },
     { id: 'east',  displayName: 'East Mine',  x:  65, z:  20, yieldBonus: 5.0, unlockTier: 3 },
     { id: 'west',  displayName: 'West Mine',  x: -55, z:  35, yieldBonus: 3.5, unlockTier: 3 },
   ];
@@ -515,7 +519,7 @@ async function bootstrap(): Promise<void> {
     { x: -4, z: 6, label: 'Old Pete', color: '#a57850', shape: 'dot' },
     // Mines — all four
     { x: -45, z: -45, label: 'North Mine', color: '#886644', shape: 'mine' },
-    { x: 40, z: -55, label: 'South Mine', color: '#886644', shape: 'mine' },
+    { x: 40, z: -78, label: 'South Mine', color: '#886644', shape: 'mine' },
     { x: 65, z: 20, label: 'East Mine', color: '#886644', shape: 'mine' },
     { x: -55, z: 35, label: 'West Mine', color: '#886644', shape: 'mine' },
   ];
