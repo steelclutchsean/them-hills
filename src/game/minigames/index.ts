@@ -3,6 +3,7 @@ export type {
   MinigameContext,
   MinigameProgress,
   MinigameUpdate,
+  MinigameViz,
 } from './types';
 export { combineStageScores } from './types';
 export { createDigMinigame } from './dig';

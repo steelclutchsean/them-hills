@@ -28,7 +28,8 @@ import { createInn } from '@/game/inn';
 import { createMineEntrance } from '@/game/mine';
 import { createOldPete } from '@/game/old-pete';
 import { createProspectingController } from '@/game/prospecting';
-import { createShovelMesh } from '@/game/minigames/tool-models';
+import { createDigMeterView } from '@/game/minigames/dig-meter';
+import { createPickaxeMesh, createShovelMesh } from '@/game/minigames/tool-models';
 import { scatterAssets } from '@/game/scatter';
 import { SKY_SECONDS_PER_DAY, createSkyController, formatClock, getSkyHour } from '@/game/sky';
 import { createStream, createStreamRegistry, type StreamConfig } from '@/game/stream';
@@ -382,14 +383,19 @@ async function bootstrap(): Promise<void> {
 
   // ---- Prospect first-person camera + tool mount ----
   // The prospect lifecycle swaps the third-person rig out for a fixed
-  // first-person view at the character's head, looking at the ground. The
-  // tool mesh is parented to the camera so it renders as a viewmodel.
+  // first-person view at the character's head, looking at the ground. Tool
+  // meshes + minigame UI parent to the camera so they render as viewmodels.
   // Camera must be in the scene tree for its children to render.
   renderer.scene.add(renderer.camera);
   const cameraMode = createCameraModeController(renderer.camera);
   const shovelMesh = createShovelMesh();
+  const pickaxeMesh = createPickaxeMesh();
   shovelMesh.visible = false;
+  pickaxeMesh.visible = false;
   renderer.camera.add(shovelMesh);
+  renderer.camera.add(pickaxeMesh);
+  const digMeter = createDigMeterView();
+  renderer.camera.add(digMeter.group);
   let prospectWasActive = false;
 
   // ---- Audio system ----
@@ -557,20 +563,38 @@ async function bootstrap(): Promise<void> {
       // rig for the fixed first-person prospect view + tool viewmodel.
       const charPosForCamera = character.getPosition();
       if (prospecting && !prospectWasActive) {
-        // Edge: just entered prospect view. Snap camera to first-person and
-        // reveal the tool mesh. Capture the current rig yaw so the view
-        // direction stays consistent with where the player was facing.
+        // Edge: just entered prospect view. Snap camera, capture rig yaw.
         cameraMode.enterProspectView(charPosForCamera, cameraRig.getYaw());
-        shovelMesh.visible = true;
       } else if (!prospecting && prospectWasActive) {
-        // Edge: just exited prospect view. Hide tool, drop the override.
+        // Edge: just exited prospect view. Hide everything prospect-related.
         cameraMode.exitProspectView();
         shovelMesh.visible = false;
+        pickaxeMesh.visible = false;
+        digMeter.setVisible(false);
       }
       prospectWasActive = prospecting;
 
       if (prospecting) {
         cameraMode.updateProspectView(charPosForCamera);
+        // Drive per-stage viewmodels from the latest snapshot. Stage swap
+        // is implicit — we read snapshot.step and snapshot.viz each frame.
+        const snap = prospect.getSnapshot();
+        if (snap) {
+          const isDig = snap.step === 'dig' && snap.viz?.kind === 'dig';
+          if (isDig && snap.viz?.kind === 'dig') {
+            const usePickaxe = snap.viz.isPickaxe;
+            shovelMesh.visible = !usePickaxe;
+            pickaxeMesh.visible = usePickaxe;
+            digMeter.update(snap.viz);
+            digMeter.setVisible(true);
+          } else {
+            // Outside the dig stage (M3): hide dig tools + meter. M4–M6
+            // will swap in their own viewmodels for later stages.
+            shovelMesh.visible = false;
+            pickaxeMesh.visible = false;
+            digMeter.setVisible(false);
+          }
+        }
       } else {
         cameraRig.placeCamera(charPosForCamera, physics.rapier, character.getColliderHandle());
       }
@@ -914,6 +938,7 @@ async function bootstrap(): Promise<void> {
           actionCount,
           firstEver,
           yieldMultiplier,
+          toolTiers: gameStore.getState().save.equipment.ownedTiers,
         });
         audio.playSplash();
         const bonusTag = siteBonus !== 1 ? ` × site${siteBonus.toFixed(2)}` : '';

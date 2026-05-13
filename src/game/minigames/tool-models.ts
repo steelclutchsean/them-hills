@@ -27,8 +27,23 @@ const METAL_MAT = new THREE.MeshStandardMaterial({
 
 const HANDLE_HEIGHT = 0.7;
 
+/** Mount transform shared by the dig-stage tools so swapping shovel ↔
+ *  pickaxe doesn't shift the viewmodel pose. Camera-relative. */
+function applyDigToolMount(group: THREE.Group): void {
+  group.position.set(0.24, -0.34, -0.55);
+  group.rotation.set(0.55, -0.35, 0.18);
+  group.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (m.isMesh) {
+      m.castShadow = false;
+      m.receiveShadow = false;
+    }
+  });
+}
+
 /** Hand-held shovel: wooden cylinder handle + tapered metal blade. Mounted
- *  in the lower-right of the view, tilted to read as held. */
+ *  in the lower-right of the view, tilted to read as held. Used for
+ *  Shovel T1 and T2. */
 export function createShovelMesh(): THREE.Group {
   const group = new THREE.Group();
   group.name = 'tool_shovel';
@@ -45,20 +60,43 @@ export function createShovelMesh(): THREE.Group {
   blade.rotation.x = -0.25;
   group.add(blade);
 
-  // Mount transform: lower-right of screen, tilted forward-right, point
-  // the blade toward the ground in front of the camera.
-  group.position.set(0.24, -0.34, -0.55);
-  group.rotation.set(0.55, -0.35, 0.18);
+  applyDigToolMount(group);
+  return group;
+}
 
-  // The tool is close to the near plane (z=0.1m); make sure it doesn't get
-  // shadow-z-fighting itself.
-  group.traverse((o) => {
-    const m = o as THREE.Mesh;
-    if (m.isMesh) {
-      m.castShadow = false;
-      m.receiveShadow = false;
-    }
-  });
+/** Pickaxe: thicker handle + crossed-iron head. Used for Shovel T3 so the
+ *  player sees the upgrade in their hand during the dig minigame. */
+export function createPickaxeMesh(): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'tool_pickaxe';
 
+  // Slightly thicker handle than the shovel.
+  const handle = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.034, 0.032, HANDLE_HEIGHT, 12),
+    WOOD_MAT,
+  );
+  group.add(handle);
+
+  // Pick head — single tapered horizontal bar through the top of the
+  // handle. Two cones at the ends give the pointed-pickaxe silhouette.
+  const headBar = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.022, 0.022, 0.34, 8),
+    METAL_MAT,
+  );
+  headBar.position.set(0, HANDLE_HEIGHT / 2 - 0.02, 0);
+  headBar.rotation.z = Math.PI / 2;
+  group.add(headBar);
+
+  const pointGeom = new THREE.ConeGeometry(0.022, 0.06, 8);
+  const pointL = new THREE.Mesh(pointGeom, METAL_MAT);
+  pointL.position.set(-0.17 - 0.03, HANDLE_HEIGHT / 2 - 0.02, 0);
+  pointL.rotation.z = Math.PI / 2;
+  group.add(pointL);
+  const pointR = new THREE.Mesh(pointGeom, METAL_MAT);
+  pointR.position.set(0.17 + 0.03, HANDLE_HEIGHT / 2 - 0.02, 0);
+  pointR.rotation.z = -Math.PI / 2;
+  group.add(pointR);
+
+  applyDigToolMount(group);
   return group;
 }

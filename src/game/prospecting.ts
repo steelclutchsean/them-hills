@@ -1,5 +1,5 @@
 import { createRng, hashString } from './rng';
-import type { GoldStash } from '@/save/schema';
+import type { EquipmentState, GoldStash } from '@/save/schema';
 import {
   combineStageScores,
   createClassifyMinigame,
@@ -8,6 +8,7 @@ import {
   createPanMinigame,
   type Minigame,
   type MinigameProgress,
+  type MinigameViz,
 } from './minigames';
 
 // Four-step prospecting loop. Each step is its own minigame module under
@@ -41,6 +42,8 @@ export interface ProspectingSnapshot {
   progress: number; // 0..1 within current step
   panTapsRemaining: number;
   message: string;
+  /** Stage-specific extras for the renderer (timing meter, beat pulse, etc.). */
+  viz?: MinigameViz;
 }
 
 export interface ProspectingResult {
@@ -63,6 +66,8 @@ export interface ProspectingController {
     firstEver: boolean;
     /** Geometric mean of active tool tier multipliers (T1=1.00 baseline). */
     yieldMultiplier: number;
+    /** Per-tool tiers — each minigame reads the relevant one for evolution. */
+    toolTiers: EquipmentState['ownedTiers'];
   }): boolean;
   update(dt: number, isInteractDown: boolean): ProspectingResult | null;
   cancel(): void;
@@ -74,6 +79,8 @@ interface Session {
   actionCount: number;
   firstEver: boolean;
   yieldMultiplier: number;
+  /** Tier per stage idx — index by STEP_ORDER position. */
+  stageTiers: readonly number[];
   stageIdx: number;
   stages: readonly Minigame[];
   stageScores: number[];
@@ -94,6 +101,7 @@ export function createProspectingController(): ProspectingController {
       progress: session.current.progress,
       panTapsRemaining: session.current.panTapsRemaining,
       message: session.current.message,
+      viz: session.current.viz,
     };
   }
 
@@ -133,7 +141,7 @@ export function createProspectingController(): ProspectingController {
   return {
     isActive: () => session !== null,
     getSnapshot: snapshot,
-    start({ siteId, siteRichness, actionCount, firstEver, yieldMultiplier }) {
+    start({ siteId, siteRichness, actionCount, firstEver, yieldMultiplier, toolTiers }) {
       if (session !== null) return false;
       const stages = [
         createDigMinigame(),
@@ -141,15 +149,22 @@ export function createProspectingController(): ProspectingController {
         createPanMinigame(),
         createCollectMinigame(),
       ] as const;
-      // Stages currently don't read tool tier (stubs); later milestones
-      // will pass shovel / classifier / pan / snuffer tiers respectively.
-      stages[0].start(1);
+      // Per-stage tool tier — index aligns with STEP_ORDER:
+      //   dig → shovel, classify → classifier, pan → pan, collect → snuffer.
+      const stageTiers: readonly number[] = [
+        toolTiers.shovel,
+        toolTiers.classifier,
+        toolTiers.pan,
+        toolTiers.snuffer,
+      ];
+      stages[0].start(stageTiers[0]!);
       session = {
         siteId,
         siteRichness: Math.max(0, Math.min(1, siteRichness)),
         actionCount,
         firstEver,
         yieldMultiplier,
+        stageTiers,
         stageIdx: 0,
         stages,
         stageScores: [],
@@ -175,7 +190,7 @@ export function createProspectingController(): ProspectingController {
           return finalizeReward();
         }
         const next = session.stages[session.stageIdx];
-        if (next) next.start(1);
+        if (next) next.start(session.stageTiers[session.stageIdx] ?? 1);
         // Consume the press that completed this stage so the next stage
         // doesn't see a stale just-pressed event.
         wasInteractDown = isInteractDown;

@@ -11,6 +11,31 @@ export interface MinigameContext {
   justPressedInteract: boolean;
 }
 
+/**
+ * Per-stage visualization data. Each minigame emits its own variant so the
+ * renderer can draw stage-specific HUD elements (timing meter, beat pulse,
+ * swirl path, flake cursor). Other variants are added alongside their
+ * stage's M3–M6 rewrites.
+ */
+export type MinigameViz =
+  | {
+      kind: 'dig';
+      /** 0..1 position of the oscillating indicator along the bar. */
+      indicator: number;
+      /** 0..1 center of the sweet zone (always 0.5 today). */
+      sweetCenter: number;
+      /** Half-width of the sweet zone as a fraction of the bar (0..0.5). */
+      sweetHalfWidth: number;
+      /** How many more swings the player has to land. */
+      swingsRemaining: number;
+      /** Seconds since the most recent swing — drives the flash animation. */
+      lastSwingFlashSec: number;
+      /** Score of the most recent swing in [0.5, 2.5]. 0 if no swing yet. */
+      lastSwingScore: number;
+      /** True when the equipped shovel is at T3 (visualized as a pickaxe). */
+      isPickaxe: boolean;
+    };
+
 export interface MinigameProgress {
   /** Sub-progress within this stage, 0..1. Drives the HUD bar. */
   progress: number;
@@ -18,6 +43,8 @@ export interface MinigameProgress {
   message: string;
   /** For 'pan' stage: taps remaining. Other stages return 0. */
   panTapsRemaining: number;
+  /** Stage-specific extra data for the renderer. Optional — stubs omit it. */
+  viz?: MinigameViz;
 }
 
 export type MinigameUpdate =
