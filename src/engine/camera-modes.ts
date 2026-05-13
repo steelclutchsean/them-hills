@@ -17,6 +17,10 @@ const HEAD_HEIGHT = 1.6;
 // down — comfortable for looking at the ground in front of you.
 const LOOK_FORWARD = 1.0;
 const LOOK_DROP = 0.85;
+// FOV during prospect — wider than the third-person 60° so the lower-screen
+// viewmodels (pan, classifier, snuffer) fit comfortably in frame instead of
+// hugging the bottom edge. Restored to whatever the rig had on exit.
+const PROSPECT_FOV = 80;
 
 export interface CameraModeController {
   isInProspectView(): boolean;
@@ -32,6 +36,7 @@ export interface CameraModeController {
 export function createCameraModeController(camera: THREE.PerspectiveCamera): CameraModeController {
   let inProspect = false;
   let lockedYaw = 0;
+  let savedFov = camera.fov;
   // Reusable scratch vectors so the per-frame update doesn't allocate.
   const forward = new THREE.Vector3();
   const lookTarget = new THREE.Vector3();
@@ -55,10 +60,15 @@ export function createCameraModeController(camera: THREE.PerspectiveCamera): Cam
     enterProspectView(charPos, characterYaw) {
       inProspect = true;
       lockedYaw = characterYaw;
+      savedFov = camera.fov;
+      camera.fov = PROSPECT_FOV;
+      camera.updateProjectionMatrix();
       position(charPos);
     },
     exitProspectView() {
       inProspect = false;
+      camera.fov = savedFov;
+      camera.updateProjectionMatrix();
     },
     updateProspectView(charPos) {
       if (!inProspect) return;
