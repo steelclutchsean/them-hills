@@ -120,7 +120,7 @@ export function createCollectMinigame(): Minigame {
       sessionTime = 0;
       washInitiated = false;
     },
-    update({ dt, axes, isInteractDown }): MinigameUpdate {
+    update({ dt, axes, isInteractDown, audio }): MinigameUpdate {
       sessionTime += dt;
 
       // Cursor moves with look input — same scheme as the pan stage.
@@ -146,10 +146,12 @@ export function createCollectMinigame(): Minigame {
         if (isInteractDown) {
           const d = Math.hypot(f.x - cx, f.y - cy);
           if (d < profile.suctionRadius) {
+            const before = f.suckProgress;
             f.suckProgress = Math.min(1, f.suckProgress + dt / profile.suckTimeSec);
-            if (f.suckProgress >= 1) {
+            if (before < 1 && f.suckProgress >= 1) {
               f.state = 'collecting';
               f.fadeT = 0;
+              audio.playFlakeCollect();
             }
           } else {
             // Drift back toward 0 if cursor leaves — but don't reset

@@ -5,6 +5,15 @@
 // [0.5, 2.0]; those four scores get geometric-meaned into the final
 // skillBonus term of the existing yield formula in prospecting.ts.
 
+/** Audio surface the minigames are allowed to call. Decouples them from
+ *  the full AudioSystem and makes the dependency explicit. */
+export interface MinigameAudio {
+  playDigSwing(quality: number): void;
+  playClassifyBeat(quality: number): void;
+  playPanSwirl(): void;
+  playFlakeCollect(): void;
+}
+
 export interface MinigameContext {
   dt: number;
   isInteractDown: boolean;
@@ -13,6 +22,9 @@ export interface MinigameContext {
    *  Pan stage uses this to drive its swirl cursor; collect stage drives
    *  the snuffer cursor. Other stages ignore it. */
   axes: { dx: number; dy: number };
+  /** Procedural sound hooks. Stages call these on player-meaningful
+   *  events (a swing, a tap, a completed swirl, a flake collected). */
+  audio: MinigameAudio;
 }
 
 /**

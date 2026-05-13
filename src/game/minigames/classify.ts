@@ -72,7 +72,7 @@ export function createClassifyMinigame(): Minigame {
       lastTapAt = -999;
       lastTapScore = 0;
     },
-    update({ dt, justPressedInteract }): MinigameUpdate {
+    update({ dt, justPressedInteract, audio }): MinigameUpdate {
       sessionTime += dt;
 
       if (justPressedInteract && tapScores.length < profile.tapsTotal) {
@@ -81,6 +81,7 @@ export function createClassifyMinigame(): Minigame {
         tapScores.push(score);
         lastTapAt = sessionTime;
         lastTapScore = score;
+        audio.playClassifyBeat((score - SCORE_FLOOR) / (SCORE_CENTER - SCORE_FLOOR));
       }
 
       const tapsDone = tapScores.length;

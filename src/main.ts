@@ -479,7 +479,7 @@ async function bootstrap(): Promise<void> {
   });
 
   // ---- Prospecting ----
-  const prospect = createProspectingController();
+  const prospect = createProspectingController({ audio });
 
   // Edge-detection state (input manager doesn't expose just-pressed; tracked here).
   let interactWasDown = false;
@@ -957,9 +957,11 @@ async function bootstrap(): Promise<void> {
             gameStore.getState().applyGoldToQuests(result.reward);
             gameStore.getState().touchSite(result.siteId, result.richnessDepletion, worldTime);
             const totalG = result.reward.flake_g + result.reward.picker_g + result.reward.nugget_g;
+            const scoreFmt = result.stageScores.map((s) => s.toFixed(2)).join(' / ');
             console.log(
               `[prospect] reward at ${result.siteId}: ${totalG.toFixed(3)}g ` +
-                `(flake=${result.reward.flake_g.toFixed(3)}, picker=${result.reward.picker_g.toFixed(3)}, nugget=${result.reward.nugget_g.toFixed(3)})`,
+                `(flake=${result.reward.flake_g.toFixed(3)}, picker=${result.reward.picker_g.toFixed(3)}, nugget=${result.reward.nugget_g.toFixed(3)}) ` +
+                `skill=${result.skillBonus.toFixed(2)} stages=[${scoreFmt}]`,
             );
           }
         }

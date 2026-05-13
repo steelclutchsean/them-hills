@@ -75,7 +75,7 @@ export function createPanMinigame(): Minigame {
       swirlCount = 0;
       sessionTime = 0;
     },
-    update({ dt, axes }): MinigameUpdate {
+    update({ dt, axes, audio }): MinigameUpdate {
       sessionTime += dt;
 
       // Integrate look-delta into cursor XY. Clamp inside the unit pan.
@@ -110,6 +110,7 @@ export function createPanMinigame(): Minigame {
         const circ = Math.max(0, Math.min(1, 1 - stdDev / profile.radiusTolerance));
         circularitySamples.push(circ);
         swirlCount += 1;
+        audio.playPanSwirl();
         // Wrap remaining angular travel into the next swirl.
         angularDistance =
           angularDistance > 0

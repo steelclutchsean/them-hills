@@ -7,6 +7,7 @@ import {
   createDigMinigame,
   createPanMinigame,
   type Minigame,
+  type MinigameAudio,
   type MinigameProgress,
   type MinigameViz,
 } from './minigames';
@@ -56,6 +57,11 @@ export interface ProspectingResult {
   skillBonus: number;
 }
 
+export interface ProspectingControllerOpts {
+  /** Audio sink for per-stage event sounds + stage-complete chimes. */
+  audio: MinigameAudio & { playStageComplete(stageIdx: number): void };
+}
+
 export interface ProspectingController {
   isActive(): boolean;
   getSnapshot(): ProspectingSnapshot | null;
@@ -92,7 +98,9 @@ interface Session {
   current: MinigameProgress;
 }
 
-export function createProspectingController(): ProspectingController {
+export function createProspectingController(
+  opts: ProspectingControllerOpts,
+): ProspectingController {
   let session: Session | null = null;
   let wasInteractDown = false;
 
@@ -184,16 +192,19 @@ export function createProspectingController(): ProspectingController {
 
       const stage = session.stages[session.stageIdx];
       if (!stage) return null;
+      const completedStageIdx = session.stageIdx;
       const upd = stage.update({
         dt,
         isInteractDown,
         justPressedInteract,
         axes: axes ?? { dx: 0, dy: 0 },
+        audio: opts.audio,
       });
       session.current = upd.progress;
 
       if (upd.kind === 'complete') {
         session.stageScores.push(upd.score);
+        opts.audio.playStageComplete(completedStageIdx);
         session.stageIdx += 1;
         if (session.stageIdx >= STEP_ORDER.length) {
           return finalizeReward();

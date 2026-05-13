@@ -79,7 +79,7 @@ export function createDigMinigame(): Minigame {
       lastSwingAt = -999;
       lastSwingScore = 0;
     },
-    update({ dt, justPressedInteract }): MinigameUpdate {
+    update({ dt, justPressedInteract, audio }): MinigameUpdate {
       sessionTime += dt;
       const indicator = indicatorPosition(sessionTime);
 
@@ -90,6 +90,9 @@ export function createDigMinigame(): Minigame {
         swingsDone += 1;
         lastSwingAt = sessionTime;
         lastSwingScore = score;
+        // Quality from [SCORE_FLOOR, SCORE_CENTER] mapped to [0, 1] —
+        // bad swings thud, perfect swings get the sharp upper harmonic.
+        audio.playDigSwing((score - SCORE_FLOOR) / (SCORE_CENTER - SCORE_FLOOR));
       }
 
       const swingsRemaining = Math.max(0, profile.swings - swingsDone);

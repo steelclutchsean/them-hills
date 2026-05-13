@@ -1,6 +1,7 @@
 export type {
   CollectFlakeViz,
   Minigame,
+  MinigameAudio,
   MinigameContext,
   MinigameProgress,
   MinigameUpdate,

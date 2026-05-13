@@ -33,6 +33,16 @@ export interface AudioSystem {
   playFootstep(surface: 'grass' | 'water'): void;
   /** One-shot splash — fired when a pan-prospect begins. */
   playSplash(): void;
+  /** Dig swing thunk. `quality` in [0, 1] (0 = miss, 1 = perfect). */
+  playDigSwing(quality: number): void;
+  /** Classify rhythm tap. `quality` colors the tone brightness. */
+  playClassifyBeat(quality: number): void;
+  /** Pan swirl swish — once per completed revolution. */
+  playPanSwirl(): void;
+  /** Bright pluck — one flake collected by the snuffer. */
+  playFlakeCollect(): void;
+  /** Ascending stage-complete chime. `stageIdx` 0..3 → C5, E5, G5, C6. */
+  playStageComplete(stageIdx: number): void;
   /** True if the AudioContext has been created and is running. */
   isEnabled(): boolean;
 }
@@ -174,6 +184,37 @@ export function createAudioSystem(): AudioSystem {
       // water. Pairs with the prospecting animation's first dip.
       scheduleTone(600, 0.0, 0.14, 0.08, 'triangle');
       scheduleTone(360, 0.06, 0.22, 0.07, 'sine');
+    },
+    playDigSwing(quality) {
+      // Low thunk. Quality scales the brightness — perfect swings get a
+      // sharp upper harmonic; bad swings just thud.
+      const q = Math.max(0, Math.min(1, quality));
+      scheduleTone(75, 0, 0.16, 0.13, 'sine');
+      if (q > 0.4) {
+        scheduleTone(180 + q * 120, 0, 0.09, 0.05 * q, 'triangle');
+      }
+    },
+    playClassifyBeat(quality) {
+      // Crisp tap that brightens with quality. 660Hz floor, +330 at perfect.
+      const q = Math.max(0, Math.min(1, quality));
+      scheduleTone(660 + q * 330, 0, 0.06, 0.07, 'triangle');
+    },
+    playPanSwirl() {
+      // Quick rising swish — fakes a wet swoosh with a fast frequency
+      // sweep between two tones overlapped at low gain.
+      scheduleTone(300, 0, 0.12, 0.05, 'sine');
+      scheduleTone(540, 0.03, 0.1, 0.04, 'sine');
+    },
+    playFlakeCollect() {
+      // Bright pluck — high E (1320Hz) with quick decay.
+      scheduleTone(1320, 0, 0.06, 0.07, 'sine');
+    },
+    playStageComplete(stageIdx) {
+      // Major-triad ascent: C5, E5, G5, C6 for stages 0..3.
+      const freqs = [523, 659, 784, 1047];
+      const f = freqs[Math.max(0, Math.min(3, stageIdx))]!;
+      scheduleTone(f, 0, 0.18, 0.08, 'sine');
+      scheduleTone(f * 1.5, 0.05, 0.14, 0.05, 'sine');
     },
   };
 }
