@@ -792,7 +792,7 @@ async function bootstrap(): Promise<void> {
         playerPos: charPos,
         skyHour: getSkyHour(worldTime),
         weather: weather.getView(),
-        gearTier: gameStore.getState().save.equipment.ownedTiers.gear,
+        ownedHeadlamp: gameStore.getState().save.equipment.ownedTiers.headlamp >= 2,
         isInCave: inCave,
       });
       const grassLight = {

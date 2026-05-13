@@ -25,6 +25,7 @@ export const ALL_CATEGORIES: readonly EquipmentCategory[] = [
   'detector',
   'snuffer',
   'gear',
+  'headlamp',
   'dredge',
 ];
 
@@ -111,8 +112,15 @@ export const EQUIPMENT: Record<EquipmentCategory, CategoryInfo> = {
     category: 'gear',
     displayName: 'Personal Gear',
     upgrades: [
-      { fromTier: 1, toTier: 2, cost: 400, label: 'Tier 2 — Waders + headlamp' },
+      { fromTier: 1, toTier: 2, cost: 400, label: 'Tier 2 — Waders' },
       { fromTier: 2, toTier: 3, cost: 1500, label: 'Tier 3 — Insulated + GPS' },
+    ],
+  },
+  headlamp: {
+    category: 'headlamp',
+    displayName: 'Headlamp',
+    upgrades: [
+      { fromTier: 1, toTier: 2, cost: 150, label: 'See in the dark' },
     ],
   },
   dredge: {

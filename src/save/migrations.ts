@@ -1,10 +1,29 @@
 import { CURRENT_SAVE_VERSION, type SaveV1 } from './schema';
 
-// When v2 ships, register: 1: (v1) => ({ ...v1, version: 2, /* new fields */ })
-// Each migrator must include a unit-test fixture proving idempotency.
+// Migrators run in sequence from saved-version up to CURRENT_SAVE_VERSION.
+// Each one returns the same blob with `version` bumped and any new fields
+// filled in.
 type MigratorFn = (input: Record<string, unknown>) => Record<string, unknown>;
 
-const migrators: Record<number, MigratorFn> = {};
+const migrators: Record<number, MigratorFn> = {
+  // v1 → v2: add `headlamp` slot to equipment.ownedTiers. Auto-grant the
+  // item to saves that already had gear ≥ 2 (old "gear T2 = waders +
+  // headlamp" bundle) so we don't strip functionality from existing players.
+  1: (v1) => {
+    const equipment = (v1.equipment as Record<string, unknown>) ?? {};
+    const owned = (equipment.ownedTiers as Record<string, unknown>) ?? {};
+    const gearTier = typeof owned.gear === 'number' ? (owned.gear as number) : 1;
+    const headlamp = gearTier >= 2 ? 2 : 1;
+    return {
+      ...v1,
+      version: 2,
+      equipment: {
+        ...equipment,
+        ownedTiers: { ...owned, headlamp },
+      },
+    };
+  },
+};
 
 export function migrate(raw: unknown): SaveV1 {
   if (raw === null || typeof raw !== 'object') {

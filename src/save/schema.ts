@@ -1,13 +1,18 @@
-// Save schema v1 — see /save-schema-v1.md for the full design contract.
+// Save schema v2 — v1 is documented in /save-schema-v1.md.
 // Every PR that bumps CURRENT_SAVE_VERSION must add a migrator and a fixture test.
+//
+// v2 changes:
+//   - EquipmentState.ownedTiers gains `headlamp: 1 | 2`. Standalone item,
+//     purchasable from the General Store. Existing saves with gear ≥ 2
+//     auto-grant headlamp = 2 in the migrator to preserve old behavior.
 
-export const CURRENT_SAVE_VERSION = 1;
+export const CURRENT_SAVE_VERSION = 2;
 export const BUILD_VERSION = '0.1.12-phase10b';
 
 // ---------- Top-level shape ----------
 
 export interface SaveV1 {
-  version: 1;
+  version: 2;
   metadata: SaveMetadata;
   player: PlayerState;
   inventory: InventoryState;
@@ -110,6 +115,10 @@ export interface EquipmentState {
     dredge: 0 | 1 | 2 | 3;
     snuffer: 1 | 2 | 3;
     gear: 1 | 2 | 3;
+    /** Standalone purchasable item — 1 = not owned, 2 = owned. Drives the
+     *  in-game point-light headlamp used at night, in storms, and inside
+     *  the mine cave. Not part of the yield-multiplier calculation. */
+    headlamp: 1 | 2;
   };
   sluiceDeployment?: {
     siteId: string;
@@ -240,7 +249,7 @@ export function createDefaultSave(): SaveV1 {
   const now = Date.now();
   const seed = Math.floor(Math.random() * 2 ** 31);
   return {
-    version: 1,
+    version: 2,
     metadata: {
       createdAt: now,
       lastSavedAt: now,
@@ -279,6 +288,7 @@ export function createDefaultSave(): SaveV1 {
         dredge: 0,
         snuffer: 1,
         gear: 1,
+        headlamp: 1,
       },
     },
     world: {

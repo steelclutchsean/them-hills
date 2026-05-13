@@ -19,7 +19,9 @@ export interface HeadlampController {
     playerPos: THREE.Vector3;
     skyHour: number;
     weather: WeatherView;
-    gearTier: number;
+    /** True once the player has bought the standalone Headlamp item
+     *  from the General Store. Replaces the previous gear-T2 gate. */
+    ownedHeadlamp: boolean;
     /** When true, force-activate regardless of time of day or weather. */
     isInCave: boolean;
   }): void;
@@ -35,8 +37,8 @@ export function createHeadlamp(scene: THREE.Scene): HeadlampController {
   let intensity = 0;
 
   return {
-    update({ playerPos, skyHour, weather, gearTier, isInCave }) {
-      const eligible = gearTier >= 2;
+    update({ playerPos, skyHour, weather, ownedHeadlamp, isInCave }) {
+      const eligible = ownedHeadlamp;
       const isNight = skyHour >= NIGHT_HOUR_START || skyHour < NIGHT_HOUR_END;
       const isStormy = weather.state === 'rain' || weather.state === 'overcast';
       const stormyContribution = isStormy ? weather.intensity : 0;
