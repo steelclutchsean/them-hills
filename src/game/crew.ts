@@ -286,14 +286,25 @@ function pose(mesh: THREE.Group, time: number, work: Work, seed: number): void {
     swing(legL, 0.04);
     swing(legR, -0.06);
   } else if (work === 'rock') {
-    const slam = (Math.sin(time * 4.6 + seed) + 1) * 0.5;
-    swing(armR, -0.15 - slam * 2.25);
-    swing(armL, -0.3 - slam * 1.05);
-    swing(legL, 0.14);
-    swing(legR, -0.22);
+    const slam = 0.45 + 0.55 * (Math.sin(time * 4.6 + seed) * 0.5 + 0.5);
+    swing(armR, -0.9 - slam * 1.45);
+    swing(armL, -0.55 - slam * 0.7);
+    const elbowR = limb(mesh, 'lowerarm_r', 'no-elbow-r');
+    const elbowL = limb(mesh, 'lowerarm_l', 'no-elbow-l');
+    if (elbowR && typeof elbowR.userData.restX !== 'number') elbowR.userData.restX = elbowR.rotation.x;
+    if (elbowL && typeof elbowL.userData.restX !== 'number') elbowL.userData.restX = elbowL.rotation.x;
+    swing(elbowR, -0.7 - slam * 0.35);
+    swing(elbowL, -0.45);
+    const spine = limb(mesh, 'spine_02', 'no-spine');
+    if (spine) {
+      if (typeof spine.userData.restX !== 'number') spine.userData.restX = spine.rotation.x;
+      spine.rotation.x = spine.userData.restX + 0.55;
+    }
+    swing(legL, 0.2);
+    swing(legR, -0.28);
     if (shovel) {
       shovel.visible = true;
-      shovel.rotation.x = -0.95;
+      shovel.rotation.x = -1.15;
     }
   } else if (work === 'hose') {
     swing(armL, -1.1);

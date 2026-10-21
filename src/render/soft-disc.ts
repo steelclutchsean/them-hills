@@ -13,9 +13,10 @@ export function softDiscTexture(): THREE.Texture {
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('[particles] no 2d context');
   const grd = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-  grd.addColorStop(0, 'rgba(255,255,255,1)');
-  grd.addColorStop(0.28, 'rgba(255,255,255,0.72)');
-  grd.addColorStop(0.62, 'rgba(255,255,255,0.22)');
+  grd.addColorStop(0, 'rgba(255,255,255,0.95)');
+  grd.addColorStop(0.18, 'rgba(255,255,255,0.55)');
+  grd.addColorStop(0.42, 'rgba(255,255,255,0.16)');
+  grd.addColorStop(0.7, 'rgba(255,255,255,0.04)');
   grd.addColorStop(1, 'rgba(255,255,255,0)');
   ctx.fillStyle = grd;
   ctx.fillRect(0, 0, 64, 64);

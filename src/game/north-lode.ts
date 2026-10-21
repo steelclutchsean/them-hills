@@ -129,6 +129,20 @@ function rockMaps(): { albedo: THREE.CanvasTexture; normal: THREE.CanvasTexture 
   return { albedo, normal: normalTex };
 }
 
+function hewnBox(w: number, h: number, d: number): THREE.BufferGeometry {
+  const geom = new THREE.BoxGeometry(w, h, d, 2, 5, 2);
+  const pos = geom.getAttribute('position');
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const z = pos.getZ(i);
+    const n = Math.sin(x * 19 + y * 7.5 + z * 13);
+    pos.setXYZ(i, x + n * w * 0.06, y + Math.sin(z * 11 + x) * h * 0.008, z + Math.sin(y * 5 + x * 3) * d * 0.06);
+  }
+  geom.computeVertexNormals();
+  return geom;
+}
+
 function muckMaterial(): THREE.MeshStandardMaterial {
   const size = 128;
   const canvas = document.createElement('canvas');
@@ -404,15 +418,15 @@ export function dressNorthLode(group: THREE.Group): void {
   const wood = hewnTimberMaterial();
   const aged = hewnTimberMaterial().clone();
   aged.color.set(0x8a6240);
-  const posts = new THREE.InstancedMesh(new THREE.BoxGeometry(0.24, 2.32, 0.24), wood, 10);
+  const posts = new THREE.InstancedMesh(hewnBox(0.26, 2.32, 0.26), wood, 10);
   posts.name = 'drift-posts';
   posts.castShadow = true;
   posts.receiveShadow = true;
-  const caps = new THREE.InstancedMesh(new THREE.BoxGeometry(2.55, 0.22, 0.26), aged, 5);
+  const caps = new THREE.InstancedMesh(hewnBox(2.55, 0.24, 0.28), aged, 5);
   caps.name = 'drift-caps';
   caps.castShadow = true;
   caps.receiveShadow = true;
-  const wedges = new THREE.InstancedMesh(new THREE.BoxGeometry(0.12, 0.78, 0.16), wood, 10);
+  const wedges = new THREE.InstancedMesh(hewnBox(0.16, 0.92, 0.2), wood, 10);
   wedges.name = 'drift-wedges';
   wedges.castShadow = true;
   const lagging = new THREE.InstancedMesh(new THREE.BoxGeometry(0.3, 0.07, 1.3), aged, 120);
@@ -498,7 +512,7 @@ export function dressNorthLode(group: THREE.Group): void {
     dripGeom,
     new THREE.PointsMaterial({
       color: 0xd5ebe8,
-      size: 0.08,
+      size: 0.16,
       map: softDiscTexture(),
       transparent: true,
       opacity: 0.72,

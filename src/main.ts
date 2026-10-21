@@ -2191,8 +2191,8 @@ async function bootstrap(): Promise<void> {
                 const mill = townArc.millPos;
                 sceneSubjects.push(new THREE.Vector3(mill.x - 5.4, mill.y + 3.3, mill.z + 0.3));
                 sceneSubjects.push(new THREE.Vector3(mill.x + 0.4, mill.y + 2.2, mill.z + 1.6));
-                renderer.camera.position.set(mill.x + 8.6, mill.y + 3.8, mill.z + 13.2);
-                sceneLook.set(mill.x - 1.4, mill.y + 2.7, mill.z + 0.6);
+                renderer.camera.position.set(mill.x - 0.4, mill.y + 3.4, mill.z + 14.8);
+                sceneLook.set(mill.x - 2.2, mill.y + 2.4, mill.z + 0.35);
               } else {
                 sceneLook.copy(player).add(npc).multiplyScalar(0.5);
                 sceneLook.y += 1.3;
@@ -2204,7 +2204,7 @@ async function bootstrap(): Promise<void> {
             const fire = townArc.firePos;
             const keepFront =
               dialogue?.treeId === 'silas'
-                ? (pos: THREE.Vector3) => pos.z > mill.z + 7 && pos.x > mill.x + 1.5
+                ? (pos: THREE.Vector3) => pos.z > mill.z + 8 && pos.x < mill.x + 6
                 : arcBanner === 'fire'
                   ? (pos: THREE.Vector3) =>
                       pos.x > fire.x + 4 && pos.z > fire.z + 3.2 && pos.y > fire.y + 5.4

@@ -22,7 +22,7 @@ const VERT = /* glsl */ `
     p.y += sin(uTime * 0.6 + aPhase * 2.0) * 0.18;
     vec4 mv = viewMatrix * vec4(p, 1.0);
     gl_Position = projectionMatrix * mv;
-    gl_PointSize = (uNight > 0.5 ? 7.0 : 3.2) * (18.0 / max(1.0, -mv.z));
+    gl_PointSize = (uNight > 0.5 ? 10.0 : 6.5) * (18.0 / max(1.0, -mv.z));
     vNight = uNight;
   }
 `;
@@ -34,8 +34,8 @@ const FRAG = /* glsl */ `
   void main() {
     vec2 uv = gl_PointCoord * 2.0 - 1.0;
     float d = dot(uv, uv);
-    if (d > 1.0) discard;
-    float a = (1.0 - d) * (vNight > 0.5 ? 0.85 : 0.35);
+    float a = exp(-d * 4.2) * (vNight > 0.5 ? 0.9 : 0.55);
+    if (a < 0.03) discard;
     vec3 col = mix(uDay, uNightColor, vNight);
     gl_FragColor = vec4(col, a);
   }

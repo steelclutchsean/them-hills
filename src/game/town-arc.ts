@@ -143,8 +143,8 @@ export function createTownArc(
   mae.rotation.y = -0.6;
   scene.add(mae);
   const silas = spawnNpc(0x3e4a52, 0x2a241c);
-  silas.position.set(millPos.x + 1.15, millPos.y + 0.16, millPos.z + 1.85);
-  silas.rotation.y = 2.35;
+  silas.position.set(millPos.x + 0.55, millPos.y + 0.16, millPos.z + 2.45);
+  silas.rotation.y = 1.05;
   scene.add(silas);
   const ada = spawnNpc(0x1c2a24, 0x111410);
   ada.position.set(companyPos.x + 1.5, companyPos.y, companyPos.z);
@@ -378,7 +378,7 @@ function buildMill(
   const frontHeader: [number, number, number, number?][] = [];
   for (let i = 0; i < 32; i++) {
     const x = -3.7 + i * 0.24;
-    if (Math.abs(x) < 1.7) frontHeader.push([x, 4.15, 2.82]);
+    if (Math.abs(x) < 2.15) frontHeader.push([x, 4.15, 2.82]);
     else front.push([x, 2.15, 2.82]);
   }
   run(wallBoard, plank, front);
@@ -492,6 +492,10 @@ function buildMill(
     mill.add(lump);
   }
 
+  const workLight = new THREE.PointLight(0xffc48a, 8, 14, 2);
+  workLight.position.set(0.2, 2.8, 1.5);
+  workLight.castShadow = false;
+  mill.add(workLight);
   mill.add(wheel, cams);
   return { wheel, cams, stamps };
 }

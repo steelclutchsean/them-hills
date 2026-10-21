@@ -253,10 +253,23 @@ export function hewnTimberMaterial(): THREE.MeshStandardMaterial {
     map,
     normalMap,
     color: 0xffffff,
-    roughness: 0.88,
+    roughness: 0.82,
     metalness: 0.02,
-    normalScale: new THREE.Vector2(0.85, 0.85),
+    normalScale: new THREE.Vector2(1.4, 1.4),
   });
+  hewnTimber.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <map_fragment>',
+      `#include <map_fragment>
+      {
+        float along = vMapUv.y * 90.0;
+        float grain = 0.58 + 0.42 * sin(along + vMapUv.x * 8.0);
+        float groove = smoothstep(0.78, 0.98, sin(along * 0.47));
+        diffuseColor.rgb *= mix(0.55, 1.05, grain);
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.35, 0.22, 0.12), groove);
+      }`,
+    );
+  };
   return hewnTimber;
 }
 
