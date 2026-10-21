@@ -273,7 +273,7 @@ const FRAG_SHADER = /* glsl */ `
     if (uHasReflect > 0.5 && uMirrorMode > 0.5) {
       vec2 uv = gl_FragCoord.xy / max(uResolution, vec2(1.0));
       vec2 mir = vec2(uv.x, 2.0 * uHorizon - uv.y);
-      mir += surfNormal.xz * 0.01;
+      mir += surfNormal.xz * 0.004;
       if (mir.x > 0.0 && mir.x < 1.0 && mir.y > 0.0 && mir.y < 1.0) {
         vec4 samp = texture2D(uReflect, mir);
         float sampLum = dot(samp.rgb, vec3(0.2126, 0.7152, 0.0722));
@@ -319,7 +319,10 @@ const FRAG_SHADER = /* glsl */ `
     if (mirrorHit > 0.5) reflectAmt = max(reflectAmt, 0.9);
     else reflectAmt *= 0.35;
     base = mix(base, reflected, reflectAmt);
-    base = mix(base, foamCol, clamp(max(foamMask, lip), 0.0, 0.88));
+    float foamAmt = clamp(max(foamMask, lip), 0.0, 0.88);
+    // Keep the rock lips. Don't paint the mirror out with sheet foam.
+    if (mirrorHit > 0.5) foamAmt = max(lip * 0.85, min(foamAmt, 0.32));
+    base = mix(base, foamCol, foamAmt);
 
     float cau = noise(worldXZ * 3.4 - scroll * 1.5) * noise(worldXZ * 6.2 + scroll * 0.6);
     base += vec3(0.55, 0.95, 0.85) * smoothstep(0.62, 0.9, cau) * (1.0 - depthFactor);

@@ -182,7 +182,7 @@ export function createWaterReflection(): WaterReflection {
         virtual.position.copy(camera.position);
         virtual.quaternion.copy(camera.quaternion);
         virtual.up.copy(camera.up);
-        const mirrorW = Math.min(512, Math.max(400, size));
+        const mirrorW = 512;
         const mirrorH = Math.max(120, Math.round(mirrorW / Math.max(camera.aspect, 0.5)));
         if (target.width !== mirrorW || target.height !== mirrorH) target.setSize(mirrorW, mirrorH);
       } else {

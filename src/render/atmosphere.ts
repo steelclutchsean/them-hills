@@ -81,9 +81,9 @@ const FRAG = /* glsl */ `
 
     // The dawn sky is HDR-bright, so a mix toward a dim blue never shifts the hue.
     // Scale the existing light instead: warm next to the sun, blue away from it.
-    float away = smoothstep(0.0, 0.55, 1.0 - sunDot);
-    float coolAmt = away * lowSun * smoothstep(-0.02, 0.22, h);
-    sky *= mix(vec3(1.0), vec3(0.28, 0.55, 1.55), coolAmt);
+    float away = smoothstep(0.02, 0.4, 1.0 - sunDot);
+    float coolAmt = away * lowSun * smoothstep(-0.08, 0.16, h);
+    sky *= mix(vec3(1.0), vec3(0.16, 0.42, 2.2), coolAmt);
 
     // Low haze tight to the sun, so the shafts have a volume to light
     // and the cool corner keeps the blue multiply above.
@@ -102,6 +102,9 @@ const FRAG = /* glsl */ `
     vec3 cloudCol = mix(uHorizon, vec3(1.0), 0.62);
     cloudCol *= 0.72 + 0.55 * pow(sunDot, 0.6);
     sky = mix(sky, cloudCol, clouds * 0.9);
+    // Clouds are lit by the warm horizon color. Put the blue back on the
+    // side of the sky that faces away from the sun.
+    sky *= mix(vec3(1.0), vec3(0.32, 0.55, 1.75), coolAmt * 0.75);
 
     if (uStarStrength > 0.02) {
       vec2 cell = floor(dir.xy * 220.0 + dir.z * 140.0);

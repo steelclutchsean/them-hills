@@ -112,28 +112,28 @@ const GodrayShader = {
       // Radial blur toward the sun. A trunk on the ray drops the sum.
       // A gap that stays bright the whole way leaves a shaft in the haze.
       vec2 sunUv = clamp(uSun, vec2(0.02), vec2(0.98));
-      float clear = 0.0;
-      float weight = 0.0;
-      for (int i = 0; i < 24; i++) {
-        float rayT = (float(i) + 0.5) / 24.0;
+      // Sky beside the disc, so the disc does not make every texel look dark.
+      vec2 refUv = clamp(sunUv + vec2(0.03, -0.05), vec2(0.02), vec2(0.98));
+      float refLum = dot(texture2D(tDiffuse, refUv).rgb, vec3(0.2126, 0.7152, 0.0722));
+      // First crown on the way to the sun. A gap keeps the ray clear and
+      // the haze under that angle stays bright. Start off the pixel so the
+      // ground under the camera is not the occluder.
+      float hitT = 1.0;
+      for (int i = 0; i < 26; i++) {
+        float rayT = 0.14 + float(i) * 0.03;
         vec2 p = mix(vUv, sunUv, rayT);
-        float dep = texture2D(tDepth, p).r;
         float lum = dot(texture2D(tDiffuse, p).rgb, vec3(0.2126, 0.7152, 0.0722));
-        float sky = smoothstep(0.16, 0.62, lum);
-        if (dep > 0.02 && dep < 0.992) sky = min(sky, smoothstep(0.94, 0.995, dep));
-        float w = 1.0 - rayT * 0.35;
-        clear += sky * w;
-        weight += w;
+        if (lum < refLum * 0.48) {
+          hitT = rayT;
+          break;
+        }
       }
-      float pass = clear / max(weight, 0.001);
-      float shafts = smoothstep(0.28, 0.72, pass);
+      float shafts = smoothstep(0.22, 0.7, hitT);
       float lumHere = dot(col, vec3(0.2126, 0.7152, 0.0722));
-      float room = 1.0 - smoothstep(1.15, 3.2, lumHere);
-      float body = smoothstep(0.012, 0.1, lumHere);
-      float inSky = smoothstep(0.55, 1.45, lumHere);
+      float haze = smoothstep(0.03, 0.22, lumHere) * (1.0 - smoothstep(1.8, 3.6, lumHere));
       float rayAmt = sunSide * onScreen;
-      col += vec3(1.35, 0.82, 0.4) * shafts * rayAmt * uIntensity * room * body * 0.95;
-      col *= mix(1.0, mix(0.42, 1.0, shafts), inSky * rayAmt);
+      col += vec3(1.7, 0.95, 0.42) * shafts * rayAmt * uIntensity * haze * 1.35;
+      col *= mix(1.0, mix(0.45, 1.0, shafts), haze * rayAmt);
       gl_FragColor = vec4(col, 1.0);
     }
   `,

@@ -933,6 +933,6 @@ export function updateTownDressing(time: number, camera: THREE.Camera): void {
 export function updateTownLights(sunY: number): void {
   const night = 1 - smooth01(-0.02, 0.22, sunY);
   for (const light of townLights) light.intensity = 2.4 * night;
-  for (const light of windowLights) light.intensity = 2.2 * night;
+  for (const light of windowLights) light.intensity = 0.7 * night;
   for (const pane of windowPanes) pane.emissiveIntensity = 0.04 + 18 * night;
 }
