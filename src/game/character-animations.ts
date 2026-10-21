@@ -83,8 +83,10 @@ function still(): Gesture {
   };
 }
 
-// Shoulder X past about 1.0 unfolds this skeleton back into the bind T.
-const LIFT_MAX = 0.7;
+// On the live ranger, shoulder X past about 0.5 unfolds the arm back
+// into the bind T. Rocker holds 0.5 and stays down. The shovel's old
+// peak of 1.45 did not.
+const LIFT_MAX = 0.45;
 
 function write(rig: CharacterRig, g: Gesture, smoothing: number): void {
   const t = posedOnce ? smoothing : 1;
@@ -223,13 +225,13 @@ function shovelGesture(time: number): Gesture {
   else if (u < 0.48) lift = 1 - (u - 0.34) / 0.14;
   else lift = 0;
   const strike = u >= 0.34 && u < 0.56 ? Math.sin(((u - 0.34) / 0.22) * Math.PI) : 0;
-  g.shLx = 0.28 + lift * 0.9;
-  g.shRx = 0.4 + lift * 1.05;
-  g.shLy = 0.12;
-  g.shRy = -0.16;
-  g.elbL = 0.5 + lift * 0.85;
-  g.elbR = 0.65 + lift * 1.0;
-  g.spineX = 0.16 + strike * 0.62;
+  g.shLx = 0.22 + lift * 0.2;
+  g.shRx = 0.26 + lift * 0.18;
+  g.shLy = 0.08 + lift * 0.12;
+  g.shRy = -0.1 - lift * 0.1;
+  g.elbL = 0.35 + lift * 1.35;
+  g.elbR = 0.4 + lift * 1.45;
+  g.spineX = 0.12 + strike * 0.7;
   g.kneeL = 0.1 + strike * 0.38;
   g.kneeR = 0.14 + strike * 0.3;
   g.hand = 0.7;
@@ -264,12 +266,12 @@ export function applyRock(rig: CharacterRig, time: number, smoothing = 0.3): Pos
 export function applyAim(rig: CharacterRig, time: number, smoothing = 0.3): PoseClip {
   const g = still();
   const sway = Math.sin(time * 1.5) * 0.08;
-  g.shLx = 0.95;
-  g.shRx = 1.05;
-  g.shLy = 0.22 + sway;
-  g.shRy = -0.18 + sway;
-  g.elbL = 1.05;
-  g.elbR = 0.85;
+  g.shLx = 0.36;
+  g.shRx = 0.42;
+  g.shLy = 0.16 + sway;
+  g.shRy = -0.14 + sway;
+  g.elbL = 1.25;
+  g.elbR = 0.95;
   g.spineX = 0.1;
   g.spineY = sway;
   g.headX = 0.06;
