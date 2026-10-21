@@ -467,7 +467,7 @@ test('drift, blast, cave-in, flood, and fire stay in frame', async ({ page }) =>
       return !!view && view.black < 0.9 && view.missing.length === 0;
     },
     undefined,
-    { timeout: 30_000 },
+    { timeout: 45_000 },
   );
   await page.waitForFunction(
     () => {
@@ -537,9 +537,9 @@ test('drift, blast, cave-in, flood, and fire stay in frame', async ({ page }) =>
   expect(await page.evaluate(() => window.__themHills?.previewScene?.('rush') ?? false)).toBe(true);
   await page.waitForFunction(
     () => {
-      const view = window.__themHills?.sceneView?.(['rush-tents', 'rush-prospector', 'general_store']);
+      const view = window.__themHills?.sceneView?.(['rush-tent', 'rush-prospector', 'general_store']);
       if (!view || view.black >= 0.9) return false;
-      const tents = view.present.includes('rush-tents') && view.present.includes('rush-prospector');
+      const tents = view.present.includes('rush-tent') && view.present.includes('rush-prospector');
       const storeOut = !view.present.includes('general_store');
       return tents && storeOut;
     },

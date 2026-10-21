@@ -37,6 +37,7 @@ interface Rig {
   ore: THREE.Mesh[];
   phase: 'idle' | 'fuse' | 'blast' | 'cave' | 'buried';
   t: number;
+  pin: number | null;
   dig: number;
   fuse: number;
 }
@@ -358,10 +359,10 @@ export function dressNorthLode(group: THREE.Group): void {
   for (let i = 0; i < 4; i++) {
     const z = -1.7 - i * 2.05;
     const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), lampMat);
-    lamp.name = i === 1 ? 'drift-lantern' : `drift-lantern-${i}`;
-    lamp.position.set(0, 2.18, z);
+    lamp.name = i === 2 ? 'drift-lantern' : `drift-lantern-${i}`;
+    lamp.position.set(0, 1.92, z);
     const light = new THREE.PointLight(0xffc27a, 36, 12, 2);
-    light.position.set(0, 2.05, z);
+    light.position.set(0, 1.78, z);
     light.castShadow = false;
     lamps.push(lamp);
     lights.push(light);
@@ -443,14 +444,23 @@ export function dressNorthLode(group: THREE.Group): void {
   const sparks = new THREE.Points(
     sparkGeom,
     new THREE.PointsMaterial({
-      color: 0xffb45a,
-      size: 0.16,
+      color: 0xfff6d2,
+      size: 0.55,
       transparent: true,
       opacity: 0,
       depthWrite: false,
     }),
   );
   sparks.name = 'fuse-sparks';
+  for (let i = 0; i < 8; i++) {
+    const bead = new THREE.Mesh(
+      new THREE.SphereGeometry(0.09, 8, 6),
+      new THREE.MeshBasicMaterial({ color: i === 0 ? 0xfff6d8 : 0xffa040 }),
+    );
+    bead.name = 'fuse-bead';
+    bead.visible = false;
+    sparks.add(bead);
+  }
   group.add(sparks);
 
   const flash = new THREE.PointLight(0xfff1d2, 0, 14, 2);
@@ -555,6 +565,7 @@ export function dressNorthLode(group: THREE.Group): void {
     ore,
     phase: 'idle',
     t: 0,
+    pin: null,
     dig: 1,
     fuse: 0,
   });
@@ -628,15 +639,32 @@ export function driftOf(group: THREE.Group): Rig | undefined {
 export function playDriftBlast(group: THREE.Group, leadIn = false): void {
   const rig = rigs.get(group);
   if (!rig) return;
+  rig.pin = null;
   rig.phase = leadIn ? 'fuse' : 'blast';
   rig.t = 0;
   rig.fuse = leadIn ? 0 : 1;
   if (!leadIn) kickChunks(rig, true);
 }
 
+/** Freeze a drift beat so a slow screenshot cannot walk past it. */
+export function pinDrift(group: THREE.Group, phase: Rig['phase'], t: number): void {
+  const rig = rigs.get(group);
+  if (!rig) return;
+  rig.phase = phase;
+  rig.t = t;
+  rig.pin = t;
+  rig.fuse = phase === 'fuse' ? 0 : 1;
+  if (phase === 'blast') kickChunks(rig, true);
+  if (phase === 'cave') {
+    rig.dig = 0;
+    kickChunks(rig, false);
+  }
+}
+
 export function playDriftCaveIn(group: THREE.Group): void {
   const rig = rigs.get(group);
   if (!rig) return;
+  rig.pin = null;
   rig.phase = 'cave';
   rig.t = 0;
   rig.dig = 0;
@@ -705,14 +733,14 @@ export function frameDriftWalk(origin: THREE.Vector3, player: THREE.Vector3, cam
   const lx = THREE.MathUtils.clamp(player.x - origin.x, -0.55, 0.55);
   const lz = THREE.MathUtils.clamp(player.z - origin.z, -8.2, -0.35);
   const eyeZ = THREE.MathUtils.clamp(lz + 0.12, -8.0, -0.5);
-  camera.position.set(origin.x + lx * 0.2, origin.y + 1.55, origin.z + eyeZ);
-  camera.lookAt(origin.x + lx * 0.15, origin.y + 1.25, origin.z + Math.min(-0.2, lz - 2.6));
+  camera.position.set(origin.x + lx * 0.2, origin.y + 1.48, origin.z + eyeZ);
+  camera.lookAt(origin.x + lx * 0.15, origin.y + 1.72, origin.z + Math.min(-0.2, lz - 2.6));
 }
 
 /** Centered look down the lantern line, used when the review camera is outside the mouth. */
 export function frameDriftInterior(origin: THREE.Vector3, camera: THREE.Camera): void {
-  camera.position.set(origin.x, origin.y + 1.55, origin.z - 2.05);
-  camera.lookAt(origin.x, origin.y + 1.22, origin.z - 8.0);
+  camera.position.set(origin.x, origin.y + 1.48, origin.z - 2.05);
+  camera.lookAt(origin.x, origin.y + 1.7, origin.z - 8.0);
 }
 
 export function frameDriftShow(group: THREE.Group, origin: THREE.Vector3, camera: THREE.Camera): boolean {
@@ -721,8 +749,8 @@ export function frameDriftShow(group: THREE.Group, origin: THREE.Vector3, camera
   if (rig.phase !== 'fuse' && rig.phase !== 'blast' && rig.phase !== 'cave') return false;
   const look = new THREE.Vector3();
   if (rig.phase === 'fuse') {
-    camera.position.set(origin.x + 0.35, origin.y + 1.35, origin.z - 4.6);
-    look.set(origin.x + 0.7, origin.y + 1.15, origin.z - 8.4);
+    camera.position.set(origin.x + 0.15, origin.y + 1.42, origin.z - 4.35);
+    look.set(origin.x + 0.62, origin.y + 1.22, origin.z - 7.1);
   } else if (rig.phase === 'blast') {
     const pull = Math.min(1.6, rig.t * 0.9);
     camera.position.set(origin.x + 0.15, origin.y + 1.4, origin.z - 3.1 + pull);
@@ -737,13 +765,23 @@ export function frameDriftShow(group: THREE.Group, origin: THREE.Vector3, camera
 
 function paintSparks(rig: Rig, along: number): void {
   const attr = rig.sparks.geometry.getAttribute('position') as THREE.BufferAttribute;
-  const headZ = -4.8 + -3.6 * along;
+  const show = along > 0.02 && along < 0.98;
+  const headZ = -5.0 - 3.2 * along;
   for (let i = 0; i < 12; i++) {
-    const trail = i / 12;
-    attr.setXYZ(i, 1.15 + Math.sin(i) * 0.04, 1.05 + trail * 0.15, headZ + trail * 0.85);
+    const trail = i / 11;
+    attr.setXYZ(i, 0.62, 1.22 + Math.sin(i * 1.3) * 0.05, headZ + trail * 1.7);
   }
   attr.needsUpdate = true;
-  (rig.sparks.material as THREE.PointsMaterial).opacity = along > 0.02 && along < 0.98 ? 1 : 0;
+  const mat = rig.sparks.material as THREE.PointsMaterial;
+  mat.color.set(0xfff6d2);
+  mat.size = 0.55;
+  mat.opacity = show ? 1 : 0;
+  rig.sparks.children.forEach((child, i) => {
+    const trail = i / Math.max(1, rig.sparks.children.length - 1);
+    child.position.set(0.62, 1.22, headZ + trail * 1.7);
+    child.visible = show;
+    child.scale.setScalar(i === 0 ? 1.9 : 1);
+  });
 }
 
 export function updateNorthLode(group: THREE.Group, time: number, creak: number, dt: number): void {
@@ -780,24 +818,29 @@ export function updateNorthLode(group: THREE.Group, time: number, creak: number,
   const cart = group.getObjectByName('ore-cart');
   if (cart && rig.phase === 'idle') cart.position.z = -3.4 + Math.sin(time * 0.6) * 0.12;
 
-  const step = Math.min(Math.max(0, dt), 0.08);
+  if (rig.pin !== null) rig.t = rig.pin;
+  const step = rig.pin !== null ? 0 : Math.min(Math.max(0, dt), 0.08);
   if (rig.phase === 'fuse') {
     rig.t += step;
     const along = Math.min(1, rig.fuse > 0 ? rig.fuse : rig.t / 1.45);
     paintSparks(rig, along);
-    if (rig.t > 1.55 && rig.fuse >= 0.99) {
+    // A fuse amount of 0 means this timeline is driving itself. The prospect
+    // path sets fuse above 0 and only detonates once the fuse is spent.
+    const spent = rig.fuse === 0 || rig.fuse >= 0.99;
+    if (rig.t > 1.15 && spent) {
       rig.phase = 'blast';
       rig.t = 0;
+      rig.fuse = 1;
       kickChunks(rig, true);
     }
   } else if (rig.phase === 'blast') {
     rig.t += step;
     paintSparks(rig, 1);
-    const flash = Math.max(0, 1 - rig.t / 0.5);
+    const flash = Math.max(0, 1 - rig.t / 1.2);
     rig.flash.intensity = flash * 180;
     rig.flash.distance = 18;
     (rig.flashBall.material as THREE.MeshBasicMaterial).opacity = Math.min(1, flash * 1.35);
-    rig.flashBall.scale.setScalar(3.4 + rig.t * 7);
+    rig.flashBall.scale.setScalar(2.6 + Math.min(rig.t, 0.4) * 5);
     const waveMat = rig.wave.material as THREE.MeshBasicMaterial;
     waveMat.opacity = Math.max(0, 0.85 - rig.t / 1.1);
     rig.wave.scale.setScalar(1 + rig.t * 7);

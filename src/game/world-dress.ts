@@ -68,38 +68,39 @@ export function createWorldDress(
     [1, 27],
     [6, 23],
   ];
-  const canvas = new THREE.MeshStandardMaterial({ color: 0xd8c4a0, roughness: 0.86, side: THREE.DoubleSide });
+  const canvas = new THREE.MeshStandardMaterial({ color: 0xf0e2c4, roughness: 0.84, side: THREE.DoubleSide });
   const ridge = new THREE.MeshStandardMaterial({ color: 0x6b4428, roughness: 0.9 });
   tentSpots.forEach(([x, z], index) => {
     const tent = new THREE.Group();
     tent.name = index === 0 ? 'rush-tent' : `rush-tent-${index}`;
     const y = groundY(x!, z!);
     tent.position.set(x!, y, z!);
-    tent.rotation.y = index * 0.4;
-    const left = new THREE.Mesh(new THREE.BoxGeometry(0.08, 2.6, 2.8), canvas);
+    // The wide canvas faces south, which is the direction the rush camera looks from.
+    tent.rotation.y = Math.PI / 2 + index * 0.12;
+    const left = new THREE.Mesh(new THREE.BoxGeometry(0.18, 3.05, 3.3), canvas);
     left.rotation.z = 0.62;
-    left.position.set(-0.62, 1.22, 0);
-    const right = new THREE.Mesh(new THREE.BoxGeometry(0.08, 2.6, 2.8), canvas);
+    left.position.set(-0.7, 1.28, 0);
+    const right = new THREE.Mesh(new THREE.BoxGeometry(0.18, 3.05, 3.3), canvas);
     right.rotation.z = -0.62;
-    right.position.set(0.62, 1.22, 0);
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.7, 5), ridge);
+    right.position.set(0.7, 1.28, 0);
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 3.2, 5), ridge);
     pole.rotation.z = Math.PI / 2;
-    pole.position.y = 2.35;
+    pole.position.y = 2.55;
     tent.add(left, right, pole);
     tents.add(tent);
   });
   scene.add(tents);
 
   const hands = [
-    [0, 21.4],
-    [4, 22.6],
-    [-3, 23.2],
+    [2.1, 18.4],
+    [0.4, 21.6],
+    [-3.2, 22.8],
   ].map(([x, z], i) => {
     const npc = spawnNpc(0xc4a574, 0x4a3420);
     npc.name = i === 0 ? 'rush-prospector' : `rush-prospector-${i}`;
     npc.visible = false;
     npc.position.set(x!, groundY(x!, z!), z!);
-    npc.rotation.y = Math.PI / 2;
+    npc.rotation.y = 0;
     scene.add(npc);
     return npc;
   });
@@ -137,6 +138,7 @@ export function createWorldDress(
     tents.visible = true;
     hands.forEach((npc, i) => {
       npc.visible = true;
+      npc.rotation.y = 0;
       poseNpc(npc, time, 'shovel', i);
     });
   }

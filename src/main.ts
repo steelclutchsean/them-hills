@@ -47,6 +47,7 @@ import {
   frameDriftInterior,
   frameDriftShow,
   frameDriftWalk,
+  pinDrift,
   playDriftBlast,
   playDriftCaveIn,
   setDriftBearer,
@@ -1035,13 +1036,15 @@ async function bootstrap(): Promise<void> {
   }
 
   function rushView(): { x: number; y: number; z: number; lx: number; ly: number; lz: number } {
+    // South of the A-frames, at canvas height, looking north into the faces.
+    // The general store sits at z=-3, behind this camera.
     return {
-      x: 12,
-      y: terrain.getHeightAt(12, 22) + 2.3,
-      z: 22,
-      lx: 0,
-      ly: terrain.getHeightAt(0, 22) + 1.25,
-      lz: 22,
+      x: 2.0,
+      y: terrain.getHeightAt(2.0, 16.2) + 1.45,
+      z: 16.2,
+      lx: 0.6,
+      ly: terrain.getHeightAt(0.6, 22.5) + 1.55,
+      lz: 22.5,
     };
   }
 
@@ -1301,8 +1304,28 @@ async function bootstrap(): Promise<void> {
           playDriftBlast(north.group, true);
           return true;
         }
+        if (who === 'fuse' && north) {
+          playDriftBlast(north.group, true);
+          pinDrift(north.group, 'fuse', 0.8);
+          return true;
+        }
+        if (who === 'flash' && north) {
+          playDriftBlast(north.group, false);
+          pinDrift(north.group, 'blast', 0.22);
+          return true;
+        }
+        if (who === 'ore' && north) {
+          playDriftBlast(north.group, false);
+          pinDrift(north.group, 'blast', 2.15);
+          return true;
+        }
         if (who === 'cavein' && north) {
           playDriftCaveIn(north.group);
+          return true;
+        }
+        if (who === 'fall' && north) {
+          playDriftCaveIn(north.group);
+          pinDrift(north.group, 'cave', 0.55);
           return true;
         }
         if (who === 'dig' && north) {
@@ -3447,11 +3470,17 @@ function frameDialogue(
   if (across.lengthSq() < 0.04) across.set(1, 0, 0);
   across.normalize();
   const side = new THREE.Vector3(-across.z, 0, across.x);
-  // The mill's back wall faces -Z. A camera on that side fills the frame with timber.
-  if (id === 'silas' && side.z < 0) side.negate();
-  camera.position.set(mid.x + side.x * 4.6, mid.y + 1.75, mid.z + side.z * 4.6);
-  camera.lookAt(mid.x, mid.y + 1.4, mid.z);
-  camera.fov = 38;
+  // The mill's back wall faces -Z. Stand on the open side, above the roof line.
+  if (id === 'silas') {
+    side.z = Math.abs(side.z) + 0.35;
+    side.x += 0.65;
+    side.normalize();
+  }
+  const dist = id === 'silas' ? 9.2 : id === 'ada' ? 7.2 : 4.8;
+  const eye = id === 'silas' ? 4.8 : 2.4;
+  camera.position.set(mid.x + side.x * dist, mid.y + eye, mid.z + side.z * dist);
+  camera.lookAt(mid.x, mid.y + 1.25, mid.z);
+  camera.fov = 42;
   camera.updateProjectionMatrix();
 }
 
