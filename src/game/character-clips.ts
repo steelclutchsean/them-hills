@@ -65,7 +65,10 @@ const axisY = new THREE.Vector3(0, 1, 0);
 const gripUp = new THREE.Vector3(0, 1, 0);
 const gripInv = new THREE.Matrix4();
 
-/** True when an elbow is stuck out to the side the way the bind T is. */
+/**
+ * True when both elbows are stuck out to the sides the way the bind T is.
+ * A chop cocks one arm out on the windup. That is the swing, not the bind.
+ */
 export function armsAreBind(rig: CharacterRig): boolean {
   const yaw = rig.group.rotation.y;
   const rx = -Math.cos(yaw);
@@ -82,9 +85,9 @@ export function armsAreBind(rig: CharacterRig): boolean {
     shoulderB.setFromMatrixPosition(e.matrixWorld).sub(shoulderA);
     const lateral = Math.abs(shoulderB.x * rx + shoulderB.z * rz);
     const ahead = Math.abs(shoulderB.x * fx + shoulderB.z * fz);
-    return lateral > 0.12 && ahead < lateral * 0.55 && Math.abs(shoulderB.y) < lateral * 0.65;
+    return lateral > 0.18 && ahead < lateral * 0.45 && Math.abs(shoulderB.y) < lateral * 0.45;
   };
-  return side(rig.shoulderL, rig.elbowL) || side(rig.shoulderR, rig.elbowR);
+  return side(rig.shoulderL, rig.elbowL) && side(rig.shoulderR, rig.elbowR);
 }
 
 function clipFromJson(name: string, def: ClipDef): THREE.AnimationClip {
