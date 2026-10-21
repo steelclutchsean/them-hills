@@ -95,14 +95,14 @@ export function createWaterReflection(): WaterReflection {
   let stride = 1;
   let tick = 0;
 
-  const normal = new THREE.Vector3(0, 1, 0);
-  const reflectorWorldPosition = new THREE.Vector3();
-  const cameraWorldPosition = new THREE.Vector3();
   const rotationMatrix = new THREE.Matrix4();
-  const lookAtPosition = new THREE.Vector3(0, 0, -1);
   const targetPos = new THREE.Vector3();
   const view = new THREE.Vector3();
   const prevClear = new THREE.Color();
+  const normal = new THREE.Vector3(0, 1, 0);
+  const reflectorPos = new THREE.Vector3();
+  const cameraPos = new THREE.Vector3();
+  const lookAtPosition = new THREE.Vector3(0, 0, -1);
 
   return {
     get enabled() {
@@ -132,42 +132,43 @@ export function createWaterReflection(): WaterReflection {
       }
       tick += 1;
       if (tick % stride !== 0) return;
-      reflectorWorldPosition.set(camera.position.x, planeY, camera.position.z);
-      cameraWorldPosition.setFromMatrixPosition(camera.matrixWorld);
+
+      // Reflect the view camera across the creek plane. An above-water
+      // camera photographs the trees; it does not mirror them. The reflected
+      // camera sits under the surface and looks up, and only the tree layer
+      // is drawn, so the hill mesh cannot fill the target.
+      cameraPos.copy(camera.position);
+      reflectorPos.set(cameraPos.x, planeY, cameraPos.z);
+      view.subVectors(reflectorPos, cameraPos);
+      if (view.dot(normal) > 0) return;
+
+      view.reflect(normal).negate();
+      view.add(reflectorPos);
+
       rotationMatrix.extractRotation(camera.matrixWorld);
       lookAtPosition.set(0, 0, -1);
       lookAtPosition.applyMatrix4(rotationMatrix);
-      lookAtPosition.add(cameraWorldPosition);
-
-      view.subVectors(reflectorWorldPosition, cameraWorldPosition);
-      view.reflect(normal).negate();
-      view.add(reflectorWorldPosition);
-
-      targetPos.subVectors(reflectorWorldPosition, lookAtPosition);
+      lookAtPosition.add(cameraPos);
+      targetPos.subVectors(reflectorPos, lookAtPosition);
       targetPos.reflect(normal).negate();
-      targetPos.add(reflectorWorldPosition);
+      targetPos.add(reflectorPos);
 
       virtual.layers.set(treesOnly ? TREE_MIRROR_LAYER : REFLECTION_LAYER);
       reflectionUniforms.uMirrorMode.value = 0;
       virtual.position.copy(view);
-      // Match Reflector: camera up, then mirrored. World up alone rolls a pitched view.
-      virtual.up.set(0, 1, 0);
-      virtual.up.applyMatrix4(rotationMatrix);
+      virtual.up.set(0, 1, 0).applyMatrix4(rotationMatrix);
       virtual.up.reflect(normal);
       virtual.lookAt(targetPos);
-      // The opposite bank and the first trees. Farther than this redrew the
-      // whole forest and the prospect loop missed its budget on software GL.
+      virtual.near = Math.max(0.05, camera.near);
       virtual.far = 120;
-      virtual.near = camera.near;
       virtual.fov = camera.fov;
       virtual.aspect = camera.aspect;
       virtual.updateProjectionMatrix();
       virtual.updateMatrixWorld();
-      // No oblique clip. Both signs of it discarded the bank and left the
-      // target the clear color. Trees are on their own layer, so the hill
-      // mesh is not in this pass to hide them.
+      // No oblique clip. It discarded the bank on this GPU. The tree layer
+      // has nothing under the plane to hide the trunks.
       if (treesOnly) {
-        const mirrorW = Math.min(320, Math.max(160, size));
+        const mirrorW = Math.min(512, Math.max(320, size));
         const mirrorH = Math.max(90, Math.round(mirrorW / Math.max(camera.aspect, 0.5)));
         if (target.width !== mirrorW || target.height !== mirrorH) target.setSize(mirrorW, mirrorH);
       }

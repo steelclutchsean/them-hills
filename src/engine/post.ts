@@ -6,6 +6,7 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { RENDER_QUALITY } from '@/engine/quality';
+import { reflectionUniforms } from '@/render/reflection';
 import { Pass, FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 
 // The water shader reads this on the next frame. It is the HDR scene, before
@@ -96,36 +97,43 @@ const GodrayShader = {
       vec2 toSun = uSun - vUv;
       float span = length(toSun);
       // Far from the sun the cool corner stays the grade it already has.
-      float sunSide = 1.0 - smoothstep(0.2, 0.58, span);
+      float sunSide = 1.0 - smoothstep(0.12, 0.36, span);
       float onScreen = smoothstep(-0.2, 0.02, uSun.x) * smoothstep(1.2, 0.98, uSun.x)
                      * smoothstep(-0.25, 0.0, uSun.y) * smoothstep(1.2, 0.98, uSun.y);
       if (sunSide < 0.001 || onScreen < 0.001 || uIntensity < 0.001) {
         gl_FragColor = vec4(col, 1.0);
         return;
       }
-      // March from this pixel to the sun. Sky (depth at the far plane, or a
-      // bright dawn sample) carries the shaft. A tree or the ridge is darker
-      // and closer, and it cuts the rest of the march so the gaps stay bright.
+      // Walk from the sun until a trunk or the ridge blocks the ray.
+      // A gap is a ray that stays clear longer, so the open sky on that
+      // angle stays bright and the angle that hits a crown goes dark.
       vec2 sunUv = clamp(uSun, vec2(0.02), vec2(0.98));
+      vec2 dir = vUv - sunUv;
+      float dist = length(dir);
+      vec2 nrm = dir / max(dist, 0.0001);
       float sunLum = dot(texture2D(tDiffuse, sunUv).rgb, vec3(0.2126, 0.7152, 0.0722));
-      float gate = max(0.45, sunLum * 0.38);
-      vec2 delta = toSun / 24.0;
-      vec2 p = vUv;
-      float illum = 0.0;
-      float energy = 1.0;
-      for (int i = 0; i < 24; i++) {
-        p += delta;
-        if (p.x < -0.02 || p.x > 1.02 || p.y < -0.02 || p.y > 1.02) break;
-        vec2 q = clamp(p, vec2(0.0), vec2(1.0));
-        float dep = texture2D(tDepth, q).r;
-        float lum = dot(texture2D(tDiffuse, q).rgb, vec3(0.2126, 0.7152, 0.0722));
-        float sky = max(smoothstep(0.992, 0.9992, dep), smoothstep(gate * 0.5, gate, lum));
-        illum += sky * energy;
-        energy *= mix(0.02, 0.97, sky);
+      float hit = 0.78;
+      for (int i = 0; i < 18; i++) {
+        float rayDist = 0.05 + float(i) * 0.028;
+        vec2 p = sunUv + nrm * rayDist;
+        if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0) break;
+        float dep = texture2D(tDepth, p).r;
+        float lum = dot(texture2D(tDiffuse, p).rgb, vec3(0.2126, 0.7152, 0.0722));
+        float rel = lum / max(sunLum, 0.2);
+        float sky = smoothstep(0.08, 0.28, rel);
+        if (dep > 0.02 && dep < 0.992) sky = min(sky, smoothstep(0.97, 0.998, dep));
+        if (sky < 0.35) {
+          hit = rayDist;
+          break;
+        }
       }
-      illum /= 8.0;
-      float shafts = smoothstep(0.28, 1.05, illum);
-      col += vec3(1.22, 0.74, 0.32) * shafts * uIntensity * onScreen * sunSide * 2.4;
+      // A crown close to the sun darkens that angle. A gap that stays
+      // clear past the ridge leaves a bright shaft.
+      float shafts = smoothstep(0.12, 0.36, hit);
+      float lumHere = dot(col, vec3(0.2126, 0.7152, 0.0722));
+      float inSky = smoothstep(0.45, 1.5, lumHere);
+      float rayAmt = sunSide * onScreen;
+      col *= mix(1.0, mix(0.2, 1.0, shafts), inSky * rayAmt);
       gl_FragColor = vec4(col, 1.0);
     }
   `,
@@ -225,7 +233,8 @@ export function createPostPipeline(
   godrays.render = (renderer, writeBuffer, readBuffer, deltaTime, maskActive) => {
     const depth = godrays.uniforms.tDepth;
     // The grab copied the beauty depth before GTAO replaced the buffer.
-    if (depth) depth.value = sceneGrabUniforms.uSceneDepth.value ?? readBuffer.depthTexture ?? depth.value;
+    if (depth)
+      depth.value = sceneGrabUniforms.uSceneDepth.value ?? readBuffer.depthTexture ?? depth.value;
     renderGodrays(renderer, writeBuffer, readBuffer, deltaTime, maskActive);
   };
   composer.addPass(godrays);
@@ -245,6 +254,7 @@ export function createPostPipeline(
     composer,
     bloom,
     setSize(width, height) {
+      composer.setPixelRatio(renderer.getPixelRatio());
       composer.setSize(width, height);
       attachDepth(composer.renderTarget1);
       attachDepth(composer.renderTarget2);
@@ -256,6 +266,13 @@ export function createPostPipeline(
       gtao.setSize(Math.max(1, width >> shift), Math.max(1, height >> shift));
     },
     render() {
+      // The creek flip divides gl_FragCoord by this. That coord is in the
+      // composer target, which is not the drawing buffer when the pixel
+      // ratio and the composer disagree.
+      reflectionUniforms.uResolution.value.set(
+        composer.renderTarget1.width,
+        composer.renderTarget1.height,
+      );
       composer.render();
     },
     dispose() {
@@ -271,8 +288,8 @@ export function createPostPipeline(
     setSun(x, y, elevation) {
       const sun = godrays.uniforms.uSun?.value as THREE.Vector2 | undefined;
       if (sun) sun.set(x, y);
-      const golden = elevation > 0.01 && elevation < 0.32;
-      const lift = golden ? 0.95 : elevation > 0.05 ? 0.34 : elevation > -0.04 ? 0.16 : 0;
+      const low = elevation > 0.0 && elevation < 0.42;
+      const lift = low ? 1.0 : elevation > -0.02 ? 0.2 : 0;
       const intensity = godrays.uniforms.uIntensity;
       if (intensity) intensity.value = lift;
     },
@@ -335,7 +352,11 @@ class SceneGrabPass extends Pass {
     this.quad = new FullScreenQuad(this.colorMaterial);
   }
 
-  override render(renderer: THREE.WebGLRenderer, _write: THREE.WebGLRenderTarget, read: THREE.WebGLRenderTarget): void {
+  override render(
+    renderer: THREE.WebGLRenderer,
+    _write: THREE.WebGLRenderTarget,
+    read: THREE.WebGLRenderTarget,
+  ): void {
     this.colorMaterial.uniforms.tDiffuse!.value = read.texture;
     this.quad.material = this.colorMaterial;
     renderer.setRenderTarget(this.target);

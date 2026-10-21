@@ -87,7 +87,9 @@ function addBarrel(parent: THREE.Object3D, x: number, z: number): void {
   const barrel = new THREE.Group();
   barrel.name = 'ground-barrel';
   barrel.position.set(x, 0, z);
-  barrel.add(mesh(new THREE.CylinderGeometry(0.22, 0.24, 0.48, 8), timberDarkMaterial(), 0, 0.24, 0));
+  barrel.add(
+    mesh(new THREE.CylinderGeometry(0.22, 0.24, 0.48, 8), timberDarkMaterial(), 0, 0.24, 0),
+  );
   const hoop = mesh(new THREE.TorusGeometry(0.23, 0.015, 4, 10), stoneMaterial(), 0, 0.32, 0);
   hoop.rotation.x = Math.PI / 2;
   barrel.add(hoop);
@@ -117,6 +119,7 @@ export function seatBarrels(root: THREE.Object3D, ground: (x: number, z: number)
 }
 
 const townLights: THREE.PointLight[] = [];
+const windowLights: THREE.PointLight[] = [];
 const windowPanes: THREE.MeshStandardMaterial[] = [];
 const smokeCards: { mesh: THREE.Mesh; base: number; phase: number }[] = [];
 
@@ -187,12 +190,12 @@ function addLog(
   const n = Math.abs(Math.sin(logSerial * 12.9898));
   const n2 = Math.abs(Math.sin(logSerial * 78.233 + 1.7));
   const n3 = Math.abs(Math.sin(logSerial * 39.425 + 4.2));
-  const radius = 0.062 + n * 0.078;
-  const len = length * (0.82 + n2 * 0.22);
-  const geom = new THREE.CylinderGeometry(radius, radius * (0.86 + n * 0.16), len, 7);
+  const radius = 0.048 + n * 0.11;
+  const len = length * (0.68 + n2 * 0.48);
+  const geom = new THREE.CylinderGeometry(radius, radius * (0.78 + n * 0.28), len, 7);
   const pos = geom.attributes.position;
   if (!pos) return;
-  const bow = (n - 0.5) * 0.16;
+  const bow = (n - 0.5) * 0.32;
   for (let i = 0; i < pos.count; i++) {
     const along = (pos.getY(i) + len * 0.5) / Math.max(len, 0.01);
     pos.setX(i, pos.getX(i) + Math.sin(along * Math.PI) * bow);
@@ -205,16 +208,16 @@ function addLog(
     }
     uv.needsUpdate = true;
   }
-  const ground = y < 0.75;
-  const eaves = y > 2.05;
-  const grime = ground ? 0.46 : eaves ? 0.68 : 1;
-  const tint = 0.62 + n * 0.55;
+  const ground = y < 0.9;
+  const eaves = y > 1.9;
+  const grime = ground ? 0.28 : eaves ? 0.52 : 1;
+  const tint = 0.42 + n * 0.85;
   const colors = new Float32Array(pos.count * 3);
   for (let i = 0; i < pos.count; i++) {
     const shade = grime * tint * (0.82 + (i % 5) * 0.045);
-    colors[i * 3] = shade * (ground ? 0.82 : eaves ? 0.9 : 1);
-    colors[i * 3 + 1] = shade * (ground ? 0.9 : 0.9);
-    colors[i * 3 + 2] = shade * (ground ? 0.62 : eaves ? 0.98 : 0.78);
+    colors[i * 3] = shade * (ground ? 0.7 : eaves ? 0.78 : 1);
+    colors[i * 3 + 1] = shade * (ground ? 0.95 : eaves ? 0.82 : 0.86);
+    colors[i * 3 + 2] = shade * (ground ? 0.48 : eaves ? 0.9 : 0.62);
   }
   geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   if (axis === 'x') geom.rotateZ(Math.PI / 2);
@@ -225,14 +228,15 @@ function addLog(
   const slide = (n2 - 0.5) * 0.14;
   if (axis === 'x') log.position.x += slide;
   else log.position.z += slide;
-  log.rotation.y += (n3 - 0.5) * 0.08;
-  log.rotation.z += (n - 0.5) * 0.05;
+  log.position.y += (n - 0.5) * 0.08;
+  log.rotation.y += (n3 - 0.5) * 0.14;
+  log.rotation.z += (n - 0.5) * 0.09;
   parent.add(log);
   if (n > 0.48) {
     const knotMat = innTimber(true).clone();
     knotMat.color.setRGB(0.28, 0.16, 0.08);
     knotMat.vertexColors = false;
-    const knot = mesh(new THREE.SphereGeometry(0.03 + n * 0.02, 6, 5), knotMat, x, y, z);
+    const knot = mesh(new THREE.SphereGeometry(0.045 + n * 0.035, 6, 5), knotMat, x, y, z);
     const alongK = (n2 - 0.5) * len * 0.55;
     if (axis === 'x') {
       knot.position.x += alongK;
@@ -249,9 +253,9 @@ function addLog(
     crackMat.vertexColors = false;
     const check = mesh(
       new THREE.BoxGeometry(
-        axis === 'x' ? len * (0.35 + n3 * 0.4) : 0.018,
-        0.016,
-        axis === 'z' ? len * (0.35 + n3 * 0.4) : 0.018,
+        axis === 'x' ? len * (0.45 + n3 * 0.45) : 0.028,
+        0.03,
+        axis === 'z' ? len * (0.45 + n3 * 0.45) : 0.028,
       ),
       crackMat,
       x,
@@ -297,12 +301,17 @@ function addWindow(parent: THREE.Object3D, x: number, y: number, z: number, yaw:
     opacity: 0.92,
   });
   windowPanes.push(paneMat);
-  const pane = mesh(new THREE.PlaneGeometry(0.42, 0.3), paneMat, x, y, z);
+  const pane = mesh(new THREE.PlaneGeometry(0.5, 0.36), paneMat, x, y, z);
   pane.rotation.y = yaw;
   pane.position.z += Math.cos(yaw) * 0.05;
   pane.position.x += Math.sin(yaw) * 0.05;
   pane.castShadow = false;
   parent.add(pane);
+  const glow = new THREE.PointLight(0xffb15a, 0, 5.5, 2);
+  glow.position.set(pane.position.x, y, pane.position.z);
+  glow.castShadow = false;
+  parent.add(glow);
+  windowLights.push(glow);
   const mullionV = mesh(new THREE.BoxGeometry(0.03, 0.3, 0.03), timberMaterial(), x, y, z);
   const mullionH = mesh(new THREE.BoxGeometry(0.42, 0.03, 0.03), timberMaterial(), x, y, z);
   mullionV.rotation.y = yaw;
@@ -652,16 +661,16 @@ export function buildCabin(opts: {
   addChimneySmoke(root, -hx + 0.15, 3.7, -0.15);
 
   const sign = new THREE.Mesh(
-    new THREE.BoxGeometry(1.55, 0.62, 0.06),
+    new THREE.BoxGeometry(1.85, 0.78, 0.07),
     new THREE.MeshStandardMaterial({ map: paintSign(opts.sign, opts.accent), roughness: 0.72 }),
   );
-  sign.position.set(0, 2.02, hz + 1.32);
+  sign.position.set(0, 1.72, hz + 1.55);
   sign.rotation.z = -0.03;
   sign.castShadow = true;
   root.add(sign);
-  for (const sx of [-0.62, 0.62]) {
-    const rope = mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.48, 4), dark, sx, 2.36, hz + 1.32);
-    rope.rotation.z = sx < 0 ? 0.08 : -0.08;
+  for (const sx of [-0.78, 0.78]) {
+    const rope = mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.85, 4), dark, sx, 2.15, hz + 1.55);
+    rope.rotation.z = sx < 0 ? 0.12 : -0.12;
     root.add(rope);
   }
 
@@ -919,5 +928,6 @@ export function updateTownDressing(time: number, camera: THREE.Camera): void {
 export function updateTownLights(sunY: number): void {
   const night = 1 - smooth01(-0.02, 0.22, sunY);
   for (const light of townLights) light.intensity = 2.4 * night;
-  for (const pane of windowPanes) pane.emissiveIntensity = 0.2 + 1.5 * night;
+  for (const light of windowLights) light.intensity = 7.5 * night;
+  for (const pane of windowPanes) pane.emissiveIntensity = 0.08 + 8.5 * night;
 }

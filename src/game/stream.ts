@@ -244,8 +244,8 @@ const FRAG_SHADER = /* glsl */ `
       lip = max(lip, shoulder);
     }
     foamMask = max(foamMask, max(wake, lip));
-    base = mix(base, uFoam, clamp(foamMask, 0.0, 1.0));
-    base = mix(base, vec3(0.97, 0.95, 0.88), clamp(lip, 0.0, 0.9));
+    vec3 foamCol = mix(base, uFoam, clamp(foamMask, 0.0, 1.0));
+    foamCol = mix(foamCol, vec3(0.97, 0.95, 0.88), clamp(lip, 0.0, 0.9));
 
     float h0 = n1;
     float h1 = noise(flowUv + vec2(0.16, 0.0) - flow * phase * 3.2);
@@ -268,14 +268,13 @@ const FRAG_SHADER = /* glsl */ `
     float fres = pow(1.0 - max(dot(viewDir, surfNormal), 0.0), 2.1);
     vec3 reflected = mix(uHemiSky, uFoam, 0.22);
     float mirrorHit = 0.0;
-    // Planar mirror of the trees, when the under-creek camera actually drew
-    // one. Alpha 0 is the clear color and falls through to the screen flip.
+    // The tree pass is the mirror: trunks rendered from the reflected camera.
     if (uHasReflect > 0.5) {
       vec4 clip = uReflProjView * vec4(vWorld, 1.0);
-      if (clip.w > 0.0) {
+      if (clip.w > 0.2) {
         vec2 uv = clip.xy / clip.w * 0.5 + 0.5;
-        uv += surfNormal.xz * 0.02;
-        if (uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0) {
+        uv += surfNormal.xz * 0.012;
+        if (uv.x > 0.02 && uv.x < 0.98 && uv.y > 0.02 && uv.y < 0.98) {
           vec4 samp = texture2D(uReflect, uv);
           if (samp.a > 0.45) {
             reflected = samp.rgb;
@@ -284,17 +283,17 @@ const FRAG_SHADER = /* glsl */ `
         }
       }
     }
-    // Screen-space mirror. Flip the frame across the horizon so trunks above
-    // that line land in the creek. Off-screen samples stay the sky tint.
+    // Screen flip when the mirror target has no trunk at this point.
     if (mirrorHit < 0.5 && uHasScene > 0.5) {
       vec2 uv = gl_FragCoord.xy / max(uResolution, vec2(1.0));
       vec2 mir = vec2(uv.x, 2.0 * uHorizon - uv.y);
-      mir += surfNormal.xz * 0.02;
+      mir += surfNormal.xz * 0.012;
       if (mir.x > 0.0 && mir.x < 1.0 && mir.y > 0.0 && mir.y < 1.0) {
         reflected = texture2D(uScene, mir).rgb;
         mirrorHit = 1.0;
       }
-    } else if (mirrorHit < 0.5 && uHasProbe > 0.5) {
+    }
+    if (mirrorHit < 0.5 && uHasProbe > 0.5) {
       vec3 refl = reflect(-viewDir, surfNormal);
       vec3 mirror = textureCube(uProbe, refl).rgb;
       float rl = dot(mirror, vec3(0.2126, 0.7152, 0.0722));
@@ -303,10 +302,11 @@ const FRAG_SHADER = /* glsl */ `
     }
     // Looking down the bed stays amber. A grazing view is the mirror, so
     // trunks on the bank read in the water instead of a flat tint.
-    float reflectAmt = mix(0.16, 0.96, smoothstep(0.04, 0.42, fres));
+    float reflectAmt = mix(0.18, 0.82, smoothstep(0.04, 0.42, fres));
     if (mirrorHit > 0.5) reflectAmt = max(reflectAmt, 0.72);
     else reflectAmt *= 0.35;
     base = mix(base, reflected, reflectAmt);
+    base = mix(base, foamCol, clamp(max(foamMask, lip), 0.0, 0.88));
 
     float cau = noise(worldXZ * 3.4 - scroll * 1.5) * noise(worldXZ * 6.2 + scroll * 0.6);
     base += vec3(0.55, 0.95, 0.85) * smoothstep(0.62, 0.9, cau) * (1.0 - depthFactor);
@@ -364,7 +364,8 @@ function flowNormalMap(): THREE.CanvasTexture {
     }
   }
   const image = ctx.createImageData(size, size);
-  const at = (x: number, y: number) => height[((y + size) % size) * size + ((x + size) % size)] ?? 0;
+  const at = (x: number, y: number) =>
+    height[((y + size) % size) * size + ((x + size) % size)] ?? 0;
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const dx = at(x + 1, y) - at(x - 1, y);
