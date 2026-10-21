@@ -35,8 +35,8 @@ export interface StreamConfig {
 
 const SITE_INTERACT_RADIUS = 1.5;
 
-const DEFAULT_SHALLOW = 0x7ecfc0;
-const DEFAULT_DEEP = 0x0e3f4c;
+const DEFAULT_SHALLOW = 0x2f8f86;
+const DEFAULT_DEEP = 0x0a3040;
 const DEFAULT_FOAM = 0xf4efe2;
 
 export interface PanningSite {
@@ -154,10 +154,10 @@ const FRAG_SHADER = /* glsl */ `
     vec2 scroll = flow * uTime * uFlowSpeed;
 
     float t = abs(vLateral);
-    float depthFactor = clamp(vDepth / 1.65, 0.0, 1.0) * (1.0 - t * t * 0.85);
-    vec3 murk = vec3(0.42, 0.40, 0.28);
+    float depthFactor = smoothstep(0.08, 0.82, clamp(vDepth / 1.65, 0.0, 1.0) * (1.0 - t * t * 0.65));
+    vec3 murk = vec3(0.16, 0.22, 0.2);
     vec3 base = mix(uShallow, uDeep, depthFactor);
-    base = mix(base, murk, smoothstep(1.05, 1.7, vDepth) * 0.4);
+    base = mix(base, murk, smoothstep(1.05, 1.7, vDepth) * 0.35);
 
     float n1 = noise(worldXZ * 0.32 - scroll);
     float n2 = noise(worldXZ * 0.9 - scroll * 1.4 + vec2(4.2, 1.3));
@@ -236,7 +236,7 @@ const FRAG_SHADER = /* glsl */ `
     vec3 lit = base * mix(0.62, 1.0, shadow);
     lit = mix(lit, lit * uSunColor, 0.16 * uSunIntensity * shadow);
 
-    float alpha = mix(0.72, 0.96, depthFactor);
+    float alpha = mix(0.9, 0.98, depthFactor);
     alpha = max(alpha, foamMask * 0.9);
     alpha = mix(alpha, min(1.0, alpha + 0.28), fres);
 
