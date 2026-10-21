@@ -176,9 +176,9 @@ import { presentProspectFind, presentToolImpact } from '@/game/presentation';
 /** Planar mirror size. The cube probe is what the water actually samples for trees. */
 function mirrorBudget(softwareGl: boolean): { size: number; stride: number } {
   if (!softwareGl) return { size: 288, stride: 1 };
-  if (RENDER_QUALITY.ao) return { size: 128, stride: 3 };
-  if (RENDER_QUALITY.godrays) return { size: 144, stride: 2 };
-  return { size: 112, stride: 4 };
+  if (RENDER_QUALITY.ao) return { size: 128, stride: 4 };
+  if (RENDER_QUALITY.godrays) return { size: 144, stride: 3 };
+  return { size: 112, stride: 5 };
 }
 
 /** Cube of the banks. Software updates it a face-set at a time so the frame returns. */
@@ -314,7 +314,6 @@ async function bootstrap(): Promise<void> {
   // ---- Terrain ----
   const terrain = createTerrain(physics.rapier, courses);
   renderer.scene.add(terrain.mesh);
-  markTreeMirror(terrain.mesh);
 
   // ---- Streams + sites ----
   const streamList = STREAM_CONFIGS.map((cfg) =>
