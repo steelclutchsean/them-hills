@@ -12,11 +12,21 @@ interface Probe {
   peakCarryGrams: number;
   graphics?: string;
   applyShot?: (name: string) => boolean;
+  audio?: {
+    context: string;
+    buses: { master: boolean; music: boolean; sfx: boolean; ambience: boolean };
+    master: number;
+    music: number;
+    sfx: number;
+    ambient: number;
+    cue: string;
+    surface: string;
+  };
 }
 
 declare global {
   interface Window {
-    __themHills?: Probe & { save(): Promise<void>; graphics?: string };
+    __themHills?: Probe & { save(): Promise<void> };
   }
 }
 
@@ -209,5 +219,68 @@ test('captures fixed cameras', async ({ page }) => {
     await page.waitForTimeout(400);
     await page.screenshot({ path: `test-results/visual/${shot}.png` });
   }
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+test('audio system initializes and mix settings persist', async ({ page }) => {
+  test.setTimeout(180_000);
+  const errors = trackErrors(page);
+  await page.goto('/');
+  await page.waitForSelector('#boot-start', { timeout: 90_000 });
+  await page.locator('#boot-start').click();
+  await page.waitForFunction(
+    () => {
+      const audio = window.__themHills?.audio;
+      return (
+        audio?.context === 'running' &&
+        audio?.buses.master &&
+        audio?.buses.music &&
+        audio?.buses.sfx &&
+        audio?.buses.ambience
+      );
+    },
+    undefined,
+    { timeout: 15_000 },
+  );
+
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.panel-card h2')).toHaveText('Paused');
+  await page
+    .locator('.panel-actions button', { hasText: 'Settings' })
+    .evaluate((el: HTMLButtonElement) => {
+      el.click();
+    });
+  const music = page.locator('input[data-audio="music"]');
+  await expect(page.locator('.settings-panel')).toBeVisible();
+  await music.evaluate((el) => {
+    const input = el as HTMLInputElement;
+    input.value = '0.25';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await expect(music).toHaveValue('0.25');
+  await page.evaluate(async () => {
+    await window.__themHills?.save();
+  });
+
+  await page.reload();
+  await page.waitForSelector('#boot-start', { timeout: 90_000 });
+  await page.locator('#boot-start').click();
+  await page.waitForFunction(
+    () =>
+      window.__themHills?.audio?.context === 'running' && window.__themHills.audio.music === 0.25,
+    undefined,
+    { timeout: 15_000 },
+  );
+  await page.keyboard.press('Escape');
+  await page
+    .locator('.panel-actions button', { hasText: 'Settings' })
+    .evaluate((el: HTMLButtonElement) => {
+      el.click();
+    });
+  await expect(page.locator('.settings-panel')).toBeVisible();
+  await expect(page.locator('input[data-audio="music"]')).toHaveValue('0.25');
+  const restored = await page.evaluate(() => window.__themHills?.audio);
+  expect(restored?.buses).toEqual({ master: true, music: true, sfx: true, ambience: true });
+  expect(restored?.music).toBeCloseTo(0.25, 2);
   expect(errors, errors.join('\n')).toEqual([]);
 });

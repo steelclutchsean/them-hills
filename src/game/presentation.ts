@@ -21,6 +21,8 @@ export function presentProspectFind(opts: {
   effects: EffectSystem;
   position: { x: number; y: number; z: number };
   grams: number;
+  nuggetGrams?: number;
+  firstFind?: boolean;
 }): void {
   const sparks = Math.round(14 + Math.min(22, opts.grams * 50));
   opts.effects.burstWorld(
@@ -36,5 +38,8 @@ export function presentProspectFind(opts: {
     'dirt',
   );
   opts.effects.shake(0.018, 0.2);
-  opts.audio.playFind(opts.grams);
+  opts.audio.playFind(opts.grams, {
+    nuggetGrams: opts.nuggetGrams,
+    firstFind: opts.firstFind,
+  });
 }

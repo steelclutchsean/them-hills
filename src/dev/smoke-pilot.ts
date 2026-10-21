@@ -53,6 +53,16 @@ export interface ThemHillsProbe {
   save: () => Promise<void>;
   /** Teleport to a named review camera. Returns false for an unknown name. */
   applyShot?: (name: string) => boolean;
+  audio?: {
+    context: string;
+    buses: { master: boolean; music: boolean; sfx: boolean; ambience: boolean };
+    master: number;
+    music: number;
+    sfx: number;
+    ambient: number;
+    cue: string;
+    surface: string;
+  };
 }
 
 declare global {
