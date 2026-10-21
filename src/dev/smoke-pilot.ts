@@ -98,6 +98,8 @@ export interface ThemHillsProbe {
   /** True once the bucket line has swapped off the proxy heads. */
   crewReady?: () => boolean;
   scatterCount?: () => number;
+  /** Props inside a building box, and props standing in the creek channel. */
+  propAudit?: () => { overlaps: string[]; intruders: string[] };
   /** Live clip. `bind` is true only when an arm is back in the T-pose. */
   playerPose: { clip: string; bind: boolean };
 }

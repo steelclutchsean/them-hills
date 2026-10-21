@@ -663,7 +663,11 @@ function posterCutout(mat: THREE.Material, color: number, wind: boolean): THREE.
         vec4 sampledDiffuseColor = texture2D(map, vMapUv);
         float chroma = smoothstep(0.05, 0.2, max(sampledDiffuseColor.r, max(sampledDiffuseColor.g, sampledDiffuseColor.b)));
         float luma = dot(sampledDiffuseColor.rgb, vec3(0.3, 0.59, 0.11));
-        diffuseColor.rgb *= mix(0.42, 1.45, clamp(luma * 1.6, 0.0, 1.0));
+        float sat = max(sampledDiffuseColor.r, max(sampledDiffuseColor.g, sampledDiffuseColor.b))
+          - min(sampledDiffuseColor.r, min(sampledDiffuseColor.g, sampledDiffuseColor.b));
+        float warm = smoothstep(0.22, 0.5, sat) * step(sampledDiffuseColor.g, sampledDiffuseColor.r);
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.05, 0.62, 0.32), warm);
+        diffuseColor.rgb *= mix(0.5, 1.12, clamp(luma * 1.4, 0.0, 1.0));
         diffuseColor.a *= sampledDiffuseColor.a * chroma;
       #endif`,
     );
@@ -675,6 +679,7 @@ function posterCutout(mat: THREE.Material, color: number, wind: boolean): THREE.
 
 function styleOne(mat: THREE.Material, meshName: string): THREE.Material {
   const key = `${mat.name} ${meshName}`.toLowerCase();
+  if (key.includes('twist')) return posterCutout(mat, 0xa86b3a, true);
   if (
     key.includes('leaf') ||
     key.includes('pine_c') ||

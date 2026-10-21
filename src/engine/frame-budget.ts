@@ -21,7 +21,7 @@ export interface FrameBudget {
 export const FRAME_BUDGETS: Record<QualityName, FrameBudget> = {
   low: { frameMs: 80, drawCalls: 2600, triangles: 400_000 },
   medium: { frameMs: 40, drawCalls: 2800, triangles: 500_000 },
-  high: { frameMs: 28, drawCalls: 4500, triangles: 1_100_000 },
+  high: { frameMs: 28, drawCalls: 6800, triangles: 1_750_000 },
   ultra: { frameMs: 18, drawCalls: 4800, triangles: 1_300_000 },
 };
 

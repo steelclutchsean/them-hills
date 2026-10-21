@@ -306,6 +306,11 @@ export async function scatterAssets(
     const wrap = new THREE.Group();
     wrap.position.set(x, y, z);
     if (yawRandom) wrap.rotation.y = rng.range(0, Math.PI * 2);
+    if (config.lod === 'rock') {
+      wrap.name = 'scatter-rock';
+      wrap.userData.townProp = true;
+      wrap.userData.propRadius = worldScale * 0.75;
+    }
     wrap.add(inst);
     let impostor: THREE.Object3D | null = null;
     let lodDistance = 0;

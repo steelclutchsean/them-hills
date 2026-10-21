@@ -48,6 +48,8 @@ declare global {
       lookAt?: (x: number, z: number) => void;
       spawnJumper?: () => boolean;
       playerPose?: { clip: string; bind: boolean };
+      scatterCount?: () => number;
+      propAudit?: () => { overlaps: string[]; intruders: string[] };
       previewScene?: (who: string) => boolean;
       enterDrift?: () => boolean;
       standInDrift?: (localZ: number) => boolean;
@@ -444,6 +446,14 @@ test('drift, blast, cave-in, flood, and fire stay in frame', async ({ page }) =>
   const errors = trackErrors(page);
   await page.goto('/?shot=spawn&freezeSave=1');
   await waitReady(page);
+  await page.waitForFunction(() => (window.__themHills?.scatterCount?.() ?? 0) > 0, undefined, {
+    timeout: 20_000,
+  });
+  const audit = await page.evaluate(
+    () => window.__themHills?.propAudit?.() ?? { overlaps: ['missing'], intruders: ['missing'] },
+  );
+  expect(audit.overlaps, audit.overlaps.join('; ')).toEqual([]);
+  expect(audit.intruders, audit.intruders.join('; ')).toEqual([]);
 
   const entered = await page.evaluate(() => window.__themHills?.enterDrift?.() ?? false);
   expect(entered).toBe(true);

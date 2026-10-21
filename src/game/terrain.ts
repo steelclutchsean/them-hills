@@ -55,12 +55,18 @@ function heightIdx(ix: number, iy: number): number {
 
 /** Pure terrain noise — no flattening, no carve. */
 function rawHeight(x: number, z: number): number {
-  return (
+  const base =
     Math.sin(x * 0.06) * 0.4 +
     Math.cos(z * 0.05) * 0.35 +
     Math.sin(x * 0.21 + z * 0.13) * 0.12 +
-    Math.cos(x * 0.07 - z * 0.09) * 0.08
-  );
+    Math.cos(x * 0.07 - z * 0.09) * 0.08;
+  const dist = Math.hypot(x, z);
+  const rim = smoothstep01(58, 96, dist);
+  const roll =
+    Math.sin(x * 0.02 + 0.6) * 0.55 +
+    Math.cos(z * 0.017 - 0.4) * 0.4 +
+    Math.sin((x + z) * 0.011) * 0.35;
+  return base + rim * (1.45 + roll);
 }
 
 function smoothstep01(a: number, b: number, x: number): number {
@@ -140,6 +146,8 @@ const PATHS: THREE.Vector4[] = [
   new THREE.Vector4(-22, -16, -45, -45),
   new THREE.Vector4(6, -6, 40, -72),
   new THREE.Vector4(24, 8, 62, 18),
+  new THREE.Vector4(-21, -18, -21, 26),
+  new THREE.Vector4(-20, 6, 24, 10),
 ];
 
 const LAMP_POS: THREE.Vector3[] = [
@@ -196,7 +204,7 @@ const TERRAIN_FS = /* glsl */ `
   uniform sampler2D uDirt;
   uniform sampler2D uGravel;
   uniform sampler2D uRock;
-  uniform vec4 uPaths[10];
+  uniform vec4 uPaths[12];
   uniform vec4 uPay[32];
   uniform vec3 uLampPos[4];
   uniform vec3 uLampColor[4];
@@ -265,7 +273,7 @@ const TERRAIN_FS = /* glsl */ `
     albedo *= mix(1.0, 0.56, smoothstep(0.15, 0.95, vBankMask));
 
     float wear = 0.0;
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < 12; i++) {
       vec2 a = uPaths[i].xy;
       vec2 b = uPaths[i].zw;
       vec2 ab = b - a;

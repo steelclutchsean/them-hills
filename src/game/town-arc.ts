@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { poseNpc, spawnNpc } from '@/game/crew';
+import { buildWatercourses } from '@/game/watercourse';
 import { hewnTimberMaterial, innTimber } from '@/render/painterly';
 import { softDiscTexture } from '@/render/soft-disc';
 
@@ -24,7 +25,7 @@ export function createTownArc(
   scene: THREE.Scene,
   groundY: (x: number, z: number) => number,
 ): TownArc {
-  const millPos = new THREE.Vector3(-28, groundY(-28, 16), 16);
+  const millPos = millOnCreek(groundY);
   const companyPos = new THREE.Vector3(-6, groundY(-6, 24), 24);
   const firePos = new THREE.Vector3(-11, groundY(-11, 14), 14);
   const petePos = new THREE.Vector3(-4, groundY(-4, 6), 6);
@@ -273,6 +274,18 @@ export function createTownArc(
   };
 }
 
+function millOnCreek(groundY: (x: number, z: number) => number): THREE.Vector3 {
+  const coyote = buildWatercourses().find((course) => course.id === 'coyote_creek');
+  const sample = coyote?.samples.reduce((best, s) =>
+    Math.abs(s.z - 12) < Math.abs(best.z - 12) ? s : best,
+  );
+  if (!sample) return new THREE.Vector3(-28, groundY(-28, 16), 16);
+  // East of the channel. The flume runs toward -X and reaches the water.
+  const x = sample.x + sample.halfWidth + 9.4;
+  const z = sample.z;
+  return new THREE.Vector3(x, groundY(x, z), z);
+}
+
 const millDummy = new THREE.Object3D();
 
 interface Emitter {
@@ -431,16 +444,20 @@ function buildMill(
   box(0.22, 0.22, 2.1, timber, -5.45, 3.25, 0.35);
 
   const flumeY = 5.05;
-  box(3.6, 0.1, 0.62, timber, -7.15, flumeY, 0.35);
-  box(3.6, 0.22, 0.06, timber, -7.15, flumeY + 0.14, 0.08);
-  box(3.6, 0.22, 0.06, timber, -7.15, flumeY + 0.14, 0.62);
-  const flumeWater = new THREE.Mesh(new THREE.BoxGeometry(3.3, 0.08, 0.4), waterMat);
-  flumeWater.position.set(-7.15, flumeY + 0.1, 0.35);
+  const race = box(8.4, 0.12, 0.7, timber, -9.6, flumeY - 0.28, 0.35);
+  race.rotation.z = 0.07;
+  race.name = 'mill-ditch';
+  box(8.4, 0.2, 0.06, timber, -9.6, flumeY - 0.08, 0.02);
+  box(8.4, 0.2, 0.06, timber, -9.6, flumeY - 0.08, 0.68);
+  const flumeWater = new THREE.Mesh(new THREE.BoxGeometry(8.0, 0.08, 0.42), waterMat);
+  flumeWater.position.set(-9.6, flumeY - 0.12, 0.35);
+  flumeWater.rotation.z = 0.07;
   mill.add(flumeWater);
-  for (const x of [-8.4, -6.5]) {
-    box(0.16, flumeY, 0.16, timber, x, flumeY * 0.5, -0.15);
-    box(0.16, flumeY, 0.16, timber, x, flumeY * 0.5, 0.85);
-    box(0.16, 0.14, 1.2, timber, x, flumeY - 0.05, 0.35);
+  for (const x of [-12.4, -10.2, -8.0, -6.4]) {
+    const postH = flumeY - (x < -8 ? 0.55 : 0.15);
+    box(0.16, postH, 0.16, timber, x, postH * 0.5, -0.15);
+    box(0.16, postH, 0.16, timber, x, postH * 0.5, 0.85);
+    box(0.16, 0.14, 1.2, timber, x, postH - 0.05, 0.35);
   }
   const pour = new THREE.Group();
   pour.name = 'mill-pour';

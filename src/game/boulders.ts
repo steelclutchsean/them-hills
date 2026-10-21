@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { kitRockMaterial, stoneMaterial, timberDarkMaterial } from '@/render/painterly';
+import { kitRockMaterial, stoneMaterial } from '@/render/painterly';
+import { inTownClearing } from '@/game/biomes';
 import type { Terrain } from './terrain';
 import type { Watercourse } from './watercourse';
 import { createRng } from './rng';
@@ -13,7 +14,7 @@ import { createRng } from './rng';
 // boulder gets a random diffuse, scale, displacement seed, and rotation,
 // so visible variety comes from the combination rather than any one factor.
 
-const ROCK_VARIANTS = [kitRockMaterial(), stoneMaterial(), timberDarkMaterial()];
+const ROCK_VARIANTS = [kitRockMaterial(), stoneMaterial()];
 
 /**
  * Sphere → boulder. Conservative per-vertex displacement so neighbors can't
@@ -116,24 +117,26 @@ export function placeBoulders(opts: PlaceBouldersOpts): BoulderField {
   }
 
   function placeOne(x: number, z: number, scaleRange: [number, number], submerge: number): void {
-    if (blocksEntrance(x, z)) return;
+    if (blocksEntrance(x, z) || inTownClearing(x, z)) return;
     const scale = scaleRange[0] + rng.next() * (scaleRange[1] - scaleRange[0]);
     const matIdx = rng.int(0, variantMaterials.length);
     const material = variantMaterials[matIdx];
     if (!material) return;
     const boulderGeom = createBoulderGeometry(Math.floor(rng.next() * 0xffffff));
     const mesh = new THREE.Mesh(boulderGeom, material);
+    mesh.name = 'boulder';
     mesh.scale.setScalar(scale);
     mesh.rotation.set(
       rng.range(0, Math.PI * 2),
       rng.range(0, Math.PI * 2),
       rng.range(0, Math.PI * 2),
     );
-    // Position so the boulder sits roughly half-buried — natural-looking
-    // for irregular shapes without flat bottoms. submerge pulls extra into
-    // the ground (in-stream boulders look like worn river stones).
+    // Seat on the carved ground. The center stays low so the stone reads
+    // as buried, not as a ball resting on the surface.
     const groundY = terrain.getHeightAt(x, z);
-    mesh.position.set(x, groundY + scale * 0.55 - submerge, z);
+    mesh.position.set(x, groundY + scale * 0.28 - submerge, z);
+    mesh.userData.townProp = true;
+    mesh.userData.propRadius = scale * 0.85;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     root.add(mesh);
@@ -156,40 +159,45 @@ export function placeBoulders(opts: PlaceBouldersOpts): BoulderField {
       const countPerSide = 10;
       for (let i = 0; i < countPerSide; i++) {
         const sample = samples[Math.floor(((i + 0.2) / countPerSide) * (samples.length - 1))]!;
-        const cross = side * (sample.halfWidth + 0.35 + rng.next() * 1.7);
+        const cross = side * (sample.halfWidth + 1.8 + rng.next() * 2.1);
         const x = sample.x + -sample.tz * cross;
         const z = sample.z + sample.tx * cross;
+        if (courses.some((other) => other.contains(x, z, 0.4))) continue;
         placeOne(x, z, [0.5, 1.3], 0);
       }
     }
 
-    const inCount = course.id === 'coyote_creek' ? 10 : 6;
+    const inCount = course.id === 'coyote_creek' ? 8 : 5;
     for (let i = 0; i < inCount; i++) {
       const sample = samples[Math.floor(((i + 0.2) / inCount) * (samples.length - 1))]!;
-      const cross = (rng.next() - 0.5) * sample.halfWidth * 1.15;
+      const cross = (rng.next() - 0.5) * sample.halfWidth * 0.7;
       const x = sample.x + -sample.tz * cross;
       const z = sample.z + sample.tx * cross;
-      if (blocksEntrance(x, z)) continue;
-      const scale = 0.38 + rng.next() * 0.42;
+      if (blocksEntrance(x, z) || inTownClearing(x, z)) continue;
+      const scale = 0.28 + rng.next() * 0.22;
       const matIdx = rng.int(0, variantMaterials.length);
       const material = variantMaterials[matIdx];
       if (!material) continue;
       const boulderGeom = createBoulderGeometry(Math.floor(rng.next() * 0xffffff));
       const mesh = new THREE.Mesh(boulderGeom, material);
+      mesh.name = 'boulder';
       mesh.scale.setScalar(scale);
-      mesh.rotation.set(
-        rng.range(0, Math.PI * 2),
-        rng.range(0, Math.PI * 2),
-        rng.range(0, Math.PI * 2),
-      );
-      // Sit the crown through the water so the stone reads as a riffle rock.
-      mesh.position.set(x, sample.waterY - scale * 0.22, z);
+      mesh.rotation.set(rng.range(0, 0.4), rng.range(0, Math.PI * 2), rng.range(0, 0.3));
+      // The old placement used the pre-carve water surface, so the sphere
+      // sat on the creek like a floating barrel. Seat on the carved bed
+      // and let only a low crown break the surface.
+      const bed = terrain.getHeightAt(x, z);
+      const crown = Math.min(sample.waterY - scale * 0.55, bed + scale * 0.35);
+      mesh.position.set(x, crown, z);
+      mesh.userData.townProp = true;
+      mesh.userData.creekOk = true;
+      mesh.userData.propRadius = scale * 0.8;
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       root.add(mesh);
       placed++;
-      colliders.push({ pos: mesh.position.clone(), radius: scale * 0.7 });
-      wakes.push({ streamId: course.id, rock: new THREE.Vector3(x, z, scale * 0.85) });
+      colliders.push({ pos: mesh.position.clone(), radius: scale * 0.55 });
+      wakes.push({ streamId: course.id, rock: new THREE.Vector3(x, z, scale * 0.7) });
     }
   }
 
@@ -209,19 +217,25 @@ export function placeBoulders(opts: PlaceBouldersOpts): BoulderField {
     if (pool) {
       const x = pool.x - pool.tz * pool.halfWidth * 0.28;
       const z = pool.z + pool.tx * pool.halfWidth * 0.28;
-      if (!blocksEntrance(x, z)) {
-        const scale = 0.72;
+      if (!blocksEntrance(x, z) && !inTownClearing(x, z)) {
+        const scale = 0.42;
         const material = variantMaterials[0];
         if (material) {
           const mesh = new THREE.Mesh(createBoulderGeometry(0xc0c0a), material);
+          mesh.name = 'boulder';
           mesh.scale.setScalar(scale);
-          mesh.position.set(x, pool.waterY - scale * 0.22, z);
+          const bed = terrain.getHeightAt(x, z);
+          const crown = Math.min(pool.waterY - scale * 0.5, bed + scale * 0.35);
+          mesh.position.set(x, crown, z);
+          mesh.userData.townProp = true;
+          mesh.userData.creekOk = true;
+          mesh.userData.propRadius = scale * 0.8;
           mesh.castShadow = true;
           mesh.receiveShadow = true;
           root.add(mesh);
           placed++;
-          colliders.push({ pos: mesh.position.clone(), radius: scale * 0.7 });
-          wakes.push({ streamId: coyote.id, rock: new THREE.Vector3(x, z, scale * 0.85) });
+          colliders.push({ pos: mesh.position.clone(), radius: scale * 0.55 });
+          wakes.push({ streamId: coyote.id, rock: new THREE.Vector3(x, z, scale * 0.7) });
         }
       }
     }

@@ -25,6 +25,10 @@ import {
   updateTownDressing,
   updateTownLights,
 } from '@/game/structures';
+import { buildTownStreet } from '@/game/town-street';
+import { addLandform } from '@/game/landform';
+import { bankPoint, inStreet, inTownClearing, sampleCreekFringe, sampleRidge, sampleTownEdge } from '@/game/biomes';
+import { aabbOverlap, channelViolation, sphereAabb, type Aabb } from '@/game/clearance';
 import { bearingFromYaw, createCameraRig } from '@/game/camera-rig';
 import { createCamp } from '@/game/camp';
 import { createCharacter } from '@/game/character';
@@ -372,7 +376,7 @@ async function bootstrap(): Promise<void> {
     grass = createGrassField(terrain, {
       count: QUALITY_PRESETS.ultra.grassTall,
       extent: 95,
-      reject: (x, z) => streams.isInStreamZone(x, z, 0.5) || inDriftCut(x, z),
+      reject: (x, z) => streams.isInStreamZone(x, z, 0.5) || inDriftCut(x, z) || inStreet(x, z),
       seed: 0xa9,
       baseColor: { r: [0.22, 0.32], g: [0.28, 0.36], b: [0.08, 0.12] },
       tipColor: { r: [0.82, 0.94], g: [0.68, 0.8], b: [0.22, 0.32] },
@@ -447,6 +451,8 @@ async function bootstrap(): Promise<void> {
     s.setRocks(boulders.wakes.filter((w) => w.streamId === s.id).map((w) => w.rock));
   }
   dressTown(renderer.scene, (x, z) => terrain.getHeightAt(x, z));
+  buildTownStreet(renderer.scene, (x, z) => terrain.getHeightAt(x, z));
+  addLandform(renderer.scene, courses, (x, z) => terrain.getHeightAt(x, z));
   seatBarrels(renderer.scene, (x, z) => terrain.getHeightAt(x, z));
   const batchRoots: THREE.Object3D[] = [];
   renderer.scene.traverse((obj) => {
@@ -501,7 +507,10 @@ async function bootstrap(): Promise<void> {
   // ray-cast and the character controller are unaffected.
   const inSpawnClearing = (x: number, z: number): boolean => Math.hypot(x, z) < 5;
   const reject = (x: number, z: number): boolean =>
-    streams.isInStreamZone(x, z, 1.5) || inSpawnClearing(x, z) || inDriftCut(x, z);
+    streams.isInStreamZone(x, z, 1.5) ||
+    inSpawnClearing(x, z) ||
+    inDriftCut(x, z) ||
+    inTownClearing(x, z);
 
   // Coyote-Creek-flanking pebble bands. Buckeye Run gets its own seed below.
   const COYOTE = courseById(courses, 'coyote_creek');
@@ -510,25 +519,67 @@ async function bootstrap(): Promise<void> {
   const scatterBudget = (n: number): number => Math.round(n * ultraScatter);
 
   prepareImpostors(renderer.renderer);
+  const heightAt = (x: number, z: number) => terrain.getHeightAt(x, z);
   const populate = Promise.all([
     scatterAssets(
       renderer.scene,
       terrain,
       {
-        count: scatterBudget(140),
+        count: scatterBudget(96),
         lod: 'tree',
-        models: [
-          ...ASSETS.trees.common,
-          ...ASSETS.trees.pine,
-          ...ASSETS.trees.twisted,
-          ...ASSETS.trees.dead,
-        ],
-        scale: { min: 0.7, max: 1.4 },
+        models: ASSETS.trees.pine,
+        scale: { min: 0.85, max: 1.85 },
+        sampleXZ: (rng) => sampleRidge(rng, heightAt, reject),
         reject,
-        exclusionRadius: (s) => 1.4 * s,
+        exclusionRadius: (s) => 1.5 * s,
         shadows: { cast: true, receive: true },
       },
       0xa1,
+    ),
+    scatterAssets(
+      renderer.scene,
+      terrain,
+      {
+        count: scatterBudget(28),
+        lod: 'tree',
+        models: ASSETS.trees.common,
+        scale: { min: 1.05, max: 1.9 },
+        sampleXZ: (rng) => sampleCreekFringe(rng, COYOTE, reject),
+        reject,
+        exclusionRadius: (s) => 1.6 * s,
+        shadows: { cast: true, receive: true },
+      },
+      0xa8,
+    ),
+    scatterAssets(
+      renderer.scene,
+      terrain,
+      {
+        count: scatterBudget(8),
+        lod: 'tree',
+        models: ASSETS.trees.twisted,
+        scale: { min: 0.65, max: 1.05 },
+        sampleXZ: (rng) => sampleRidge(rng, heightAt, reject),
+        reject,
+        exclusionRadius: (s) => 1.2 * s,
+        shadows: { cast: true, receive: true },
+      },
+      0xa9,
+    ),
+    scatterAssets(
+      renderer.scene,
+      terrain,
+      {
+        count: scatterBudget(16),
+        lod: 'tree',
+        models: ASSETS.trees.dead,
+        scale: { min: 0.35, max: 0.7 },
+        sampleXZ: (rng) => sampleTownEdge(rng, reject),
+        reject,
+        exclusionRadius: (s) => 0.8 * s,
+        shadows: { cast: true, receive: true },
+      },
+      0xaa,
     ),
     scatterAssets(
       renderer.scene,
@@ -557,12 +608,13 @@ async function bootstrap(): Promise<void> {
         sampleXZ: (rng) => {
           const sample = COYOTE.at(rng.next());
           const sideSign = rng.next() < 0.5 ? -1 : 1;
-          const cross = sideSign * (sample.halfWidth + rng.range(0.5, 2.2));
+          const cross = sideSign * (sample.halfWidth + rng.range(1.8, 3.6));
           return {
             x: sample.x + -sample.tz * cross,
             z: sample.z + sample.tx * cross,
           };
         },
+        reject: (x, z) => streams.isInStreamZone(x, z, 0.5) || inTownClearing(x, z),
       },
       0xa3,
     ),
@@ -590,7 +642,11 @@ async function bootstrap(): Promise<void> {
           ...ASSETS.vegetation.ferns,
           ...ASSETS.vegetation.plants,
         ],
-        scale: { min: 0.6, max: 1.2 },
+        scale: { min: 0.7, max: 1.45 },
+        sampleXZ: (rng) =>
+          rng.next() < 0.55
+            ? sampleRidge(rng, heightAt, reject)
+            : sampleCreekFringe(rng, COYOTE, reject),
         reject,
         exclusionRadius: (s) => 0.7 * s,
         shadows: { cast: true, receive: true },
@@ -635,7 +691,10 @@ async function bootstrap(): Promise<void> {
         baseColor: { r: [0.2, 0.3], g: [0.26, 0.34], b: [0.08, 0.12] },
         tipColor: { r: [0.78, 0.9], g: [0.64, 0.76], b: [0.2, 0.3] },
         reject: (x, z) =>
-          streams.isInStreamZone(x, z, 0.5) || exclusion.isExcluded(x, z) || inDriftCut(x, z),
+          streams.isInStreamZone(x, z, 0.5) ||
+          exclusion.isExcluded(x, z) ||
+          inDriftCut(x, z) ||
+          inStreet(x, z),
       });
       renderer.scene.add(grassCover.mesh);
       grassCover.setCount(RENDER_QUALITY.grassCover);
@@ -1096,15 +1155,18 @@ async function bootstrap(): Promise<void> {
   }
 
   function rushView(): { x: number; y: number; z: number; lx: number; ly: number; lz: number } {
-    // South of the A-frames, at canvas height, looking north into the faces.
-    // The general store sits at z=-3, behind this camera.
+    // On the town-side bar, looking along the wall tents and the rockers.
+    // The general store stays behind the camera, west of the creek.
+    const coyote = courseById(courses, 'coyote_creek');
+    const spot = bankPoint(coyote, 5, 5.5);
+    const look = bankPoint(coyote, 16, 2.6);
     return {
-      x: 2.0,
-      y: terrain.getHeightAt(2.0, 16.2) + 1.45,
-      z: 16.2,
-      lx: 0.6,
-      ly: terrain.getHeightAt(0.6, 22.5) + 1.55,
-      lz: 22.5,
+      x: spot.x,
+      y: terrain.getHeightAt(spot.x, spot.z) + 1.6,
+      z: spot.z,
+      lx: look.x,
+      ly: terrain.getHeightAt(look.x, look.z) + 1.15,
+      lz: look.z,
     };
   }
 
@@ -1114,17 +1176,39 @@ async function bootstrap(): Promise<void> {
   }
 
   function townWideView(): { x: number; y: number; z: number; lx: number; ly: number; lz: number } {
-    const x = 42;
-    const z = 34;
-    const lx = -14;
-    const lz = 10;
+    const x = 48;
+    const z = 46;
+    const lx = -22;
+    const lz = 4;
     return {
       x,
-      y: terrain.getHeightAt(x, z) + 22,
+      y: terrain.getHeightAt(x, z) + 28,
       z,
       lx,
-      ly: terrain.getHeightAt(lx, lz) + 4,
+      ly: terrain.getHeightAt(lx, lz) + 3,
       lz,
+    };
+  }
+
+  function streetView(): { x: number; y: number; z: number; lx: number; ly: number; lz: number } {
+    const x = -21.1;
+    const z = -20.5;
+    const y = terrain.getHeightAt(x, z);
+    return { x, y: y + 1.65, z, lx: -21.1, ly: y + 1.85, lz: 14 };
+  }
+
+  function vistaView(): { x: number; y: number; z: number; lx: number; ly: number; lz: number } {
+    const coyote = courseById(courses, 'coyote_creek');
+    const from = bankPoint(coyote, 4, 10);
+    const to = bankPoint(coyote, -62, 0);
+    const y = terrain.getHeightAt(from.x, from.z);
+    return {
+      x: from.x - 8,
+      y: y + 6.5,
+      z: from.z,
+      lx: to.x,
+      ly: y + 14,
+      lz: to.z,
     };
   }
 
@@ -1134,7 +1218,7 @@ async function bootstrap(): Promise<void> {
   const fanUp = new THREE.Vector3();
   const fanDir = new THREE.Vector3();
   const occluderSkip =
-    /atmosphere|water_|terrain|grass|drift-|shaft-|guide-|fire-smoke|fire-ember|fire-flame|gravel|sky|rush-tent|stamp-mill|fire-shed|company-wagon/i;
+    /atmosphere|water_|terrain|grass|drift-|shaft-|guide-|fire-smoke|fire-ember|fire-flame|gravel|sky|rush-tent|stamp-mill|fire-shed|company-wagon|ridgeline|creek-cliff|town-street/i;
   let occluderRoots: THREE.Object3D[] | null = null;
 
   function solidOccluder(obj: THREE.Object3D): boolean {
@@ -1591,6 +1675,14 @@ async function bootstrap(): Promise<void> {
           arcBanner = 'fire';
           hideViewTrees = true;
           holdView = shedView(6.4);
+        } else if (who === 'street') {
+          dialogue = null;
+          arcBanner = null;
+          holdView = streetView();
+        } else if (who === 'vista') {
+          dialogue = null;
+          arcBanner = null;
+          holdView = vistaView();
         } else if (who === 'overview') {
           scriptEvent('rush');
           const dressed = worldDress.snap('rush');
@@ -1666,6 +1758,96 @@ async function bootstrap(): Promise<void> {
       },
       scatterCount: () =>
         renderer.scene.children.filter((child) => child.name.startsWith('scatter:')).length,
+      propAudit: () => {
+        const buildings: Aabb[] = [];
+        const footprints: { name: string; hx: number; hz: number; h: number }[] = [
+          { name: 'inn', hx: 3.1, hz: 2.8, h: 4.6 },
+          { name: 'general_store', hx: 1.7, hz: 1.5, h: 3.6 },
+          { name: 'vendor_assayer', hx: 1.7, hz: 1.5, h: 3.6 },
+          { name: 'vendor_pawn_shop', hx: 1.7, hz: 1.5, h: 3.6 },
+          { name: 'fire-shed', hx: 1.7, hz: 1.5, h: 3.2 },
+          { name: 'stamp-mill', hx: 4.6, hz: 3.4, h: 6.2 },
+          { name: 'camp', hx: 1.3, hz: 1.3, h: 1.6 },
+        ];
+        for (const spec of footprints) {
+          const obj = renderer.scene.getObjectByName(spec.name);
+          if (!obj) continue;
+          const p = new THREE.Vector3();
+          obj.getWorldPosition(p);
+          buildings.push({
+            minX: p.x - spec.hx,
+            maxX: p.x + spec.hx,
+            minY: p.y,
+            maxY: p.y + spec.h,
+            minZ: p.z - spec.hz,
+            maxZ: p.z + spec.hz,
+          });
+        }
+        const street = renderer.scene.getObjectByName('town-street');
+        const lots = street?.userData.lots as Aabb[] | undefined;
+        if (lots) buildings.push(...lots);
+        const overlaps: string[] = [];
+        const intruders: string[] = [];
+        const channels = courses;
+        const visit = (label: string, x: number, y: number, z: number, radius: number, allowed: boolean, checkOverlap: boolean) => {
+          if (checkOverlap) {
+            const box = sphereAabb(x, y, z, radius);
+            for (const building of buildings) {
+              if (aabbOverlap(box, building, 0.2)) {
+                overlaps.push(`${label}@${x.toFixed(1)},${z.toFixed(1)}`);
+                break;
+              }
+            }
+          }
+          for (const course of channels) {
+            const q = course.nearest(x, z);
+            const inChannel = course.contains(x, z, 0);
+            if (
+              channelViolation({
+                inChannel,
+                allowed,
+                y,
+                radius,
+                surfaceY: q.sample.waterY,
+              })
+            ) {
+              intruders.push(`${label}@${x.toFixed(1)},${z.toFixed(1)}`);
+              break;
+            }
+          }
+        };
+        const world = new THREE.Vector3();
+        renderer.scene.traverse((obj) => {
+          if (obj.userData.townProp === true) {
+            obj.getWorldPosition(world);
+            visit(
+              obj.name || 'prop',
+              world.x,
+              world.y,
+              world.z,
+              Number(obj.userData.propRadius) || 0.6,
+              obj.userData.creekOk === true,
+              true,
+            );
+          } else if (obj.name === 'ground-barrel') {
+            obj.getWorldPosition(world);
+            visit('barrel', world.x, world.y, world.z, 0.28, false, false);
+          }
+        });
+        const gravel = renderer.scene.getObjectByName('gravel-bars');
+        if (gravel instanceof THREE.InstancedMesh) {
+          const matrix = new THREE.Matrix4();
+          const pos = new THREE.Vector3();
+          const quat = new THREE.Quaternion();
+          const scl = new THREE.Vector3();
+          for (let i = 0; i < gravel.count; i++) {
+            gravel.getMatrixAt(i, matrix);
+            matrix.decompose(pos, quat, scl);
+            visit('gravel', pos.x, pos.y, pos.z, 0.42 * Math.max(scl.x, 0.4), false, false);
+          }
+        }
+        return { overlaps: overlaps.slice(0, 16), intruders: intruders.slice(0, 16) };
+      },
     };
     if (previous) previous.frameLuma = frameLuma;
   }
@@ -2223,7 +2405,8 @@ async function bootstrap(): Promise<void> {
               }
             }
           }
-          if (sceneSubjects.length > 0) {
+          const composed = holdView !== null && !dialogue && arcBanner !== 'fire';
+          if (sceneSubjects.length > 0 && !composed) {
             const mill = townArc.millPos;
             const fire = townArc.firePos;
             const keepFront =
