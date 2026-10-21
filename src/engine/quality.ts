@@ -62,7 +62,7 @@ export const QUALITY_PRESETS: Record<QualityName, QualitySettings> = {
     shafts: false,
     motes: 24,
     ao: false,
-    reflections: false,
+    reflections: true,
     godrays: false,
   },
   medium: {

@@ -17,6 +17,8 @@ const GradeShader = {
     tDiffuse: { value: null as THREE.Texture | null },
     uSaturation: { value: 1.18 },
     uVignette: { value: 0.22 },
+    uFocus: { value: new THREE.Vector2(0.5, 0.5) },
+    uFocusAmt: { value: 0 },
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -29,11 +31,16 @@ const GradeShader = {
     uniform sampler2D tDiffuse;
     uniform float uSaturation;
     uniform float uVignette;
+    uniform vec2 uFocus;
+    uniform float uFocusAmt;
     varying vec2 vUv;
     void main() {
       vec3 col = texture2D(tDiffuse, vUv).rgb;
       float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));
-      col = mix(vec3(luma), col, uSaturation);
+      float nearFocus = smoothstep(0.28, 0.04, distance(vUv, uFocus));
+      float sat = mix(uSaturation * 0.28, uSaturation, mix(1.0, nearFocus, uFocusAmt));
+      col = mix(vec3(luma), col, sat);
+      col *= mix(1.0, mix(0.78, 1.0, nearFocus), uFocusAmt);
       // Sierra poster grade: teal shade, warm highlights.
       vec3 shadowTint = vec3(0.9, 0.98, 1.02);
       vec3 highTint = vec3(1.05, 0.98, 0.92);
@@ -72,17 +79,17 @@ const GodrayShader = {
     varying vec2 vUv;
     void main() {
       vec3 col = texture2D(tDiffuse, vUv).rgb;
-      vec2 delta = (uSun - vUv) / 10.0;
+      vec2 delta = (uSun - vUv) / 16.0;
       float illum = 0.0;
       vec2 p = vUv;
-      for (int i = 0; i < 10; i++) {
+      for (int i = 0; i < 16; i++) {
         p += delta;
         float l = dot(texture2D(tDiffuse, clamp(p, 0.0, 1.0)).rgb, vec3(0.25, 0.55, 0.2));
-        illum += l * (1.0 - float(i) / 10.0);
+        illum += l * (1.0 - float(i) / 16.0);
       }
-      illum /= 10.0;
-      float onScreen = smoothstep(-0.05, 0.08, uSun.x) * smoothstep(1.05, 0.92, uSun.x)
-                     * smoothstep(-0.05, 0.08, uSun.y) * smoothstep(1.05, 0.92, uSun.y);
+      illum /= 16.0;
+      float onScreen = smoothstep(-0.15, 0.02, uSun.x) * smoothstep(1.15, 0.98, uSun.x)
+                     * smoothstep(-0.2, 0.0, uSun.y) * smoothstep(1.15, 0.98, uSun.y);
       col += vec3(1.0, 0.92, 0.75) * illum * uIntensity * onScreen;
       gl_FragColor = vec4(col, 1.0);
     }
@@ -97,6 +104,7 @@ export interface PostPipeline {
   dispose(): void;
   applyQuality(): void;
   setSun(x: number, y: number, elevation: number): void;
+  setFocus(x: number, y: number, amount: number): void;
 }
 
 export function createPostPipeline(
@@ -120,17 +128,31 @@ export function createPostPipeline(
   const gtao = new GTAOPass(
     scene,
     camera,
-    Math.max(1, window.innerWidth >> 2),
-    Math.max(1, window.innerHeight >> 2),
+    Math.max(1, window.innerWidth >> (softwareGl ? 3 : 2)),
+    Math.max(1, window.innerHeight >> (softwareGl ? 3 : 2)),
   );
-  gtao.blendIntensity = 0.55;
+  gtao.blendIntensity = 0.7;
+  (
+    gtao as GTAOPass & {
+      updateGtaoMaterial(parameters: {
+        samples?: number;
+        radius?: number;
+        thickness?: number;
+      }): void;
+    }
+  ).updateGtaoMaterial({
+    samples: softwareGl ? 4 : 12,
+    radius: 0.4,
+    thickness: 0.5,
+  });
   gtao.enabled = false;
   composer.addPass(gtao);
 
   const godrays = new ShaderPass(GodrayShader);
   godrays.enabled = false;
   composer.addPass(godrays);
-  composer.addPass(new ShaderPass(GradeShader));
+  const grade = new ShaderPass(GradeShader);
+  composer.addPass(grade);
 
   const bloom = new UnrealBloomPass(
     new THREE.Vector2(RENDER_QUALITY.bloomResolution, RENDER_QUALITY.bloomResolution),
@@ -146,7 +168,8 @@ export function createPostPipeline(
     bloom,
     setSize(width, height) {
       composer.setSize(width, height);
-      gtao.setSize(Math.max(1, width >> 2), Math.max(1, height >> 2));
+      const shift = softwareGl ? 3 : 2;
+      gtao.setSize(Math.max(1, width >> shift), Math.max(1, height >> shift));
     },
     render() {
       composer.render();
@@ -155,18 +178,25 @@ export function createPostPipeline(
       composer.dispose();
     },
     applyQuality() {
-      // GTAO's normal pass is reliable on hardware. Software GL (the smoke
-      // browser) skips it: the extra targets stall the visual pass.
-      const software = rendererIsSoftware(renderer);
-      gtao.enabled = RENDER_QUALITY.ao && !software;
+      // High captures run GTAO even on SwiftShader. The normal pass uses one
+      // override material, so it does not rebuild the scene's programs.
+      // Low stays off so the prospect playtest keeps its frame budget.
+      gtao.enabled = RENDER_QUALITY.ao;
       godrays.enabled = RENDER_QUALITY.godrays;
     },
     setSun(x, y, elevation) {
       const sun = godrays.uniforms.uSun?.value as THREE.Vector2 | undefined;
       if (sun) sun.set(x, y);
-      const lift = elevation > 0.05 ? 0.28 : elevation > -0.02 ? 0.12 : 0;
+      const golden = elevation > 0.01 && elevation < 0.3;
+      const lift = golden ? 0.62 : elevation > 0.05 ? 0.3 : elevation > -0.04 ? 0.16 : 0;
       const intensity = godrays.uniforms.uIntensity;
       if (intensity) intensity.value = lift;
+    },
+    setFocus(x, y, amount) {
+      const center = grade.uniforms.uFocus?.value as THREE.Vector2 | undefined;
+      if (center) center.set(x, y);
+      const amt = grade.uniforms.uFocusAmt;
+      if (amt) amt.value = amount;
     },
   };
 }

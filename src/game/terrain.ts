@@ -326,7 +326,7 @@ const TERRAIN_FS = /* glsl */ `
     vec3 sunDir = normalize(uSunDir);
     // Soft wrap at noon. Once the sun drops, shade falls back to the cool
     // fill so dusk and night are not one warm wash.
-    float sunUp = smoothstep(-0.14, 0.02, sunDir.y);
+    float sunUp = smoothstep(-0.02, 0.32, sunDir.y);
     shadow = mix(mix(0.18, 0.38, sunUp), 1.0, shadow);
     float wrap = clamp(dot(n, sunDir) * mix(0.92, 0.62, sunUp) + mix(0.04, 0.38, sunUp), 0.0, 1.0);
     float hemiW = clamp(n.y * 0.5 + 0.5, 0.0, 1.0);

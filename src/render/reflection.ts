@@ -1,8 +1,14 @@
 import * as THREE from 'three';
 
 // Planar reflection of the banks and trees. One low-res target, mirrored
-// camera, oblique clip so the riverbed is not in the reflection. The water
-// shader samples `reflectionUniforms`. Off when the quality preset says so.
+// camera, oblique clip so the riverbed is not in the reflection.
+//
+// The pass must not change tone mapping, output color space, or whether
+// shadows are enabled. Each of those rebuilds every material program, and
+// on SwiftShader that rebuild never returned a frame. Objects opt in with
+// layer 1. Grass, the character, and the water stay on layer 0.
+
+export const REFLECTION_LAYER = 1;
 
 export const reflectionUniforms = {
   uReflect: { value: null as THREE.Texture | null },
@@ -10,12 +16,12 @@ export const reflectionUniforms = {
   uHasReflect: { value: 0 },
 };
 
-const SIZE = 192;
-
 export interface WaterReflection {
   setEnabled(on: boolean): void;
   readonly enabled: boolean;
-  register(mesh: THREE.Object3D): void;
+  setSize(pixels: number): void;
+  /** Reuse the last mirror for this many frames. Software GL uses 2. */
+  setStride(frames: number): void;
   update(
     renderer: THREE.WebGLRenderer,
     scene: THREE.Scene,
@@ -24,8 +30,33 @@ export interface WaterReflection {
   ): void;
 }
 
+/** Anything under a skipped root is left out of the mirror. */
+export function skipReflection(root: THREE.Object3D): void {
+  root.userData.skipReflection = true;
+}
+
+/** Enable layer 1 on a subtree that should appear in the creek mirror. */
+export function markReflective(root: THREE.Object3D): void {
+  root.traverse((obj) => {
+    obj.layers.enable(REFLECTION_LAYER);
+  });
+}
+
+/** Enable layer 1 on everything that should mirror, honoring skipReflection. */
+export function markSceneReflections(scene: THREE.Scene): void {
+  scene.traverse((obj) => {
+    let cursor: THREE.Object3D | null = obj;
+    while (cursor) {
+      if (cursor.userData.skipReflection) return;
+      cursor = cursor.parent;
+    }
+    obj.layers.enable(REFLECTION_LAYER);
+  });
+}
+
 export function createWaterReflection(): WaterReflection {
-  const target = new THREE.WebGLRenderTarget(SIZE, SIZE, {
+  let size = 160;
+  const target = new THREE.WebGLRenderTarget(size, size, {
     depthBuffer: true,
     generateMipmaps: false,
     magFilter: THREE.LinearFilter,
@@ -34,8 +65,10 @@ export function createWaterReflection(): WaterReflection {
   reflectionUniforms.uReflect.value = target.texture;
 
   const virtual = new THREE.PerspectiveCamera();
-  const hidden: THREE.Object3D[] = [];
+  virtual.layers.set(REFLECTION_LAYER);
   let enabled = false;
+  let stride = 1;
+  let tick = 0;
 
   const normal = new THREE.Vector3(0, 1, 0);
   const reflectorWorldPosition = new THREE.Vector3();
@@ -58,14 +91,22 @@ export function createWaterReflection(): WaterReflection {
       enabled = on;
       reflectionUniforms.uHasReflect.value = on ? 1 : 0;
     },
-    register(mesh) {
-      hidden.push(mesh);
+    setSize(pixels) {
+      const next = Math.max(64, Math.min(256, Math.round(pixels)));
+      if (next === size) return;
+      size = next;
+      target.setSize(next, next);
+    },
+    setStride(frames) {
+      stride = Math.max(1, Math.round(frames));
     },
     update(renderer, scene, camera, planeY) {
       if (!enabled) {
         reflectionUniforms.uHasReflect.value = 0;
         return;
       }
+      tick += 1;
+      if (tick % stride !== 0) return;
       reflectorWorldPosition.set(camera.position.x, planeY, camera.position.z);
       cameraWorldPosition.setFromMatrixPosition(camera.matrixWorld);
       rotationMatrix.extractRotation(camera.matrixWorld);
@@ -85,13 +126,14 @@ export function createWaterReflection(): WaterReflection {
       virtual.up.set(0, 1, 0);
       virtual.up.reflect(normal);
       virtual.lookAt(targetPos);
-      virtual.far = camera.far;
+      // Near banks and trees only. A 650m mirror redrew the whole forest
+      // and the prospect loop missed its budget on software GL.
+      virtual.far = 42;
       virtual.near = camera.near;
       virtual.fov = camera.fov;
       virtual.aspect = camera.aspect;
       virtual.updateProjectionMatrix();
       virtual.updateMatrixWorld();
-      virtual.projectionMatrix.copy(camera.projectionMatrix);
 
       textureMatrix.set(0.5, 0, 0, 0.5, 0, 0.5, 0, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0, 1);
       textureMatrix.multiply(virtual.projectionMatrix);
@@ -121,27 +163,18 @@ export function createWaterReflection(): WaterReflection {
 
       const prevTarget = renderer.getRenderTarget();
       const prevShadowAuto = renderer.shadowMap.autoUpdate;
-      const prevShadow = renderer.shadowMap.enabled;
       const prevXr = renderer.xr.enabled;
-      const prevTone = renderer.toneMapping;
-      const prevSpace = renderer.outputColorSpace;
       renderer.getClearColor(prevClear);
       const prevAlpha = renderer.getClearAlpha();
+      const fog = scene.fog instanceof THREE.FogExp2 ? scene.fog.color : prevClear;
 
       renderer.xr.enabled = false;
       renderer.shadowMap.autoUpdate = false;
-      renderer.shadowMap.enabled = false;
-      renderer.toneMapping = THREE.NoToneMapping;
-      renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
-      for (const mesh of hidden) mesh.visible = false;
       renderer.setRenderTarget(target);
+      renderer.setClearColor(fog, 1);
       renderer.clear();
       renderer.render(scene, virtual);
-      for (const mesh of hidden) mesh.visible = true;
 
-      renderer.toneMapping = prevTone;
-      renderer.outputColorSpace = prevSpace;
-      renderer.shadowMap.enabled = prevShadow;
       renderer.shadowMap.autoUpdate = prevShadowAuto;
       renderer.xr.enabled = prevXr;
       renderer.setClearColor(prevClear, prevAlpha);

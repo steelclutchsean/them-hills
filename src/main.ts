@@ -10,7 +10,7 @@ import { buildTrackerView } from '@/quests/quests';
 import { ASSETS } from '@/game/assets';
 import { placeBoulders } from '@/game/boulders';
 import { buildWatercourses, courseById, waterLevelNear } from '@/game/watercourse';
-import { createWaterReflection } from '@/render/reflection';
+import { createWaterReflection, markSceneReflections, skipReflection } from '@/render/reflection';
 import { dressTown, updateTownDressing, updateTownLights } from '@/game/structures';
 import { bearingFromYaw, createCameraRig } from '@/game/camera-rig';
 import { createCamp } from '@/game/camp';
@@ -48,7 +48,13 @@ import {
   updateToolBounce,
   updateToolSwing,
 } from '@/game/minigames/tool-models';
-import { scatterAssets, scatterLogs, setScatterDensity, updateScatterWind } from '@/game/scatter';
+import {
+  prepareImpostors,
+  scatterAssets,
+  scatterLogs,
+  setScatterDensity,
+  updateScatterWind,
+} from '@/game/scatter';
 import { createMotes } from '@/game/motes';
 import { createLightShafts } from '@/game/shafts';
 import { emitGameplay, bindGameplayAudio } from '@/game/events';
@@ -108,7 +114,7 @@ import {
   reviewWorldTime,
   setReviewPose,
 } from '@/dev/review-shots';
-import { setFoliageWindTime } from '@/render/painterly';
+import { pulseGold, setFoliageWindTime } from '@/render/painterly';
 import { createSmokePilot } from '@/dev/smoke-pilot';
 import { mountOverlays, reportBoot } from '@/ui/overlays';
 import { presentProspectFind, presentToolImpact } from '@/game/presentation';
@@ -164,8 +170,10 @@ async function bootstrap(): Promise<void> {
   const motes = createMotes(110);
   motes.resize();
   renderer.scene.add(motes.points);
+  skipReflection(motes.points);
   const shafts = createLightShafts();
   renderer.scene.add(shafts.group);
+  skipReflection(shafts.group);
 
   // ---- Sky / day-night ----
   const sky = createSkyController({
@@ -235,15 +243,15 @@ async function bootstrap(): Promise<void> {
     createStream(terrain, cfg, courseById(courses, cfg.id)),
   );
   const waterReflection = createWaterReflection();
-  // The mirrored scene pass doubles the frame on SwiftShader and the
-  // screenshot capture never returns. Hardware still reflects the banks.
   const softwareGl = /swiftshader|llvmpipe|softpipe/i.test(
     glRendererString(renderer.renderer.getContext()),
   );
-  waterReflection.setEnabled(RENDER_QUALITY.reflections && !softwareGl);
+  waterReflection.setSize(softwareGl ? (RENDER_QUALITY.ao ? 112 : 80) : 176);
+  waterReflection.setStride(softwareGl ? (RENDER_QUALITY.ao ? 2 : 4) : 1);
+  waterReflection.setEnabled(RENDER_QUALITY.reflections);
   for (const s of streamList) {
+    skipReflection(s.group);
     renderer.scene.add(s.group);
-    waterReflection.register(s.water);
   }
   const streams = createStreamRegistry(streamList);
 
@@ -370,6 +378,7 @@ async function bootstrap(): Promise<void> {
   setScatterDensity(RENDER_QUALITY.scatter / ultraScatter);
   const scatterBudget = (n: number): number => Math.round(n * ultraScatter);
 
+  prepareImpostors(renderer.renderer);
   const populate = Promise.all([
     scatterAssets(
       renderer.scene,
@@ -519,6 +528,7 @@ async function bootstrap(): Promise<void> {
     initialStamina: persistedPlayer.meters.stamina,
   });
   renderer.scene.add(character.group);
+  skipReflection(character.group);
 
   // ---- Input ----
   const input = createInputManager();
@@ -994,6 +1004,7 @@ async function bootstrap(): Promise<void> {
   });
   const beacon = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 26, 10, 1, true), beaconMat);
   beacon.name = 'guide-beacon';
+  skipReflection(beacon);
   beacon.frustumCulled = false;
   beacon.visible = false;
   renderer.scene.add(beacon);
@@ -1010,7 +1021,9 @@ async function bootstrap(): Promise<void> {
       publishProbe();
       requestAnimationFrame(() => {
         renderer.applyGraphics();
-        waterReflection.setEnabled(RENDER_QUALITY.reflections && !softwareGl);
+        waterReflection.setSize(softwareGl ? (RENDER_QUALITY.ao ? 112 : 80) : 176);
+        waterReflection.setStride(softwareGl ? (RENDER_QUALITY.ao ? 2 : 4) : 1);
+        waterReflection.setEnabled(RENDER_QUALITY.reflections);
         setScatterDensity(RENDER_QUALITY.scatter / QUALITY_PRESETS.ultra.scatter);
         grass?.setCount(RENDER_QUALITY.grassTall);
         for (const cover of grassCovers) cover.setCount(RENDER_QUALITY.grassCover);
@@ -1019,8 +1032,11 @@ async function bootstrap(): Promise<void> {
     },
   });
 
+  markSceneReflections(renderer.scene);
+
   const sunNdc = new THREE.Vector3();
   const _audioForward = new THREE.Vector3();
+  const focusNdc = new THREE.Vector3();
   let panMounted: 'camera' | 'world' = 'camera';
   function mountPan(mode: 'camera' | 'world'): void {
     if (panMounted === mode) return;
@@ -1582,10 +1598,11 @@ async function bootstrap(): Promise<void> {
       // player, then publish one lighting block for every custom shader.
       const sunDirWorld = renderer.followSun(charPos);
       renderer.syncFrame(worldTime, sunDirWorld);
-      updateScatterWind(worldTime, charPos);
+      updateScatterWind(worldTime, charPos, renderer.camera.position, renderer.sun.intensity);
       updateTownDressing(worldTime, renderer.camera);
       updateTownLights(sunDirWorld.y);
       setFoliageWindTime(worldTime);
+      pulseGold(worldTime);
       shafts.update(sunDirWorld, charPos, true);
       motes.update(worldTime, charPos, sunDirWorld.y);
 
@@ -2288,6 +2305,13 @@ async function bootstrap(): Promise<void> {
       sunNdc.copy(renderer.camera.position).addScaledVector(sunDirWorld, 80);
       sunNdc.project(renderer.camera);
       renderer.setPostSun(sunNdc.x * 0.5 + 0.5, sunNdc.y * 0.5 + 0.5, sunDirWorld.y);
+      const panClose = getReviewPose() === 'pan' || prospect.getSnapshot()?.step === 'pan';
+      if (panClose) {
+        focusNdc.copy(character.getToolFocus()).project(renderer.camera);
+        renderer.setGradeFocus(focusNdc.x * 0.5 + 0.5, focusNdc.y * 0.5 + 0.5, 1);
+      } else {
+        renderer.setGradeFocus(0.5, 0.5, 0);
+      }
       waterReflection.update(
         renderer.renderer,
         renderer.scene,

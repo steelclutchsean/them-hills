@@ -51,6 +51,9 @@ function mesh(
   y: number,
   z: number,
 ): THREE.Mesh {
+  if (geom.getAttribute('uv') && !geom.getAttribute('uv2')) {
+    geom.setAttribute('uv2', geom.getAttribute('uv'));
+  }
   const m = new THREE.Mesh(geom, mat);
   m.position.set(x, y, z);
   m.castShadow = true;
@@ -212,6 +215,44 @@ function addWindow(parent: THREE.Object3D, x: number, y: number, z: number, yaw:
   parent.add(sill);
 }
 
+/** Second-story balcony and a front dormer. Only the inn calls this. */
+function addInnFront(
+  parent: THREE.Object3D,
+  width: number,
+  depth: number,
+  wood: THREE.Material,
+  dark: THREE.Material,
+): void {
+  const hz = depth / 2 - 0.12;
+  const deckZ = hz + 0.55;
+  parent.add(mesh(new THREE.BoxGeometry(width * 0.72, 0.08, 0.9), wood, 0, 2.28, deckZ));
+  const railZ = deckZ + 0.4;
+  for (const x of [-width * 0.32, 0, width * 0.32]) {
+    parent.add(mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.72, 6), dark, x, 2.68, railZ));
+  }
+  const rail = mesh(
+    new THREE.CylinderGeometry(0.022, 0.022, width * 0.64, 6),
+    dark,
+    0,
+    3.02,
+    railZ,
+  );
+  rail.rotation.z = Math.PI / 2;
+  parent.add(rail);
+  const mid = mesh(new THREE.CylinderGeometry(0.014, 0.014, width * 0.64, 5), dark, 0, 2.66, railZ);
+  mid.rotation.z = Math.PI / 2;
+  parent.add(mid);
+  parent.add(mesh(new THREE.BoxGeometry(0.72, 0.14, 0.18), dark, -width * 0.16, 2.4, railZ));
+  const dormerZ = hz + 0.05;
+  parent.add(mesh(new THREE.BoxGeometry(1.15, 0.78, 0.62), wood, 0, 2.78, dormerZ));
+  parent.add(mesh(new THREE.BoxGeometry(0.08, 0.62, 0.55), dark, -0.52, 2.9, dormerZ));
+  parent.add(mesh(new THREE.BoxGeometry(0.08, 0.62, 0.55), dark, 0.52, 2.9, dormerZ));
+  const slope = mesh(new THREE.BoxGeometry(1.35, 0.07, 0.62), dark, 0, 3.28, dormerZ + 0.06);
+  slope.rotation.x = -0.5;
+  parent.add(slope);
+  addWindow(parent, 0, 2.82, dormerZ + 0.32, 0);
+}
+
 function addShakeRoof(parent: THREE.Object3D, width: number, depth: number, peakY: number): void {
   const dark = timberDarkMaterial();
   const rows = 8;
@@ -366,6 +407,7 @@ export function buildCabin(opts: {
   const step = mesh(new THREE.BoxGeometry(1.15, 0.1, 0.4), wood, 0, 0.18, hz + 1.45);
   root.add(step);
 
+  addInnFront(root, width, depth, wood, dark);
   addShakeRoof(root, width, depth, 3.05);
   const ridge = mesh(new THREE.CylinderGeometry(0.06, 0.06, width + 1.1, 6), dark, 0, 3.12, 0);
   ridge.rotation.z = Math.PI / 2;
@@ -418,6 +460,10 @@ export function buildShop(opts: { sign: string; accent: number }): BuiltPlace {
   }
   root.add(mesh(new THREE.BoxGeometry(2.5, 0.08, 0.16), wood, 0, 1.95, -0.78));
   root.add(mesh(new THREE.BoxGeometry(2.5, 0.06, 0.1), wood, 0, 0.32, -0.78));
+  const front = mesh(new THREE.BoxGeometry(2.65, 0.95, 0.1), wood, 0, 2.62, -0.2);
+  root.add(front);
+  root.add(mesh(new THREE.BoxGeometry(2.8, 0.08, 0.22), dark, 0, 3.12, -0.16));
+  addWindow(root, 0.55, 2.68, -0.12, 0);
   const awning = mesh(new THREE.BoxGeometry(2.7, 0.05, 1.45), canvasMaterial(), 0, 2.05, 0.1);
   awning.rotation.x = -0.16;
   awning.position.y -= 0.04;

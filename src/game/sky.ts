@@ -65,12 +65,12 @@ const KEY_PALETTES: { hour: number; palette: SkyPalette }[] = [
   {
     hour: 6.5,
     palette: {
-      bg: 0xc48a72,
-      fog: 0x6e6884,
-      sunColor: 0xffc18a,
-      sunIntensity: 0.62,
-      ambientColor: 0x8496b4,
-      ambientIntensity: 0.4,
+      bg: 0xf2b48c,
+      fog: 0x667894,
+      sunColor: 0xffa85a,
+      sunIntensity: 0.88,
+      ambientColor: 0x6a82a4,
+      ambientIntensity: 0.5,
     },
   },
   {

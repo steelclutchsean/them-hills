@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { registerObstacle } from '@/game/obstacles';
+import { markReflective } from '@/render/reflection';
 import { kitRockMaterial, timberDarkMaterial } from '@/render/painterly';
 import { PALETTE } from '@/render/palette';
 import { configureShadows, loadModels } from './assets';
@@ -75,9 +76,100 @@ const pineMat = new THREE.MeshStandardMaterial({ color: PALETTE.pine, roughness:
 const barkMat = timberDarkMaterial();
 const rockImpostorMat = kitRockMaterial();
 
+let impostorRenderer: THREE.WebGLRenderer | null = null;
+let treeCardMat: THREE.MeshStandardMaterial | null = null;
+let treeCardWidth = 1.6;
+let treeCardHeight = 3.2;
+let treeCardCenterY = 1.6;
+const treeCardGeom = new THREE.PlaneGeometry(1, 1);
+const billboardPos = new THREE.Vector3();
+
+/** The renderer used for the one-shot tree-card bake. Call before scatter. */
+export function prepareImpostors(renderer: THREE.WebGLRenderer): void {
+  impostorRenderer = renderer;
+}
+
+async function bakeTreeCard(source: THREE.Object3D): Promise<void> {
+  if (treeCardMat || !impostorRenderer) return;
+  const renderer = impostorRenderer;
+  const clone = source.clone(true);
+  clone.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(clone);
+  const size = new THREE.Vector3();
+  const center = new THREE.Vector3();
+  box.getSize(size);
+  box.getCenter(center);
+  if (size.y < 0.2) return;
+  const widthPx = 128;
+  const heightPx = 256;
+  const aspect = widthPx / heightPx;
+  const pad = 1.06;
+  let halfH = (size.y * pad) / 2;
+  let halfW = halfH * aspect;
+  const halfWNeeded = (Math.max(size.x, size.z) * pad) / 2;
+  if (halfWNeeded > halfW) {
+    halfW = halfWNeeded;
+    halfH = halfW / aspect;
+  }
+  treeCardWidth = halfW * 2;
+  treeCardHeight = halfH * 2;
+  treeCardCenterY = center.y;
+  const rt = new THREE.WebGLRenderTarget(widthPx, heightPx, {
+    depthBuffer: true,
+    format: THREE.RGBAFormat,
+    type: THREE.UnsignedByteType,
+  });
+  rt.texture.colorSpace = THREE.SRGBColorSpace;
+  rt.texture.generateMipmaps = false;
+  const cam = new THREE.OrthographicCamera(-halfW, halfW, halfH, -halfH, 0.05, 80);
+  cam.position.set(center.x, center.y, center.z + Math.max(size.z, 1) + 6);
+  cam.lookAt(center);
+  cam.updateProjectionMatrix();
+  const bakeScene = new THREE.Scene();
+  bakeScene.add(clone);
+  const key = new THREE.DirectionalLight(0xfff1d0, 1.35);
+  key.position.set(3, 6, 4);
+  bakeScene.add(key);
+  bakeScene.add(new THREE.AmbientLight(0xc5d4e4, 0.85));
+  const prevTarget = renderer.getRenderTarget();
+  const prevColor = renderer.getClearColor(new THREE.Color());
+  const prevAlpha = renderer.getClearAlpha();
+  const prevAuto = renderer.autoClear;
+  renderer.autoClear = true;
+  renderer.setRenderTarget(rt);
+  renderer.setClearColor(0x000000, 0);
+  renderer.clear(true, true, true);
+  renderer.render(bakeScene, cam);
+  renderer.setRenderTarget(prevTarget);
+  renderer.setClearColor(prevColor, prevAlpha);
+  renderer.autoClear = prevAuto;
+  bakeScene.remove(clone);
+  treeCardMat = new THREE.MeshStandardMaterial({
+    map: rt.texture,
+    emissiveMap: rt.texture,
+    emissive: 0xffffff,
+    emissiveIntensity: 1,
+    color: 0x000000,
+    roughness: 1,
+    metalness: 0,
+    transparent: true,
+    alphaTest: 0.28,
+    side: THREE.DoubleSide,
+    depthWrite: true,
+  });
+}
+
 function makeImpostor(kind: 'tree' | 'rock' | 'brush', scale: number): THREE.Object3D {
   const group = new THREE.Group();
-  if (kind === 'tree') {
+  if (kind === 'tree' && treeCardMat) {
+    const card = new THREE.Mesh(treeCardGeom, treeCardMat);
+    card.scale.set(treeCardWidth * scale, treeCardHeight * scale, 1);
+    card.position.y = treeCardCenterY * scale;
+    card.castShadow = false;
+    card.receiveShadow = false;
+    group.add(card);
+    group.userData.billboard = true;
+  } else if (kind === 'tree') {
     const trunk = new THREE.Mesh(
       new THREE.CylinderGeometry(0.08 * scale, 0.12 * scale, 0.9 * scale, 5),
       barkMat,
@@ -99,7 +191,13 @@ function makeImpostor(kind: 'tree' | 'rock' | 'brush', scale: number): THREE.Obj
 }
 
 /** Whole-tree sway, density, and an impostor swap. Grass wind is separate. */
-export function updateScatterWind(time: number, camera: THREE.Vector3): void {
+export function updateScatterWind(
+  time: number,
+  camera: THREE.Vector3,
+  view: THREE.Vector3 = camera,
+  sunLift = 1,
+): void {
+  if (treeCardMat) treeCardMat.emissiveIntensity = Math.max(0.08, Math.min(1, sunLift));
   for (const node of swayNodes) {
     const keep = node.ordinal < Math.ceil(node.budget * density);
     if (!keep) {
@@ -113,7 +211,13 @@ export function updateScatterWind(time: number, camera: THREE.Vector3): void {
     if (!node.obj.visible) continue;
     const far = node.impostor !== null && dist > node.lodDistance;
     if (node.detail) node.detail.visible = !far;
-    if (node.impostor) node.impostor.visible = far;
+    if (node.impostor) {
+      node.impostor.visible = far;
+      if (far && node.impostor.userData.billboard === true) {
+        node.impostor.getWorldPosition(billboardPos);
+        node.impostor.lookAt(view.x, billboardPos.y, view.z);
+      }
+    }
     if (node.detail?.visible) {
       const cast = dist < 42;
       node.detail.traverse((child) => {
@@ -141,6 +245,13 @@ export async function scatterAssets(
 
   const rng = createRng(seed);
   const models = await loadModels(config.models);
+  if (config.lod === 'tree' && models[0] && !treeCardMat) {
+    try {
+      await bakeTreeCard(models[0]);
+    } catch (err) {
+      console.warn('[scatter] tree card bake failed, using cone stand-ins', err);
+    }
+  }
   const sample = config.sampleXZ ?? defaultSample;
   const reject = config.reject;
   const yawRandom = config.randomYaw !== false;
@@ -207,6 +318,7 @@ export async function scatterAssets(
   }
 
   scene.add(root);
+  markReflective(root);
   registerObstacle(root);
   return { placed, skipped, positions };
 }
@@ -265,6 +377,7 @@ export function scatterLogs(
     placed++;
   }
   scene.add(root);
+  markReflective(root);
   registerObstacle(root);
   return { placed, skipped, positions };
 }
