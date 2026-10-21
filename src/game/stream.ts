@@ -208,11 +208,11 @@ const FRAG_SHADER = /* glsl */ `
       vec4 clip = uReflProjView * vec4(vWorld, 1.0);
       if (clip.w > 0.0) {
         vec2 uv = clamp(clip.xy / clip.w * 0.5 + 0.5, 0.0, 1.0);
-        vec3 sample = texture2D(uReflect, uv).rgb;
-        float rl = dot(sample, vec3(0.25, 0.6, 0.15));
+        vec3 mirror = texture2D(uReflect, uv).rgb;
+        float rl = dot(mirror, vec3(0.25, 0.6, 0.15));
         // The mirror target is already tone-mapped. Push the green back
         // so a second pass does not turn the trees into a gray sheen.
-        reflected = mix(vec3(rl), sample, 1.7);
+        reflected = mix(vec3(rl), mirror, 1.7);
       }
     }
     // Without a reflection target, a strong fresnel just paints the creek
