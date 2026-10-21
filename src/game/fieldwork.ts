@@ -357,7 +357,7 @@ export function openingGuide(save: SaveV1): {
   }
   const fresh =
     !save.progression.firstSaleCompleted &&
-    save.progression.stats.totalPansPerformed === 0 &&
+    !save.progression.tutorialCompleted &&
     save.fieldwork.claims.length === 0 &&
     carry <= 1e-4;
   if (fresh) {
@@ -370,7 +370,7 @@ export function openingGuide(save: SaveV1): {
   if (!save.fieldwork.rumorsHeard.includes('lesson')) {
     return {
       title: 'Ask Old Pete',
-      detail: 'He will name the tells: black sand, gray bedrock, white quartz, gravel, and the lee of a boulder.',
+      detail: 'His fire is just west of the trail you spawned on. He names the tells: black sand, gray bedrock, white quartz, gravel, and the lee of a boulder.',
       beam: 'pete',
     };
   }

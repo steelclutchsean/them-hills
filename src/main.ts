@@ -40,7 +40,7 @@ import { floatingHats } from '@/game/hat-fit';
 import { bareMeshes } from '@/game/surface-audit';
 import { bearingFromYaw, createCameraRig } from '@/game/camera-rig';
 import { createCamp } from '@/game/camp';
-import { createCharacter } from '@/game/character';
+import { createCharacter, FOOT_OFFSET } from '@/game/character';
 import {
   ADA_DIALOGUE,
   FIRE_DIALOGUE,
@@ -736,7 +736,7 @@ async function bootstrap(): Promise<void> {
   const spawnZ = review?.z ?? persistedPlayer.position.z;
   const spawnYaw = review?.yaw ?? persistedPlayer.rotation.yaw;
   const groundY = terrain.getHeightAt(spawnX, spawnZ);
-  const spawnY = Math.max(persistedPlayer.position.y, groundY + 1.5);
+  const spawnY = Math.max(persistedPlayer.position.y, groundY + FOOT_OFFSET + 0.05);
   const character = await createCharacter({
     world: physics.rapier,
     initialPosition: { x: spawnX, y: spawnY, z: spawnZ },
@@ -2096,7 +2096,7 @@ async function bootstrap(): Promise<void> {
         gameStore.getState().hydrate(page.save);
         const p = page.save.player;
         const floor = terrain.getHeightAt(p.position.x, p.position.z);
-        const y = p.position.y < floor + 0.4 ? floor + 1.5 : p.position.y;
+        const y = p.position.y < floor + 0.4 ? floor + FOOT_OFFSET + 0.05 : p.position.y;
         character.plant(p.position.x, y, p.position.z);
         character.setYaw(p.rotation.yaw);
         worldTime = page.save.world.gameTime;
@@ -2408,7 +2408,7 @@ async function bootstrap(): Promise<void> {
         held.y < floor - 0.05 &&
         !inDriftCut(held.x, held.z) &&
         !mines.some((mine) => mine.isPlayerInside(held));
-      if (underground) character.plant(held.x, floor + 1.5, held.z);
+      if (underground) character.plant(held.x, floor + FOOT_OFFSET + 0.05, held.z);
 
       // 6. Camera position. During a prospect minigame, swap the spring-arm
       // rig for the fixed first-person prospect view + tool viewmodel.
@@ -4005,7 +4005,7 @@ async function bootstrap(): Promise<void> {
         const fresh = createDefaultSave();
         gameStore.getState().hydrate(fresh);
         const p = fresh.player.position;
-        const y = Math.max(p.y, terrain.getHeightAt(p.x, p.z) + 1.5);
+        const y = Math.max(p.y, terrain.getHeightAt(p.x, p.z) + FOOT_OFFSET + 0.05);
         character.plant(p.x, y, p.z);
         character.setYaw(fresh.player.rotation.yaw);
         worldTime = fresh.world.gameTime;

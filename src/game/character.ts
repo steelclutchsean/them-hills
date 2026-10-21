@@ -108,6 +108,9 @@ const LANDED_DURATION = 0.18;
 
 const CAPSULE_HALF_HEIGHT = 0.5;
 const CAPSULE_RADIUS = 0.4;
+/** Capsule center when the feet are on the ground. Planting higher than this
+ *  plus the snap distance plays a landing stumble on the first step. */
+export const FOOT_OFFSET = CAPSULE_HALF_HEIGHT + CAPSULE_RADIUS;
 
 export async function createCharacter(opts: CharacterOpts): Promise<Character> {
   // ---- Rapier body + collider ----
