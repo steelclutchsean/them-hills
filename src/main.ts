@@ -3510,7 +3510,9 @@ async function bootstrap(): Promise<void> {
           : gameStore.getState().save.fieldwork.claims.length === 1
             ? 60
             : 180;
+      const readyToFile = gameStore.getState().save.fieldwork.samples.length > 0;
       const canStake =
+        readyToFile &&
         !nearestSite &&
         groundHere.streamId !== null &&
         stakeable(groundHere.habitat) &&
