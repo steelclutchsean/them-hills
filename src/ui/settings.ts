@@ -440,6 +440,8 @@ export function createSettingsPanel(opts: SettingsPanelOpts): SettingsPanel {
 
   document.body.appendChild(root);
 
+  let open = false;
+
   window.addEventListener('keydown', (event) => {
     if (!open) return;
     if (capturing) {
@@ -456,6 +458,13 @@ export function createSettingsPanel(opts: SettingsPanelOpts): SettingsPanel {
         return;
       }
       finishCapture(event.code);
+      return;
+    }
+    if (event.code === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      open = false;
+      root.hidden = true;
       return;
     }
     if (event.code === 'ArrowUp') {
@@ -475,8 +484,6 @@ export function createSettingsPanel(opts: SettingsPanelOpts): SettingsPanel {
       activate();
     }
   }, true);
-
-  let open = false;
 
   function move(delta: number): void {
     if (rows.length === 0) return;
