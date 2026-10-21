@@ -355,22 +355,27 @@ test('places machines on a claim and starts each one', async ({ page }) => {
       longtom: 'shovel',
       monitor: 'aim',
     };
-    // A full shovel cycle is 1.25s. Every sample in that window has to be the
-    // fitting clip, and none of them may be the bind T.
-    const poses = await page.evaluate(async ({ name, clip }) => {
-      const seen: { clip: string; bind: boolean }[] = [];
-      const start = performance.now();
-      while (performance.now() - start < 1400) {
-        const pose = window.__themHills?.playerPose;
-        if (window.__themHills?.activeViz === name && pose) seen.push({ clip: pose.clip, bind: pose.bind });
-        await new Promise((resolve) => setTimeout(resolve, 120));
-      }
-      return { seen, clip };
-    }, { name: kind, clip: fitting[kind] });
-    expect(poses.seen.length, kind).toBeGreaterThan(4);
-    for (const pose of poses.seen) {
+    // A shovel cycle is 1.25s. Sample from the test runner so a busy frame
+    // cannot collapse the window into one read. None of them may be the bind T.
+    const seen: { clip: string; bind: boolean; viz: string | null }[] = [];
+    for (let i = 0; i < 8; i++) {
+      seen.push(
+        await page.evaluate(() => {
+          const pose = window.__themHills?.playerPose;
+          return {
+            clip: pose?.clip ?? 'missing',
+            bind: pose?.bind !== false,
+            viz: window.__themHills?.activeViz ?? null,
+          };
+        }),
+      );
+      await page.waitForTimeout(180);
+    }
+    expect(seen, kind).toHaveLength(8);
+    for (const pose of seen) {
+      expect(pose.viz, kind).toBe(kind);
       expect(pose.bind, `${kind} clip ${pose.clip}`).toBe(false);
-      expect(pose.clip, kind).toBe(poses.clip);
+      expect(pose.clip, kind).toBe(fitting[kind]);
     }
     await page.evaluate(() => window.__themHills?.cancelProspect?.());
   }
