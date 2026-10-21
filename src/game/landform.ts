@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { Watercourse } from '@/game/watercourse';
+import { buildRidgeRing, seatRidgePines } from '@/game/ridge-pines';
 import { groundMaps } from '@/render/painterly';
 import { PALETTE } from '@/render/palette';
 
@@ -196,74 +197,12 @@ function rangeMaterial(maps: {
   return mat;
 }
 
-function peakAmount(angle: number): number {
-  const raw =
-    0.58 +
-    0.24 * Math.sin(angle * 2.0 + 0.4) +
-    0.16 * Math.sin(angle * 5.0 + 1.1) +
-    0.1 * Math.sin(angle * 11.0 + 0.2) +
-    0.05 * Math.sin(angle * 19.0);
-  return Math.max(0.32, Math.min(1, raw));
-}
-
-function buildRange(
-  groundY: (x: number, z: number) => number,
-): { geom: THREE.BufferGeometry; trees: THREE.Vector3[] } {
-  const segA = 256;
-  const segR = 20;
-  const inner = 78;
-  const span = 92;
-  const pos: number[] = [];
-  const uv: number[] = [];
-  const crestAttr: number[] = [];
-  const idx: number[] = [];
-  const trees: THREE.Vector3[] = [];
-  for (let i = 0; i <= segA; i++) {
-    const a = i === segA ? 0 : (i / segA) * Math.PI * 2;
-    const amount = peakAmount(a);
-    for (let j = 0; j <= segR; j++) {
-      const u = j / segR;
-      const radius = inner + u * span;
-      const crest = Math.exp(-((u - 0.62) * (u - 0.62)) / 0.045);
-      const x = Math.cos(a) * radius;
-      const z = Math.sin(a) * radius;
-      const y = groundY(x, z) + crest * amount * 86;
-      pos.push(x, y, z);
-      uv.push(a * 2, u * 2);
-      const height01 = crest * amount;
-      crestAttr.push(height01);
-      if (height01 > 0.22 && height01 < 0.58 && i % 5 === 0 && j % 3 === 0) {
-        trees.push(new THREE.Vector3(x, y, z));
-      }
-    }
-  }
-  const row = segR + 1;
-  for (let i = 0; i < segA; i++) {
-    for (let j = 0; j < segR; j++) {
-      const a = i * row + j;
-      const b = a + row;
-      idx.push(a, b, a + 1, a + 1, b, b + 1);
-    }
-  }
-  const geom = new THREE.BufferGeometry();
-  geom.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geom.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-  geom.setAttribute('crest', new THREE.Float32BufferAttribute(crestAttr, 1));
-  geom.setIndex(idx);
-  geom.computeVertexNormals();
-  const normals = geom.getAttribute('normal');
-  let up = 0;
-  for (let i = 0; i < normals.count; i += 40) up += normals.getY(i);
-  if (up < 0) {
-    for (let k = 0; k < idx.length; k += 3) {
-      const swap = idx[k + 1] ?? 0;
-      idx[k + 1] = idx[k + 2] ?? 0;
-      idx[k + 2] = swap;
-    }
-    geom.setIndex(idx);
-    geom.computeVertexNormals();
-  }
-  return { geom, trees };
+function buildRange(groundY: (x: number, z: number) => number): {
+  geom: THREE.BufferGeometry;
+  trees: THREE.Vector3[];
+} {
+  const built = buildRidgeRing(groundY);
+  return { geom: built.geometry, trees: seatRidgePines(built.geometry, built.candidates) };
 }
 
 const ridgePines: THREE.Vector3[] = [];

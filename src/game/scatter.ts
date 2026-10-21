@@ -103,7 +103,9 @@ export function plantRidgePines(
   const dummy = new THREE.Object3D();
   points.forEach((p, i) => {
     const s = 0.9 + (i % 5) * 0.14;
-    const y = p.y - 0.22 + treeCardCenterY * s;
+    // Same pivot as the valley card: the baked center sits above the base.
+    // A short sink puts the trunk in the slope instead of on a tangent.
+    const y = p.y - 0.35 + treeCardCenterY * s;
     for (let card = 0; card < 2; card++) {
       dummy.position.set(p.x, y, p.z);
       dummy.rotation.set(0, (i % 7) * 0.45 + card * Math.PI * 0.5, 0);

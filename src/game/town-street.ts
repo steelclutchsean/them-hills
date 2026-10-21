@@ -21,18 +21,115 @@ interface Lot {
 }
 
 const LOTS: readonly Lot[] = [
-  { name: 'SALOON', width: 8.4, height: 6.6, parapet: 'step', awning: 0x6e2430, paint: '#c45a48', board: '#6e1c18' },
-  { name: 'SMITHY', width: 6.4, height: 5.1, parapet: 'arch', awning: 0x2c241c, forge: true, paint: '#8a6a4e', board: '#241810' },
-  { name: 'BANK', width: 7.6, height: 7.4, parapet: 'square', awning: 0x3e5a48, paint: '#e4d2a4', board: '#1c3830' },
-  { name: 'LIVERY', width: 9.0, height: 5.0, parapet: 'square', awning: 0x4a3424, paint: '#a67c48', board: '#3e2814' },
-  { name: 'CABIN', width: 5.2, height: 4.1, parapet: 'square', awning: 0x6a4028, paint: '#c49262', board: '#3a2414' },
-  { name: 'INN', width: 7.8, height: 6.5, parapet: 'step', awning: 0xe6d2a8, paint: '#7ea4aa', board: '#163038' },
-  { name: 'FREIGHT', width: 8.6, height: 5.5, parapet: 'square', awning: 0x3a3028, paint: '#8d7050', board: '#2a2018' },
-  { name: 'BARBER', width: 5.6, height: 5.2, parapet: 'arch', awning: 0x8c3030, paint: '#f0e2c0', board: '#6e2428' },
-  { name: 'BUNK', width: 5.0, height: 3.9, parapet: 'square', awning: 0x5c4030, paint: '#c49868', board: '#3e2a18' },
-  { name: 'ASSAY', width: 6.8, height: 6.0, parapet: 'step', awning: 0x243038, paint: '#e0bc58', board: '#3a3010' },
-  { name: 'STORE', width: 7.2, height: 5.7, parapet: 'square', awning: 0xe6d2a8, paint: '#9aaa62', board: '#243018' },
-  { name: 'SHACK', width: 5.4, height: 4.3, parapet: 'arch', awning: 0x4a3428, paint: '#b07848', board: '#4a2c18' },
+  {
+    name: 'SALOON',
+    width: 8.4,
+    height: 6.6,
+    parapet: 'step',
+    awning: 0x6e2430,
+    paint: '#c45a48',
+    board: '#6e1c18',
+  },
+  {
+    name: 'SMITHY',
+    width: 6.4,
+    height: 5.1,
+    parapet: 'arch',
+    awning: 0x2c241c,
+    forge: true,
+    paint: '#8a6a4e',
+    board: '#241810',
+  },
+  {
+    name: 'BANK',
+    width: 7.6,
+    height: 7.4,
+    parapet: 'square',
+    awning: 0x3e5a48,
+    paint: '#e4d2a4',
+    board: '#1c3830',
+  },
+  {
+    name: 'LIVERY',
+    width: 9.0,
+    height: 5.0,
+    parapet: 'square',
+    awning: 0x4a3424,
+    paint: '#a67c48',
+    board: '#3e2814',
+  },
+  {
+    name: 'CABIN',
+    width: 5.2,
+    height: 4.1,
+    parapet: 'square',
+    awning: 0x6a4028,
+    paint: '#c49262',
+    board: '#3a2414',
+  },
+  {
+    name: 'INN',
+    width: 7.8,
+    height: 6.5,
+    parapet: 'step',
+    awning: 0xe6d2a8,
+    paint: '#7ea4aa',
+    board: '#163038',
+  },
+  {
+    name: 'FREIGHT',
+    width: 8.6,
+    height: 5.5,
+    parapet: 'square',
+    awning: 0x3a3028,
+    paint: '#8d7050',
+    board: '#2a2018',
+  },
+  {
+    name: 'BARBER',
+    width: 5.6,
+    height: 5.2,
+    parapet: 'arch',
+    awning: 0x8c3030,
+    paint: '#f0e2c0',
+    board: '#6e2428',
+  },
+  {
+    name: 'BUNK',
+    width: 5.0,
+    height: 3.9,
+    parapet: 'square',
+    awning: 0x5c4030,
+    paint: '#c49868',
+    board: '#3e2a18',
+  },
+  {
+    name: 'ASSAY',
+    width: 6.8,
+    height: 6.0,
+    parapet: 'step',
+    awning: 0x243038,
+    paint: '#e0bc58',
+    board: '#3a3010',
+  },
+  {
+    name: 'STORE',
+    width: 7.2,
+    height: 5.7,
+    parapet: 'square',
+    awning: 0xe6d2a8,
+    paint: '#9aaa62',
+    board: '#243018',
+  },
+  {
+    name: 'SHACK',
+    width: 5.4,
+    height: 4.3,
+    parapet: 'arch',
+    awning: 0x4a3428,
+    paint: '#b07848',
+    board: '#4a2c18',
+  },
 ];
 
 const FRONT_X = -25.2;
@@ -58,151 +155,182 @@ function canvasTex(
 }
 
 function signTexture(label: string, board: string): THREE.CanvasTexture {
-  return canvasTex((ctx, w, h) => {
-    ctx.fillStyle = '#140e0a';
-    ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = board;
-    ctx.fillRect(14, 14, w - 28, h - 28);
-    ctx.strokeStyle = '#f4efe2';
-    ctx.lineWidth = 10;
-    ctx.strokeRect(28, 28, w - 56, h - 56);
-    ctx.fillStyle = '#f6f0e2';
-    ctx.strokeStyle = '#140e0a';
-    ctx.lineWidth = 12;
-    const size = label.length > 6 ? 92 : 108;
-    ctx.font = `700 ${size}px "Liberation Serif", "Noto Serif", serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.lineJoin = 'round';
-    ctx.strokeText(label, w / 2, h / 2 + 8);
-    ctx.fillText(label, w / 2, h / 2 + 8);
-  }, 768, 220);
+  return canvasTex(
+    (ctx, w, h) => {
+      ctx.fillStyle = '#140e0a';
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = board;
+      ctx.fillRect(14, 14, w - 28, h - 28);
+      ctx.strokeStyle = '#f4efe2';
+      ctx.lineWidth = 10;
+      ctx.strokeRect(28, 28, w - 56, h - 56);
+      ctx.fillStyle = '#f6f0e2';
+      ctx.strokeStyle = '#140e0a';
+      ctx.lineWidth = 12;
+      const size = label.length > 6 ? 92 : 108;
+      ctx.font = `700 ${size}px "Liberation Serif", "Noto Serif", serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.lineJoin = 'round';
+      ctx.strokeText(label, w / 2, h / 2 + 8);
+      ctx.fillText(label, w / 2, h / 2 + 8);
+    },
+    768,
+    220,
+  );
 }
 
 function clothTexture(hex: string): THREE.CanvasTexture {
-  return canvasTex((ctx, w, h) => {
-    ctx.fillStyle = hex;
-    ctx.fillRect(0, 0, w, h);
-    ctx.strokeStyle = 'rgba(40, 24, 12, 0.35)';
-    ctx.lineWidth = 2;
-    for (let x = 8; x < w; x += 14) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.bezierCurveTo(x + 6, h * 0.3, x - 6, h * 0.7, x + 2, h);
-      ctx.stroke();
-    }
-    ctx.fillStyle = 'rgba(255, 244, 220, 0.18)';
-    ctx.fillRect(0, 0, w, 18);
-  }, 128, 128);
+  return canvasTex(
+    (ctx, w, h) => {
+      ctx.fillStyle = hex;
+      ctx.fillRect(0, 0, w, h);
+      ctx.strokeStyle = 'rgba(40, 24, 12, 0.35)';
+      ctx.lineWidth = 2;
+      for (let x = 8; x < w; x += 14) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.bezierCurveTo(x + 6, h * 0.3, x - 6, h * 0.7, x + 2, h);
+        ctx.stroke();
+      }
+      ctx.fillStyle = 'rgba(255, 244, 220, 0.18)';
+      ctx.fillRect(0, 0, w, 18);
+    },
+    128,
+    128,
+  );
 }
 
 function streetTexture(): THREE.CanvasTexture {
-  // Grain only. Hoofprints are stamped in the shader at 12 cm so they
-  // cannot tile into a row of eights.
-  return canvasTex((ctx, w, h) => {
-    ctx.fillStyle = '#7a624c';
-    ctx.fillRect(0, 0, w, h);
-    const tones = ['#6a5340', '#8a7058', '#5c4636', '#94785c', '#4a382c', '#a08868'];
-    for (let i = 0; i < 2400; i++) {
-      const x = (i * 53) % w;
-      const y = (i * 97) % h;
-      ctx.fillStyle = tones[i % tones.length] ?? '#6a5340';
+  // Close-up grit only. Ruts, dust, stones, and the grass edge are drawn
+  // in the shader at meter scale so a 60 m shot still reads them.
+  const tex = canvasTex(
+    (ctx, w, h) => {
+      ctx.fillStyle = '#c17a45';
+      ctx.fillRect(0, 0, w, h);
+      const tones = ['#8a4e2c', '#d08a52', '#a86838', '#e6d2a8', '#6e3e24', '#c49262'];
+      for (let i = 0; i < 2800; i++) {
+        const x = (i * 53) % w;
+        const y = (i * 97) % h;
+        ctx.fillStyle = tones[i % tones.length] ?? '#8a4e2c';
+        ctx.globalAlpha = 0.42;
+        ctx.fillRect(x, y, 3 + (i % 7), 2 + (i % 4));
+      }
       ctx.globalAlpha = 0.55;
-      ctx.fillRect(x, y, 6 + (i % 9), 4 + (i % 6));
-    }
-    ctx.globalAlpha = 1;
-    for (let i = 0; i < 80; i++) {
-      ctx.fillStyle = i % 2 === 0 ? '#3f3228' : '#b09678';
-      ctx.globalAlpha = 0.35;
-      ctx.beginPath();
-      ctx.arc((i * 89) % w, (i * 57) % h, 2 + (i % 3), 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-  }, 512, 512);
+      for (let i = 0; i < 180; i++) {
+        ctx.fillStyle = i % 2 === 0 ? '#5c3a22' : '#e6d2a8';
+        ctx.fillRect((i * 41) % w, (i * 67) % h, 2, 2);
+      }
+      ctx.globalAlpha = 1;
+    },
+    512,
+    512,
+  );
+  tex.anisotropy = 8;
+  return tex;
 }
 
 function brickTexture(): THREE.CanvasTexture {
-  return canvasTex((ctx, w, h) => {
-    ctx.fillStyle = '#c4a48a';
-    ctx.fillRect(0, 0, w, h);
-    const bh = 18;
-    const bw = 40;
-    for (let row = 0; row < h / bh + 1; row++) {
-      const off = row % 2 === 0 ? 0 : bw / 2;
-      for (let x = -bw + off; x < w; x += bw) {
-        ctx.fillStyle = (row + x) % 5 === 0 ? '#8a3e2c' : '#a85a3c';
-        ctx.fillRect(x + 2, row * bh + 2, bw - 4, bh - 4);
+  return canvasTex(
+    (ctx, w, h) => {
+      ctx.fillStyle = '#c4a48a';
+      ctx.fillRect(0, 0, w, h);
+      const bh = 18;
+      const bw = 40;
+      for (let row = 0; row < h / bh + 1; row++) {
+        const off = row % 2 === 0 ? 0 : bw / 2;
+        for (let x = -bw + off; x < w; x += bw) {
+          ctx.fillStyle = (row + x) % 5 === 0 ? '#8a3e2c' : '#a85a3c';
+          ctx.fillRect(x + 2, row * bh + 2, bw - 4, bh - 4);
+        }
       }
-    }
-  }, 128, 128);
+    },
+    128,
+    128,
+  );
 }
 
 function shakeTexture(): THREE.CanvasTexture {
-  return canvasTex((ctx, w, h) => {
-    ctx.fillStyle = '#5c3a22';
-    ctx.fillRect(0, 0, w, h);
-    const rows = 14;
-    const rh = h / rows;
-    for (let row = 0; row < rows; row++) {
-      const y = row * rh;
-      const off = row % 2 === 0 ? 0 : 16;
-      ctx.fillStyle = row % 3 === 0 ? '#8a5a32' : '#6b4630';
-      for (let x = -32 + off; x < w; x += 32) {
-        ctx.beginPath();
-        ctx.moveTo(x, y + rh);
-        ctx.quadraticCurveTo(x + 16, y + 1, x + 32, y + rh);
-        ctx.lineTo(x, y + rh);
-        ctx.fill();
-        ctx.strokeStyle = '#2a160e';
-        ctx.stroke();
+  return canvasTex(
+    (ctx, w, h) => {
+      ctx.fillStyle = '#5c3a22';
+      ctx.fillRect(0, 0, w, h);
+      const rows = 14;
+      const rh = h / rows;
+      for (let row = 0; row < rows; row++) {
+        const y = row * rh;
+        const off = row % 2 === 0 ? 0 : 16;
+        ctx.fillStyle = row % 3 === 0 ? '#8a5a32' : '#6b4630';
+        for (let x = -32 + off; x < w; x += 32) {
+          ctx.beginPath();
+          ctx.moveTo(x, y + rh);
+          ctx.quadraticCurveTo(x + 16, y + 1, x + 32, y + rh);
+          ctx.lineTo(x, y + rh);
+          ctx.fill();
+          ctx.strokeStyle = '#2a160e';
+          ctx.stroke();
+        }
       }
-    }
-  }, 256, 256);
+    },
+    256,
+    256,
+  );
 }
 
 function stoneTexture(): THREE.CanvasTexture {
-  return canvasTex((ctx, w, h) => {
-    ctx.fillStyle = '#8d7764';
-    ctx.fillRect(0, 0, w, h);
-    for (let i = 0; i < 28; i++) {
-      ctx.fillStyle = i % 2 === 0 ? '#6e5a48' : '#b7a48c';
-      ctx.fillRect((i * 37) % (w - 8), (i * 19) % (h - 8), 26 + (i % 3) * 8, 14 + (i % 2) * 6);
-    }
-    ctx.strokeStyle = '#3a2c22';
-    ctx.lineWidth = 3;
-    for (let y = 8; y < h; y += 24) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(w, y + 3);
-      ctx.stroke();
-    }
-  }, 128, 128);
+  return canvasTex(
+    (ctx, w, h) => {
+      ctx.fillStyle = '#8d7764';
+      ctx.fillRect(0, 0, w, h);
+      for (let i = 0; i < 28; i++) {
+        ctx.fillStyle = i % 2 === 0 ? '#6e5a48' : '#b7a48c';
+        ctx.fillRect((i * 37) % (w - 8), (i * 19) % (h - 8), 26 + (i % 3) * 8, 14 + (i % 2) * 6);
+      }
+      ctx.strokeStyle = '#3a2c22';
+      ctx.lineWidth = 3;
+      for (let y = 8; y < h; y += 24) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y + 3);
+        ctx.stroke();
+      }
+    },
+    128,
+    128,
+  );
 }
 
 function coalTexture(): THREE.CanvasTexture {
-  return canvasTex((ctx, w, h) => {
-    ctx.fillStyle = '#1a100c';
-    ctx.fillRect(0, 0, w, h);
-    for (let i = 0; i < 24; i++) {
-      ctx.fillStyle = i % 2 === 0 ? '#ff6a22' : '#ffd08a';
-      ctx.beginPath();
-      ctx.arc((i * 23) % w, (i * 17) % h, 3 + (i % 3), 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }, 64, 64);
+  return canvasTex(
+    (ctx, w, h) => {
+      ctx.fillStyle = '#1a100c';
+      ctx.fillRect(0, 0, w, h);
+      for (let i = 0; i < 24; i++) {
+        ctx.fillStyle = i % 2 === 0 ? '#ff6a22' : '#ffd08a';
+        ctx.beginPath();
+        ctx.arc((i * 23) % w, (i * 17) % h, 3 + (i % 3), 0, Math.PI * 2);
+        ctx.fill();
+      }
+    },
+    64,
+    64,
+  );
 }
 
 function glassTexture(): THREE.CanvasTexture {
-  return canvasTex((ctx, w, h) => {
-    const g = ctx.createLinearGradient(0, 0, 0, h);
-    g.addColorStop(0, '#1c3a44');
-    g.addColorStop(1, '#0e2428');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = 'rgba(244, 239, 226, 0.35)';
-    ctx.fillRect(6, 6, w * 0.28, h * 0.45);
-  }, 64, 80);
+  return canvasTex(
+    (ctx, w, h) => {
+      const g = ctx.createLinearGradient(0, 0, 0, h);
+      g.addColorStop(0, '#1c3a44');
+      g.addColorStop(1, '#0e2428');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = 'rgba(244, 239, 226, 0.35)';
+      ctx.fillRect(6, 6, w * 0.28, h * 0.45);
+    },
+    64,
+    80,
+  );
 }
 
 interface StreetMaps {
@@ -268,18 +396,22 @@ export function tickTownStreet(time: number): void {
 }
 
 function stainedBoards(paint: string): THREE.MeshStandardMaterial {
-  const tex = canvasTex((ctx, w, h) => {
-    ctx.fillStyle = paint;
-    ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = 'rgba(42, 24, 12, 0.38)';
-    for (let y = 0; y < h; y += 22) ctx.fillRect(0, y, w, 3);
-    ctx.fillStyle = 'rgba(255, 236, 200, 0.14)';
-    for (let y = 4; y < h; y += 22) ctx.fillRect(0, y, w, 8);
-    ctx.fillStyle = 'rgba(28, 16, 8, 0.32)';
-    ctx.fillRect(0, h * 0.78, w, h * 0.22);
-    ctx.fillStyle = 'rgba(20, 12, 8, 0.55)';
-    for (let i = 0; i < 16; i++) ctx.fillRect((i * 41) % (w - 4), 10 + (i % 6) * 22, 3, 3);
-  }, 128, 256);
+  const tex = canvasTex(
+    (ctx, w, h) => {
+      ctx.fillStyle = paint;
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = 'rgba(42, 24, 12, 0.38)';
+      for (let y = 0; y < h; y += 22) ctx.fillRect(0, y, w, 3);
+      ctx.fillStyle = 'rgba(255, 236, 200, 0.14)';
+      for (let y = 4; y < h; y += 22) ctx.fillRect(0, y, w, 8);
+      ctx.fillStyle = 'rgba(28, 16, 8, 0.32)';
+      ctx.fillRect(0, h * 0.78, w, h * 0.22);
+      ctx.fillStyle = 'rgba(20, 12, 8, 0.55)';
+      for (let i = 0; i < 16; i++) ctx.fillRect((i * 41) % (w - 4), 10 + (i % 6) * 22, 3, 3);
+    },
+    128,
+    256,
+  );
   return new THREE.MeshStandardMaterial({
     map: tex,
     color: 0xffffff,
@@ -550,7 +682,10 @@ function addForge(group: THREE.Group): void {
   horn.rotation.z = -Math.PI / 2;
   horn.position.set(0.22, 0, 0);
   anvil.add(horn);
-  const stump = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.18, 0.48, 6), stainedBoards('#4a301c'));
+  const stump = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.16, 0.18, 0.48, 6),
+    stainedBoards('#4a301c'),
+  );
   stump.position.set(0.95, 0.24, 0.85);
   forge.add(body, hood, chimney, mouth, coals, stump, anvil);
   forge.position.set(1.35, 0, 1.55);
@@ -634,18 +769,17 @@ function streetMaterial(): THREE.MeshStandardMaterial {
     polygonOffsetFactor: -2,
     polygonOffsetUnits: -2,
   });
-  mat.customProgramCacheKey = () => 'them-hills-street-dirt-5';
+  mat.customProgramCacheKey = () => 'them-hills-street-dirt-6';
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uGrass = { value: groundMaps().grass };
-    shader.vertexShader = shader.vertexShader.replace(
-      '#include <common>',
-      '#include <common>\nvarying vec3 vStreetWorld;',
-    ).replace(
-      '#include <project_vertex>',
-      `vec4 streetWorld = modelMatrix * vec4(transformed, 1.0);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vStreetWorld;')
+      .replace(
+        '#include <project_vertex>',
+        `vec4 streetWorld = modelMatrix * vec4(transformed, 1.0);
        vStreetWorld = streetWorld.xyz;
        #include <project_vertex>`,
-    );
+      );
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <common>',
@@ -661,20 +795,29 @@ function streetMaterial(): THREE.MeshStandardMaterial {
            vec3 q = fract(vec3(p.xyx) * vec3(0.1031, 0.11369, 0.13787));
            q += dot(q, q.yxz + 19.19);
            return fract((q.xxy + q.yzz) * q.zyx);
+         }
+         float streetNoise(vec2 p) {
+           vec2 i = floor(p);
+           vec2 f = fract(p);
+           f = f * f * (3.0 - 2.0 * f);
+           float a = streetHash2(i).x;
+           float b = streetHash2(i + vec2(1.0, 0.0)).x;
+           float c = streetHash2(i + vec2(0.0, 1.0)).x;
+           float d = streetHash2(i + vec2(1.0, 1.0)).x;
+           return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
          }`,
       )
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
          {
-           float across = vMapUv.x;
-           float edge = smoothstep(0.0, 0.18, across) * smoothstep(1.0, 0.82, across);
-           vec3 grass = texture2D(uGrass, vStreetWorld.xz * 0.85).rgb;
            vec2 world = vStreetWorld.xz;
-           vec2 uv = world * 0.48;
+           float x = world.x + 15.2;
+           float z = world.y;
+           vec2 uv = world * 0.55;
            vec2 id = floor(uv);
            vec2 f = fract(uv);
-           vec3 packed = vec3(0.0);
+           float grit = 0.0;
            float wsum = 0.0;
            for (int oy = 0; oy <= 1; oy++) {
              for (int ox = 0; ox <= 1; ox++) {
@@ -687,19 +830,28 @@ function streetMaterial(): THREE.MeshStandardMaterial {
                vec2 rot = vec2(c * local.x - s * local.y, s * local.x + c * local.y);
                vec2 suv = fract(rot + h);
                float w = smoothstep(1.05, 0.2, length(local - 0.5));
-               packed += texture2D(map, suv).rgb * w;
+               grit += dot(texture2D(map, suv).rgb, vec3(0.333)) * w;
                wsum += w;
              }
            }
-           packed /= max(wsum, 1e-3);
-           packed = max(packed, vec3(0.3, 0.22, 0.14));
-           float rutA = smoothstep(0.4, 0.0, abs(fract(world.x * 0.11 + 0.2) - 0.36));
-           float rutB = smoothstep(0.36, 0.0, abs(fract(world.x * 0.11 + 0.62) - 0.4));
-           packed *= mix(1.0, 0.84, max(rutA, rutB));
+           grit /= max(wsum, 1e-3);
+           float detail = clamp(grit * 1.65, 0.78, 1.22);
+           vec3 dirt = vec3(0.54, 0.20, 0.056);
+           vec3 dust = vec3(0.80, 0.65, 0.39);
+           vec3 deep = vec3(0.26, 0.074, 0.021);
+           vec3 packed = dirt * detail;
+           float nA = streetNoise(vec2(z * 0.085, 0.4));
+           float nB = streetNoise(vec2(z * 0.27, 3.1));
+           float wander = (nA - 0.5) * 0.55;
+           float center = 1.0 - smoothstep(0.6, 3.6, abs(x - wander * 0.4));
+           packed = mix(packed, dust * detail, center * 0.62);
+           float rutL = 1.0 - smoothstep(0.15, 1.05, abs(x - (-1.65 + wander)));
+           float rutR = 1.0 - smoothstep(0.15, 1.05, abs(x - (1.75 + wander * 0.7)));
+           packed = mix(packed, deep, max(rutL, rutR) * 0.78);
            vec2 hoofCell = floor(world / 2.4);
            vec3 hh = streetHash3(hoofCell);
-           vec2 center = (hoofCell + vec2(0.18) + hh.xy * 0.64) * 2.4;
-           vec2 hp = world - center;
+           vec2 hoofAt = (hoofCell + vec2(0.18) + hh.xy * 0.64) * 2.4;
+           vec2 hp = world - hoofAt;
            float hang = hh.x * 6.2831853;
            float hc = cos(hang);
            float hs = sin(hang);
@@ -708,12 +860,37 @@ function streetMaterial(): THREE.MeshStandardMaterial {
            float hb = length(vec2(hr.x / 0.035, (hr.y + 0.03) / 0.06));
            float mark = clamp(smoothstep(1.05, 0.7, ha) + smoothstep(1.05, 0.7, hb), 0.0, 1.0);
            mark *= step(0.55, hh.z);
-           packed = mix(packed, packed * vec3(0.72, 0.66, 0.58), mark);
+           packed = mix(packed, packed * vec3(0.72, 0.58, 0.42), mark);
+           vec2 stoneCell = floor(world / 3.6);
+           vec3 sh = streetHash3(stoneCell + 4.0);
+           vec2 stoneAt = (stoneCell + vec2(0.22) + sh.xy * 0.58) * 3.6;
+           float stoneR = 0.22 + sh.x * 0.34;
+           float stone = 1.0 - smoothstep(stoneR * 0.45, stoneR, distance(world, stoneAt));
+           stone *= step(0.7, sh.z);
+           vec3 stoneCol = mix(vec3(0.55, 0.42, 0.28), vec3(0.28, 0.20, 0.14), sh.y);
+           packed = mix(packed, stoneCol, stone * 0.9);
+           float dropZ = floor(z / 6.5);
+           vec3 dh = streetHash3(vec2(dropZ, 9.0));
+           float side = dh.x > 0.5 ? 1.0 : -1.0;
+           vec2 dropAt = vec2(-15.2 + side * (1.15 + dh.y * 0.7) + wander, dropZ * 6.5 + dh.z * 5.2);
+           float drop = 1.0 - smoothstep(0.08, 0.16 + dh.x * 0.14, distance(world, dropAt));
+           float drop2 = 1.0 - smoothstep(0.05, 0.12, distance(world, dropAt + vec2(0.14, 0.08)));
+           drop = max(drop, drop2) * step(0.42, dh.y);
+           packed = mix(packed, vec3(0.09, 0.045, 0.018), drop);
            float puddle = 0.0;
            puddle = max(puddle, 1.0 - smoothstep(0.25, 1.05, distance(world, vec2(-16.8, 7.5))));
            puddle = max(puddle, 1.0 - smoothstep(0.22, 0.9, distance(world, vec2(-15.4, 21.0))));
-           packed = mix(packed, packed * vec3(0.62, 0.66, 0.64), puddle * 0.55);
-           diffuseColor.rgb = mix(grass, packed, edge);
+           packed = mix(packed, packed * vec3(0.72, 0.62, 0.48), puddle * 0.45);
+           float nC = streetNoise(vec2(z * 0.16, x * 0.12));
+           float left = -6.4 + nA * 2.1 + nB * 0.7;
+           float right = 6.2 - nA * 1.6 - nB * 0.9;
+           float grassW = 1.0 - smoothstep(left - 0.15, left + 1.25, x);
+           grassW = max(grassW, smoothstep(right - 1.25, right + 0.15, x));
+           float tuft = smoothstep(0.55, 0.84, nC) * smoothstep(2.6, 5.4, abs(x));
+           grassW = clamp(max(grassW, tuft), 0.0, 1.0);
+           vec3 grass = texture2D(uGrass, world * 0.85).rgb;
+           grass = mix(grass, vec3(0.16, 0.20, 0.045), 0.28);
+           diffuseColor.rgb = mix(packed, grass, grassW);
          }`,
       );
   };
@@ -755,13 +932,7 @@ export function buildTownStreet(
   const deckMat = stainedBoards('#c49262');
   const walkX = FRONT_X + 1.85;
   const deckSamples = deckHeights(groundY, walkX, z0 - 0.6, z1 + 0.6);
-  const deck = ribbonFrom(
-    deckSamples,
-    walkX,
-    2.05,
-    deckMat,
-    Math.max(8, (z1 - z0) / 2.2),
-  );
+  const deck = ribbonFrom(deckSamples, walkX, 2.05, deckMat, Math.max(8, (z1 - z0) / 2.2));
   deck.name = 'boardwalk';
   root.add(deck);
   const postMat = stainedBoards('#5c3a22');
@@ -793,7 +964,13 @@ export function buildTownStreet(
   for (let z = streetZ0; z <= streetZ1; z += 1.4) {
     streetSamples.push({ z, y: groundY(-15.2, z) + 0.06 });
   }
-  const street = ribbonFrom(streetSamples, -15.2, 16, streetMaterial(), (streetZ1 - streetZ0) / 3.2);
+  const street = ribbonFrom(
+    streetSamples,
+    -15.2,
+    16,
+    streetMaterial(),
+    (streetZ1 - streetZ0) / 3.2,
+  );
   street.name = 'street-dirt';
   root.add(street);
 
