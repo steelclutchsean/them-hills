@@ -240,8 +240,8 @@ function attachHandTools(hand: THREE.Object3D | undefined): {
       new THREE.SphereGeometry(0.018 + (i % 3) * 0.008, 8, 6),
       new THREE.MeshStandardMaterial({
         color: 0xffd56a,
-        emissive: 0xffb020,
-        emissiveIntensity: 1.35,
+        emissive: 0xc4841a,
+        emissiveIntensity: 0.45,
         metalness: 0.7,
         roughness: 0.22,
       }),
