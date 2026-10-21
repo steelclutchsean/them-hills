@@ -1219,8 +1219,8 @@ async function bootstrap(): Promise<void> {
       y: y + 3.5,
       z: from.z,
       lx: from.x - 8,
-      ly: y + 26,
-      lz: from.z - 48,
+      ly: y + 11,
+      lz: from.z - 36,
     };
   }
 

@@ -27,10 +27,10 @@ function rangeTile(
 
 function rangeMaps(): { rock: THREE.Texture; scree: THREE.Texture; grass: THREE.Texture } {
   const rock = rangeTile((ctx, s) => {
-    ctx.fillStyle = '#6e5344';
+    ctx.fillStyle = '#7a5c48';
     ctx.fillRect(0, 0, s, s);
     for (let i = 0; i < 70; i++) {
-      ctx.fillStyle = i % 3 === 0 ? '#3a2a22' : i % 3 === 1 ? '#b7a48c' : '#8d6a52';
+      ctx.fillStyle = i % 3 === 0 ? '#2a1c16' : i % 3 === 1 ? '#e4d2bc' : '#8d6a52';
       ctx.beginPath();
       ctx.ellipse((i * 47) % s, (i * 29) % s, 12 + (i % 6) * 5, 8 + (i % 4) * 4, i * 0.7, 0, Math.PI * 2);
       ctx.fill();
@@ -89,7 +89,7 @@ function rangeMaterial(maps: {
     fog: true,
     side: THREE.DoubleSide,
   });
-  mat.customProgramCacheKey = () => 'them-hills-range-5';
+  mat.customProgramCacheKey = () => 'them-hills-range-6';
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uRock = { value: maps.rock };
     shader.uniforms.uScree = { value: maps.scree };
@@ -141,8 +141,9 @@ function rangeMaterial(maps: {
            float screeW = (1.0 - rockW) * (1.0 - grassW);
            float sumW = max(rockW + screeW + grassW, 1e-3);
            vec3 albedo = (rock * rockW + scree * screeW + grass * grassW) / sumW;
-           float snow = smoothstep(0.62, 0.9, vCrest) * (1.0 - smoothstep(0.16, 0.55, slope));
-           albedo = mix(albedo, vec3(0.96, 0.97, 0.98), snow);
+           float snow = smoothstep(0.46, 0.7, vCrest) * (1.0 - smoothstep(0.55, 0.92, slope));
+           snow = max(snow, smoothstep(0.7, 0.88, vCrest));
+           albedo = mix(albedo, vec3(0.97, 0.98, 0.99), snow);
            diffuseColor.rgb = albedo;
          }`,
       );

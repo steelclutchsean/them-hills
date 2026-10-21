@@ -98,17 +98,17 @@ function clothTexture(hex: string): THREE.CanvasTexture {
 
 function streetTexture(): THREE.CanvasTexture {
   return canvasTex((ctx, w, h) => {
-    ctx.fillStyle = '#8a5530';
+    ctx.fillStyle = '#6b4424';
     ctx.fillRect(0, 0, w, h);
     for (let i = 0; i < 2200; i++) {
       const x = (i * 53) % w;
       const y = (i * 97) % h;
-      ctx.fillStyle = i % 4 === 0 ? '#5c3824' : i % 4 === 1 ? '#c49262' : i % 4 === 2 ? '#6e4428' : '#a86b3c';
+      ctx.fillStyle = i % 4 === 0 ? '#3a2414' : i % 4 === 1 ? '#a67a48' : i % 4 === 2 ? '#4a2c18' : '#7a5230';
       ctx.fillRect(x, y, 2 + (i % 3), 2 + (i % 2));
     }
-    ctx.fillStyle = 'rgba(42, 22, 10, 0.62)';
-    ctx.fillRect(w * 0.3, 0, w * 0.07, h);
-    ctx.fillRect(w * 0.62, 0, w * 0.055, h);
+    ctx.fillStyle = 'rgba(18, 8, 4, 0.82)';
+    ctx.fillRect(w * 0.3, 0, w * 0.08, h);
+    ctx.fillRect(w * 0.62, 0, w * 0.07, h);
     ctx.strokeStyle = 'rgba(36, 18, 8, 0.85)';
     ctx.lineWidth = 3;
     for (let i = 0; i < 36; i++) {
