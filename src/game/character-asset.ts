@@ -232,8 +232,9 @@ function attachHandTools(hand: THREE.Object3D | undefined): {
 
   // Hand bone local axes are not world axes. A small offset puts the
   // grip in the palm for the dig and pan poses.
-  shovel.position.set(0, 0.08, 0.02);
-  shovel.rotation.x = 0.4;
+  shovel.position.set(0, 0.02, 0.05);
+  shovel.rotation.x = 0.85;
+  shovel.rotation.z = -0.35;
   pan.position.set(0.02, 0.06, 0.04);
   if (hand) {
     hand.add(shovel);

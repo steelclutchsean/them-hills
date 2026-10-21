@@ -87,7 +87,7 @@ const BASE_FS = /* glsl */ `
     shadow = mix(0.42, 1.0, shadow);
     gl_FragColor = vec4(vColor * shadow, 1.0);
     #include <fog_fragment>
-    float mist = (1.0 - smoothstep(-1.5, 5.5, vWorld.y)) * 0.28;
+    float mist = (1.0 - smoothstep(-2.0, 6.5, vWorld.y)) * 0.1;
     gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, mist);
   }
 `;

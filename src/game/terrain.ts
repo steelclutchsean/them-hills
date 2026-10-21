@@ -26,7 +26,7 @@ const HEIGHT_SCALE = 6;
 // the surface, then rises a lip of BANK_HEIGHT across BANK_WIDTH. The
 // gravel splat covers that lip and fades to grass across BANK_TRANSITION.
 const BANK_WIDTH = 2.2; // meters past halfWidth where the gravel lip stays
-const BANK_HEIGHT = 0.95; // raised berm so the creek has a readable bank
+const BANK_HEIGHT = 1.15; // raised berm so the creek has a readable bank
 const BANK_TRANSITION = 2.6; // meters past the lip where gravel fades to grass
 
 export type ChannelOrientation = 'NS' | 'EW';
@@ -225,9 +225,12 @@ const TERRAIN_FS = /* glsl */ `
     vec3 tex = (grass * grassW + dirt * dirtW + gravel * gravelW + rock * rockW) / sumW;
 
     // Vertex color is a mild biome brightness, not a second photograph.
-    vec3 albedo = tex * mix(vec3(0.92), vColor * 1.35, 0.22);
+    vec3 albedo = tex * mix(vec3(1.08), vColor * 1.15, 0.12);
     float macro = noise(worldXZ * 0.012);
-    albedo *= mix(0.9, 1.06, macro);
+    float patch = noise(worldXZ * 0.045 + 4.0);
+    albedo *= mix(0.78, 1.22, macro);
+    albedo.r *= mix(0.92, 1.12, patch);
+    albedo.g *= mix(1.08, 0.9, patch);
     float rough = mix(0.92, 0.72, maskShaped);
 
     // Detail normal from the same hash noise, added in world XZ so lighting
@@ -280,7 +283,7 @@ const TERRAIN_FS = /* glsl */ `
     gl_FragColor = vec4(lit, 1.0);
     #include <fog_fragment>
     // Valley mist. Lower ground picks up the fog color even at the camera.
-    float mist = (1.0 - smoothstep(-1.5, 5.5, vWorld.y)) * 0.38;
+    float mist = (1.0 - smoothstep(-2.0, 6.5, vWorld.y)) * 0.12;
     gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, mist);
   }
 `;

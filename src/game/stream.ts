@@ -78,6 +78,7 @@ export interface Stream {
 }
 
 const VERT_SHADER = /* glsl */ `
+  ${FRAME_UNIFORM_GLSL}
   varying vec3 vWorld;
   varying vec3 vViewDir;
   varying vec3 vNormalW;
@@ -86,6 +87,9 @@ const VERT_SHADER = /* glsl */ `
   #include <shadowmap_pars_vertex>
   void main() {
     vec4 worldPos = modelMatrix * vec4(position, 1.0);
+    float wave = sin(worldPos.x * 1.6 + uTime * 1.25) * 0.04
+               + sin(worldPos.z * 2.3 - uTime * 0.9) * 0.028;
+    worldPos.y += wave;
     vWorld = worldPos.xyz;
     vec4 mvPosition = viewMatrix * worldPos;
     gl_Position = projectionMatrix * mvPosition;
@@ -180,7 +184,7 @@ const FRAG_SHADER = /* glsl */ `
     base = mix(base * 0.86, base * 1.18, smoothstep(0.30, 0.70, surface));
 
     // Bank-edge foam — wherever the top face is shallow AND foam noise is high.
-    float bankProximity = (1.0 - smoothstep(0.04, 0.22, depth)) * topness;
+    float bankProximity = (1.0 - smoothstep(0.02, 0.48, depth)) * topness;
     float foamNoise = noise(worldXZ * 4.5 - flow * 0.85);
     float foamMask = bankProximity * smoothstep(0.40, 0.85, foamNoise);
     base = mix(base, uFoam, foamMask * 0.85);
@@ -225,9 +229,9 @@ const FRAG_SHADER = /* glsl */ `
     #endif
     shadow = mix(0.45, 1.0, shadow);
 
-    vec3 lit = base * (uAmbientColor * uAmbientIntensity * 0.65
-                      + mix(uHemiGround, uHemiSky, 0.72) * uHemiIntensity * 0.55
-                      + uSunColor * uSunIntensity * 0.55 * shadow) * shadow;
+    float sunShade = mix(0.62, 1.0, shadow);
+    vec3 lit = base * sunShade;
+    lit = mix(lit, lit * uSunColor, 0.18 * uSunIntensity * shadow);
 
     // Alpha. Top face: shallow → deep gradient (0.45 → 0.92) so the riverbed
     // shows through shallows. Side / bottom faces: solid 0.88 so the water
@@ -241,7 +245,7 @@ const FRAG_SHADER = /* glsl */ `
     gl_FragColor = vec4(lit, alpha);
     #ifdef USE_FOG
       float fogFactor = 1.0 - exp(-fogDensity * fogDensity * vFogDepth * vFogDepth);
-      gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor);
+      gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor * 0.55);
       gl_FragColor.a *= 1.0 - fogFactor;
     #endif
   }
@@ -302,7 +306,16 @@ export function createStream(terrain: Terrain, cfg: StreamConfig): Stream {
   // reads as a body of water from any angle.
   const boxXExtent = cfg.orientation === 'NS' ? cfg.halfWidth * 2 : cfg.halfLength * 2;
   const boxZExtent = cfg.orientation === 'NS' ? cfg.halfLength * 2 : cfg.halfWidth * 2;
-  const waterGeom = new THREE.BoxGeometry(boxXExtent, MAX_DEPTH, boxZExtent);
+  const segsAcross = 12;
+  const segsAlong = 64;
+  const waterGeom = new THREE.BoxGeometry(
+    boxXExtent,
+    MAX_DEPTH,
+    boxZExtent,
+    cfg.orientation === 'NS' ? segsAcross : segsAlong,
+    1,
+    cfg.orientation === 'NS' ? segsAlong : segsAcross,
+  );
   const waterMesh = new THREE.Mesh(waterGeom, waterMat);
   // Position so the top face sits at baseY (water surface) and the bottom
   // face sits at the bed (baseY − MAX_DEPTH).

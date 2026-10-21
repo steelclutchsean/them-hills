@@ -159,6 +159,8 @@ function posterCutout(mat: THREE.Material, color: number, wind: boolean): THREE.
       `#ifdef USE_MAP
         vec4 sampledDiffuseColor = texture2D(map, vMapUv);
         float chroma = smoothstep(0.05, 0.2, max(sampledDiffuseColor.r, max(sampledDiffuseColor.g, sampledDiffuseColor.b)));
+        float luma = dot(sampledDiffuseColor.rgb, vec3(0.3, 0.59, 0.11));
+        diffuseColor.rgb *= mix(0.42, 1.45, clamp(luma * 1.6, 0.0, 1.0));
         diffuseColor.a *= sampledDiffuseColor.a * chroma;
       #endif`,
     );

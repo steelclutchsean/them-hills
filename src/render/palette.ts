@@ -12,7 +12,7 @@ export const PALETTE = {
   gravel: 0xc2b39a,
   rock: 0x8d7764,
   rockLight: 0xb7a48c,
-  pine: 0x3f6b3c,
+  pine: 0x4f7d46,
   pineDark: 0x243c28,
   bark: 0x6b4630,
   timber: 0xa56b3c,

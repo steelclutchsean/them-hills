@@ -111,6 +111,9 @@ export function getQualityName(): QualityName {
 
 export function setQuality(name: QualityName): void {
   active = name;
+  if (typeof document !== 'undefined') {
+    document.documentElement.dataset.quality = name;
+  }
   const preset = QUALITY_PRESETS[name];
   (Object.keys(preset) as (keyof QualitySettings)[]).forEach((key) => {
     (RENDER_QUALITY[key] as QualitySettings[typeof key]) = preset[key];

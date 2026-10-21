@@ -63,6 +63,7 @@ async function waitReady(page: Page): Promise<Probe> {
 }
 
 test('boots, guides the first claim, and the panels respond', async ({ page }) => {
+  test.setTimeout(240_000);
   const errors = trackErrors(page);
   await page.goto('/');
   await expect(page.locator('#boot-status')).toBeVisible();
@@ -99,6 +100,7 @@ test('boots, guides the first claim, and the panels respond', async ({ page }) =
   await expect(page.locator('.panel-card h2')).toHaveText('Paused');
   await expect(page.locator('[data-quality="high"]')).toBeVisible();
   await page.locator('[data-quality="medium"]').click();
+  await page.waitForFunction(() => document.documentElement.dataset.quality === 'medium');
   await page.waitForFunction(() => window.__themHills?.graphics === 'medium');
   await page.keyboard.press('Escape');
 

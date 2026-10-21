@@ -26,7 +26,7 @@ export function createLightShafts(): LightShafts {
   const mat = new THREE.MeshBasicMaterial({
     color: PALETTE.dust,
     transparent: true,
-    opacity: 0.045,
+    opacity: 0.085,
     depthWrite: false,
     side: THREE.DoubleSide,
     blending: THREE.AdditiveBlending,

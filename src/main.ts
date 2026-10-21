@@ -233,8 +233,8 @@ async function bootstrap(): Promise<void> {
       extent: 95,
       reject: (x, z) => streams.isInStreamZone(x, z, 0.5),
       seed: 0xa9,
-      baseColor: { r: [0.32, 0.42], g: [0.36, 0.46], b: [0.12, 0.18] },
-      tipColor: { r: [0.7, 0.82], g: [0.58, 0.7], b: [0.18, 0.28] },
+      baseColor: { r: [0.22, 0.32], g: [0.28, 0.36], b: [0.08, 0.12] },
+      tipColor: { r: [0.82, 0.94], g: [0.68, 0.8], b: [0.22, 0.32] },
     });
     renderer.scene.add(grass.mesh);
   }
@@ -428,8 +428,8 @@ async function bootstrap(): Promise<void> {
         // Ground-cover blades are short, so go a bit darker / less vivid
         // than the tall layer — they read as moss/lawn underlayer rather
         // than fresh prairie growth.
-        baseColor: { r: [0.28, 0.38], g: [0.32, 0.4], b: [0.12, 0.18] },
-        tipColor: { r: [0.62, 0.75], g: [0.52, 0.64], b: [0.18, 0.26] },
+        baseColor: { r: [0.2, 0.3], g: [0.26, 0.34], b: [0.08, 0.12] },
+        tipColor: { r: [0.78, 0.9], g: [0.64, 0.76], b: [0.2, 0.3] },
         reject: (x, z) => streams.isInStreamZone(x, z, 0.5) || exclusion.isExcluded(x, z),
       });
       renderer.scene.add(grassCover.mesh);
@@ -754,10 +754,13 @@ async function bootstrap(): Promise<void> {
     onSettings: () => settings.open(),
     onQuality: (name) => {
       setQuality(name);
-      renderer.applyGraphics();
-      grass?.setCount(RENDER_QUALITY.grassTall);
-      for (const cover of grassCovers) cover.setCount(RENDER_QUALITY.grassCover);
-      motes.resize();
+      publishProbe();
+      requestAnimationFrame(() => {
+        renderer.applyGraphics();
+        grass?.setCount(RENDER_QUALITY.grassTall);
+        for (const cover of grassCovers) cover.setCount(RENDER_QUALITY.grassCover);
+        motes.resize();
+      });
     },
   });
 
