@@ -1068,13 +1068,15 @@ async function bootstrap(): Promise<void> {
         if (machine) {
           const fx = -Math.sin(machine.yaw);
           const fz = -Math.cos(machine.yaw);
-          const px = machine.x - fx * 4.6;
-          const pz = machine.z - fz * 4.6;
+          // Beside the jumper, not stacked in front of him, so the chase
+          // camera frames his face and the rocker at the same mid distance.
+          const px = machine.x - fx * 1.85 + -fz * 1.45;
+          const pz = machine.z - fz * 1.85 + fx * 1.45;
           character.placeAt(px, terrain.getHeightAt(px, pz) + 0.95, pz);
-          character.setYaw(machine.yaw);
+          character.setYaw(machine.yaw + 0.4);
           cameraRig.setAvoidance(false);
-          cameraRig.setYawPitch(machine.yaw + 0.42, -0.2);
-          cameraRig.setArmLength(6.4);
+          cameraRig.setYawPitch(machine.yaw + 0.85, 0.22);
+          cameraRig.setArmLength(5.5);
         }
         return true;
       },

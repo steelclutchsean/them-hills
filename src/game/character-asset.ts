@@ -465,6 +465,7 @@ export async function createCrewVariant(shirt: number, hat: number): Promise<THR
   const outfit = cloneSkinned(source);
   // The ranger's feet are the glTF origin, and the mesh faces +Z. Crew yaw
   // treats +Z as forward, so this clone stays unrotated and unshifted.
+  const jumper = shirt === 0x8c2f2f;
   const tint = new THREE.Color(shirt);
   outfit.traverse((obj) => {
     const label = obj.name.toLowerCase();
@@ -480,7 +481,15 @@ export async function createCrewVariant(shirt: number, hat: number): Promise<THR
         next instanceof THREE.MeshStandardMaterial &&
         !/eye/i.test(obj.name)
       ) {
-        next.color.lerp(tint, shirtMesh ? 0.72 : 0.45);
+        if (jumper) {
+          // The atlas multiply was swallowing the shirt in shade. Emissive
+          // keeps a red that still reads when the sun misses the bank.
+          next.color.set(shirtMesh ? 0xff4a3c : 0xd24a3e);
+          next.emissive.set(shirtMesh ? 0xc42820 : 0x8a221c);
+          next.emissiveIntensity = shirtMesh ? 1.05 : 0.62;
+        } else {
+          next.color.lerp(tint, shirtMesh ? 0.72 : 0.45);
+        }
       }
       return next;
     });
@@ -490,10 +499,34 @@ export async function createCrewVariant(shirt: number, hat: number): Promise<THR
   });
   const headBone = outfit.getObjectByName('Head');
   if (headBone) {
-    headBone.add(head ? head.clone(true) : createProspectorHead());
+    const face = head ? head.clone(true) : createProspectorHead();
+    if (jumper) {
+      face.scale.setScalar(1.32);
+      face.traverse((obj) => {
+        if (!(obj instanceof THREE.Mesh) || Array.isArray(obj.material)) return;
+        const mat = obj.material.clone();
+        obj.material = mat;
+        if (mat instanceof THREE.MeshStandardMaterial && mat.color.getHex() === SKIN_COLOR) {
+          mat.emissive.set(0xb87448);
+          mat.emissiveIntensity = 0.7;
+        }
+        if (mat instanceof THREE.MeshBasicMaterial) {
+          const hex = mat.color.getHex();
+          if (hex === 0xf4efe4 || hex === 0x2a1a10 || hex === 0x140c09 || hex === 0xfff6e4) {
+            obj.scale.multiplyScalar(1.7);
+          }
+        }
+      });
+    }
+    headBone.add(face);
     const cap = createProspectorHat(hat);
-    cap.position.y = 0.08;
-    cap.rotation.x = -0.22;
+    if (jumper) {
+      cap.position.y = 0.2;
+      cap.rotation.x = -0.62;
+    } else {
+      cap.position.y = 0.08;
+      cap.rotation.x = -0.22;
+    }
     headBone.add(cap);
   }
   for (const name of ['upperarm_l', 'upperarm_r', 'thigh_l', 'thigh_r']) {

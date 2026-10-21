@@ -3,11 +3,12 @@ import type { ClaimRecord, SaveV1 } from '@/save/schema';
 import type { MinigameViz } from '@/game/minigames/types';
 import type { Watercourse } from '@/game/watercourse';
 import { PALETTE } from '@/render/palette';
-import { addGoldFlake, cutTimber } from '@/render/painterly';
+import { addGoldFlake, machineTimber } from '@/render/painterly';
 import { markReflective } from '@/render/reflection';
 
-// Claim machines on the dry bank, built like the town timber: painted grain,
-// iron straps, water in the box, gold sitting in the riffles.
+// Claim machines on the dry bank. Each one keeps a historical silhouette:
+// a rocking cradle, a trestled sluice, a two-part long tom, an iron monitor.
+// The wood is sun-bleached so the shape still reads from the work camera.
 
 export type MachineKind = 'rocker' | 'sluice' | 'longtom' | 'monitor';
 
@@ -161,17 +162,13 @@ function key(m: PlacedMachine): string {
   return `${m.claimId}:${m.kind}`;
 }
 
-function timber(sx: number, sy: number, dark = false): THREE.MeshStandardMaterial {
-  return cutTimber(sx, sy, dark);
-}
-
 function iron(): THREE.MeshPhysicalMaterial {
   return new THREE.MeshPhysicalMaterial({
-    color: 0x8d8680,
-    roughness: 0.32,
-    metalness: 0.92,
-    clearcoat: 0.45,
-    clearcoatRoughness: 0.28,
+    color: 0xb7b3ad,
+    roughness: 0.28,
+    metalness: 0.94,
+    clearcoat: 0.55,
+    clearcoatRoughness: 0.22,
   });
 }
 
@@ -231,6 +228,16 @@ function box(
   return mesh;
 }
 
+const outflowMat = new THREE.MeshBasicMaterial({
+  color: 0xd7f4ef,
+  transparent: true,
+  opacity: 0.88,
+  depthWrite: false,
+  side: THREE.DoubleSide,
+});
+
+const foamMat = new THREE.MeshBasicMaterial({ color: PALETTE.foam });
+
 function water(w: number, len: number, x: number, y: number, z: number): THREE.Mesh {
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, len), waterMat);
   mesh.rotation.x = -Math.PI / 2;
@@ -257,154 +264,286 @@ function flakes(
   }
 }
 
+function cyl(
+  radiusTop: number,
+  radiusBottom: number,
+  height: number,
+  mat: THREE.Material,
+  x: number,
+  y: number,
+  z: number,
+): THREE.Mesh {
+  const mesh = new THREE.Mesh(
+    stamp(new THREE.CylinderGeometry(radiusTop, radiusBottom, height, 8)),
+    mat,
+  );
+  mesh.position.set(x, y, z);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+/** A semicircle of boards under the cradle, hanging below the pivot. */
+function addCurvedRocker(parent: THREE.Object3D, x: number, mat: THREE.Material): void {
+  const radius = 0.84;
+  const segments = 8;
+  const arc = (Math.PI * radius) / (segments - 1);
+  for (let i = 0; i < segments; i++) {
+    const t = (i / (segments - 1)) * Math.PI;
+    const board = box(0.08, 0.055, arc + 0.06, mat, x, -Math.sin(t) * radius, Math.cos(t) * radius);
+    board.rotation.x = Math.PI / 2 - t;
+    parent.add(board);
+  }
+}
+
+/** A-frame under a trough. `top` is the cap height in parent space. */
+function trestle(
+  parent: THREE.Object3D,
+  z: number,
+  top: number,
+  spread: number,
+  mat: THREE.Material,
+): void {
+  const height = Math.max(0.24, top);
+  for (const side of [-1, 1]) {
+    const leg = cyl(0.04, 0.05, height, mat, side * spread, height * 0.48, z);
+    leg.rotation.z = side * -0.28;
+    parent.add(leg);
+  }
+  parent.add(box(spread * 2.15, 0.055, 0.07, mat, 0, height, z));
+  const brace = box(0.045, height * 0.72, 0.045, mat, 0, height * 0.42, z);
+  brace.rotation.z = 0.72;
+  parent.add(brace);
+}
+
+function strut(
+  parent: THREE.Object3D,
+  x0: number,
+  y0: number,
+  z0: number,
+  x1: number,
+  y1: number,
+  z1: number,
+  radius: number,
+  mat: THREE.Material,
+): void {
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const dz = z1 - z0;
+  const len = Math.hypot(dx, dy, dz) || 0.001;
+  const mesh = new THREE.Mesh(stamp(new THREE.CylinderGeometry(radius, radius * 1.2, len, 6)), mat);
+  mesh.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+  mesh.quaternion.setFromUnitVectors(
+    new THREE.Vector3(0, 1, 0),
+    new THREE.Vector3(dx / len, dy / len, dz / len),
+  );
+  mesh.castShadow = true;
+  parent.add(mesh);
+}
+
+function outlet(parent: THREE.Object3D, x: number, y: number, z: number): void {
+  const sheet = new THREE.Mesh(new THREE.PlaneGeometry(0.58, 0.42), outflowMat);
+  sheet.position.set(x, y, z);
+  sheet.name = 'spill';
+  parent.add(sheet);
+  const pool = new THREE.Mesh(new THREE.CircleGeometry(0.38, 12), outflowMat);
+  pool.rotation.x = -Math.PI / 2;
+  pool.position.set(x, 0.04, z + 0.28);
+  parent.add(pool);
+  const foam = new THREE.Mesh(new THREE.SphereGeometry(0.11, 6, 5), foamMat);
+  foam.scale.set(2.1, 0.32, 1.15);
+  foam.position.set(x, 0.07, z + 0.12);
+  parent.add(foam);
+}
+
 function buildProp(kind: MachineKind): THREE.Group {
   const g = new THREE.Group();
-  const wood = timber(1.4, 2.2);
-  const dark = timber(1, 1.6, true);
+  const wood = machineTimber(1.6, 2.4);
+  const cleat = machineTimber(1.1, 1.3, 0.72);
   const metal = iron();
-  if (kind === 'rocker') buildRocker(g, wood, dark, metal);
-  else if (kind === 'sluice') buildSluice(g, wood, dark, metal);
-  else if (kind === 'longtom') buildTom(g, wood, dark, metal);
-  else buildMonitor(g, wood, dark, metal);
+  if (kind === 'rocker') buildRocker(g, wood, cleat, metal);
+  else if (kind === 'sluice') buildSluice(g, wood, cleat, metal);
+  else if (kind === 'longtom') buildTom(g, wood, cleat, metal);
+  else buildMonitor(g, metal);
   return g;
 }
 
 function buildRocker(
   g: THREE.Group,
   wood: THREE.Material,
-  dark: THREE.Material,
+  cleat: THREE.Material,
   metal: THREE.Material,
 ): void {
   const body = new THREE.Group();
   body.name = 'rocker-body';
-  body.position.y = 0.62;
-  body.add(box(0.92, 0.08, 1.15, wood, 0, 0, 0));
-  body.add(box(0.06, 0.28, 1.15, dark, -0.43, 0.16, 0));
-  body.add(box(0.06, 0.28, 1.15, dark, 0.43, 0.16, 0));
-  body.add(box(0.92, 0.22, 0.06, dark, 0, 0.14, -0.54));
-  body.add(box(0.86, 0.04, 0.04, dark, 0, 0.08, -0.2));
-  body.add(box(0.86, 0.04, 0.04, dark, 0, 0.08, 0.05));
-  body.add(box(0.86, 0.04, 0.04, dark, 0, 0.08, 0.3));
-  body.add(water(0.78, 0.9, 0, 0.1, 0.02));
-  body.add(box(0.72, 0.2, 0.36, dark, 0, 0.32, -0.48));
-  body.add(box(0.9, 0.025, 0.04, metal, 0, 0.22, -0.15));
-  flakes(body, 5, 0, -0.15, 0.16, 0.36);
-  const handle = box(0.08, 0.08, 0.7, dark, 0.55, 0.2, 0);
+  // Pivot sits on the rocker crowns. The arcs hang to the ground and rock with the cradle.
+  body.position.y = 0.96;
+  addCurvedRocker(body, -0.48, wood);
+  addCurvedRocker(body, 0.48, wood);
+  body.add(box(1.12, 0.07, 1.4, wood, 0, 0.08, 0.05));
+  body.add(box(0.07, 0.32, 1.4, wood, -0.54, 0.26, 0.05));
+  body.add(box(0.07, 0.32, 1.4, wood, 0.54, 0.26, 0.05));
+  body.add(box(1.12, 0.4, 0.07, wood, 0, 0.28, -0.64));
+  body.add(box(1.12, 0.12, 0.06, wood, 0, 0.14, 0.74));
+  body.add(box(0.96, 0.05, 0.05, cleat, 0, 0.14, -0.2));
+  body.add(box(0.96, 0.05, 0.05, cleat, 0, 0.14, 0.12));
+  body.add(box(0.96, 0.05, 0.05, cleat, 0, 0.14, 0.44));
+  body.add(water(0.92, 1.1, 0, 0.16, 0.06));
+  body.add(box(1.2, 0.028, 0.045, metal, 0, 0.42, 0.02));
+  const hopper = new THREE.Group();
+  hopper.position.set(0, 0.52, -0.78);
+  hopper.add(box(0.86, 0.07, 0.52, wood, 0, 0, 0));
+  hopper.add(box(0.07, 0.34, 0.52, wood, -0.42, 0.16, 0));
+  hopper.add(box(0.07, 0.34, 0.52, wood, 0.42, 0.16, 0));
+  hopper.add(box(0.86, 0.3, 0.07, wood, 0, 0.18, -0.22));
+  body.add(hopper);
+  const handle = box(0.07, 0.07, 1.45, wood, 0, 0.62, -1.28);
+  handle.rotation.x = -0.62;
   body.add(handle);
+  body.add(box(0.42, 0.06, 0.06, wood, 0, 1.02, -1.72));
+  flakes(body, 5, 0, -0.12, 0.18, 0.5);
   g.add(body);
-  for (const side of [-0.34, 0.34]) {
-    const rocker = new THREE.Mesh(
-      stamp(new THREE.TorusGeometry(0.34, 0.035, 6, 14, Math.PI)),
-      dark,
-    );
-    rocker.rotation.y = Math.PI / 2;
-    rocker.position.set(side, 0.34, 0);
-    rocker.castShadow = true;
-    g.add(rocker);
-  }
-  g.add(box(0.08, 0.04, 0.9, metal, -0.34, 0.04, 0));
-  g.add(box(0.08, 0.04, 0.9, metal, 0.34, 0.04, 0));
 }
 
 function buildSluice(
   g: THREE.Group,
   wood: THREE.Material,
-  dark: THREE.Material,
+  cleat: THREE.Material,
   metal: THREE.Material,
 ): void {
   const race = new THREE.Group();
   race.name = 'sluice-body';
-  race.rotation.x = -0.07;
-  race.position.y = 0.58;
-  race.add(box(0.62, 0.05, 3.15, wood, 0, 0, 0.15));
-  race.add(box(0.05, 0.2, 3.15, dark, -0.3, 0.1, 0.15));
-  race.add(box(0.05, 0.2, 3.15, dark, 0.3, 0.1, 0.15));
-  for (let i = 0; i < 7; i++) {
-    race.add(box(0.54, 0.045, 0.045, dark, 0, 0.07, -0.9 + i * 0.36));
-    race.add(box(0.5, 0.02, 0.02, metal, 0, 0.1, -0.9 + i * 0.36));
+  // Positive X rotation drops the creek end (+Z) so the race runs downhill.
+  race.rotation.x = 0.2;
+  race.position.set(0, 0.78, 0.15);
+  const length = 4.7;
+  race.add(box(0.9, 0.06, length, wood, 0, 0, 0));
+  race.add(box(0.06, 0.26, length, wood, -0.45, 0.15, 0));
+  race.add(box(0.06, 0.26, length, wood, 0.45, 0.15, 0));
+  race.add(box(0.9, 0.32, 0.07, wood, 0, 0.18, -length / 2));
+  for (let i = 0; i < 9; i++) {
+    const z = -1.75 + i * 0.44;
+    race.add(box(0.76, 0.07, 0.06, cleat, 0, 0.08, z));
+    race.add(box(0.76, 0.02, 0.035, metal, 0, 0.125, z));
   }
-  race.add(water(0.5, 2.7, 0, 0.09, 0.25));
-  flakes(race, 6, 0, -0.7, 0.32, 0.28);
-  const hopper = box(0.7, 0.28, 0.48, dark, 0, 0.22, -1.35);
-  race.add(hopper);
-  const mound = new THREE.Mesh(stamp(new THREE.SphereGeometry(0.16, 8, 6)), timber(1, 1, true));
-  mound.scale.set(1.2, 0.45, 0.8);
-  mound.position.set(0, 0.32, -1.32);
-  race.add(mound);
+  race.add(water(0.74, length - 0.45, 0, 0.1, 0.18));
+  race.add(box(0.72, 0.2, 0.36, wood, 0, 0.26, -length / 2 - 0.02));
+  flakes(race, 6, 0, -1.45, 0.5, 0.38);
   g.add(race);
-  g.add(box(0.08, 0.52, 0.08, dark, -0.24, 0.26, -1.15));
-  g.add(box(0.08, 0.38, 0.08, dark, 0.24, 0.19, -1.15));
-  g.add(box(0.08, 0.28, 0.08, dark, -0.24, 0.14, 1.45));
-  g.add(box(0.08, 0.2, 0.08, dark, 0.24, 0.1, 1.45));
-  g.add(box(0.04, 0.08, 3.2, metal, -0.28, 0.62, 0.15));
-  g.add(box(0.04, 0.08, 3.2, metal, 0.28, 0.5, 0.15));
+  trestle(g, -1.9, 1.18, 0.58, wood);
+  trestle(g, -0.15, 0.78, 0.52, wood);
+  trestle(g, 1.55, 0.4, 0.46, wood);
+  outlet(g, 0, 0.2, 2.55);
 }
 
 function buildTom(
   g: THREE.Group,
   wood: THREE.Material,
-  dark: THREE.Material,
+  cleat: THREE.Material,
   metal: THREE.Material,
 ): void {
-  const race = new THREE.Group();
-  race.rotation.x = -0.05;
-  race.position.y = 0.5;
-  race.add(box(0.7, 0.05, 4.05, wood, 0, 0, -0.2));
-  race.add(box(0.05, 0.22, 4.05, dark, -0.34, 0.12, -0.2));
-  race.add(box(0.05, 0.22, 4.05, dark, 0.34, 0.12, -0.2));
-  race.add(water(0.56, 3.2, 0, 0.08, -0.35));
-  flakes(race, 7, 0, -1.2, 0.34, 0.3);
-  for (let i = 0; i < 8; i++) race.add(box(0.6, 0.04, 0.04, dark, 0, 0.07, -1.5 + i * 0.38));
-  g.add(race);
-  const hopper = box(0.78, 0.36, 0.62, dark, 0, 0.78, 1.45);
-  g.add(hopper);
+  const upper = new THREE.Group();
+  upper.rotation.x = 0.05;
+  upper.position.set(0, 1.14, -1.2);
+  upper.add(box(1.02, 0.06, 1.9, wood, 0, 0, 0));
+  upper.add(box(0.065, 0.34, 1.9, wood, -0.5, 0.18, 0));
+  upper.add(box(0.065, 0.34, 1.9, wood, 0.5, 0.18, 0));
+  upper.add(box(1.02, 0.4, 0.07, wood, 0, 0.2, -0.92));
+  g.add(upper);
+
   const grizzly = new THREE.Group();
   grizzly.name = 'grizzly';
-  grizzly.position.set(0, 1.02, 1.45);
-  for (let i = 0; i < 6; i++) {
-    const rod = new THREE.Mesh(stamp(new THREE.CylinderGeometry(0.012, 0.012, 0.7, 6)), metal);
-    rod.rotation.z = Math.PI / 2;
-    rod.position.set(0, 0, -0.22 + i * 0.09);
-    rod.castShadow = true;
-    grizzly.add(rod);
+  grizzly.position.set(0, 1.02, -0.18);
+  grizzly.add(box(0.88, 0.04, 0.72, metal, 0, 0, 0));
+  const holeMat = new THREE.MeshBasicMaterial({ color: 0x140e0a });
+  for (let row = 0; row < 4; row++) {
+    for (let col = 0; col < 5; col++) {
+      const hole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.055, 8), holeMat);
+      hole.position.set(-0.28 + col * 0.14, 0.02, -0.22 + row * 0.15);
+      grizzly.add(hole);
+    }
   }
   g.add(grizzly);
-  g.add(box(0.08, 0.62, 0.08, dark, -0.28, 0.31, 1.2));
-  g.add(box(0.08, 0.62, 0.08, dark, 0.28, 0.31, 1.2));
-  g.add(box(0.08, 0.28, 0.08, dark, -0.28, 0.14, -1.9));
-  g.add(box(0.08, 0.22, 0.08, dark, 0.28, 0.11, -1.9));
+
+  const lower = new THREE.Group();
+  lower.rotation.x = 0.13;
+  lower.position.set(0, 0.56, 1.95);
+  const length = 4.3;
+  lower.add(box(0.8, 0.05, length, wood, 0, 0, 0));
+  lower.add(box(0.055, 0.22, length, wood, -0.39, 0.12, 0));
+  lower.add(box(0.055, 0.22, length, wood, 0.39, 0.12, 0));
+  for (let i = 0; i < 8; i++) {
+    lower.add(box(0.66, 0.06, 0.05, cleat, 0, 0.07, -1.55 + i * 0.44));
+    lower.add(box(0.66, 0.018, 0.03, metal, 0, 0.11, -1.55 + i * 0.44));
+  }
+  lower.add(water(0.66, length - 0.35, 0, 0.09, 0.2));
+  flakes(lower, 7, 0, -1.15, 0.4, 0.34);
+  g.add(lower);
+
+  trestle(g, -1.75, 1.08, 0.6, wood);
+  trestle(g, -0.45, 0.96, 0.54, wood);
+  trestle(g, 1.15, 0.58, 0.48, wood);
+  trestle(g, 3.15, 0.3, 0.42, wood);
+  outlet(g, 0, 0.16, 4.15);
 }
 
-function buildMonitor(
-  g: THREE.Group,
-  wood: THREE.Material,
-  dark: THREE.Material,
-  metal: THREE.Material,
-): void {
-  const legL = new THREE.Mesh(stamp(new THREE.CylinderGeometry(0.045, 0.055, 1.35, 6)), dark);
-  legL.position.set(-0.28, 0.62, -0.15);
-  legL.rotation.z = 0.18;
-  legL.castShadow = true;
-  const legR = legL.clone();
-  legR.position.x = 0.28;
-  legR.rotation.z = -0.18;
-  g.add(legL, legR);
-  g.add(box(0.7, 0.08, 0.08, wood, 0, 1.15, -0.1));
-  const nozzle = new THREE.Mesh(stamp(new THREE.CylinderGeometry(0.05, 0.09, 0.85, 10)), metal);
+function buildMonitor(g: THREE.Group, metal: THREE.Material): void {
+  const canvas = new THREE.MeshStandardMaterial({
+    color: 0xe4d3ae,
+    roughness: 0.9,
+    metalness: 0,
+    emissive: 0xd4c096,
+    emissiveIntensity: 0.42,
+  });
+  const earth = new THREE.MeshStandardMaterial({ color: 0xb08968, roughness: 0.96 });
+  const hub: [number, number, number] = [0, 1.18, -0.05];
+  strut(g, -0.62, 0, -0.42, hub[0], hub[1], hub[2], 0.045, metal);
+  strut(g, 0.62, 0, -0.42, hub[0], hub[1], hub[2], 0.045, metal);
+  strut(g, 0, 0, 0.55, hub[0], hub[1], hub[2], 0.045, metal);
+  const ring = new THREE.Mesh(stamp(new THREE.TorusGeometry(0.22, 0.032, 8, 18)), metal);
+  ring.rotation.x = Math.PI / 2;
+  ring.position.set(hub[0], hub[1], hub[2]);
+  ring.castShadow = true;
+  g.add(ring);
+  g.add(box(0.05, 0.32, 0.06, metal, -0.16, 1.36, -0.02));
+  g.add(box(0.05, 0.32, 0.06, metal, 0.16, 1.36, -0.02));
+  const pin = cyl(0.028, 0.028, 0.4, metal, 0, 1.46, -0.02);
+  pin.rotation.z = Math.PI / 2;
+  g.add(pin);
+
+  const nozzle = new THREE.Mesh(stamp(new THREE.CylinderGeometry(0.11, 0.055, 1.25, 12)), metal);
   nozzle.name = 'nozzle';
   nozzle.rotation.x = Math.PI / 2;
-  nozzle.position.set(0, 1.05, 0.35);
+  nozzle.position.set(0, 1.46, 0.58);
   nozzle.castShadow = true;
+  const bell = new THREE.Mesh(stamp(new THREE.CylinderGeometry(0.2, 0.1, 0.3, 12)), metal);
+  bell.position.y = 0.72;
+  bell.castShadow = true;
+  nozzle.add(bell);
   g.add(nozzle);
-  const hose = new THREE.Mesh(stamp(new THREE.TorusGeometry(0.42, 0.035, 8, 16, Math.PI)), dark);
-  hose.rotation.y = Math.PI / 2;
-  hose.rotation.z = 0.4;
-  hose.position.set(-0.35, 0.7, -0.15);
-  hose.castShadow = true;
+
+  const hose = new THREE.Mesh(
+    new THREE.TubeGeometry(
+      new THREE.CatmullRomCurve3([
+        new THREE.Vector3(-1.15, 0.06, -0.7),
+        new THREE.Vector3(-0.95, 0.18, -0.2),
+        new THREE.Vector3(-0.55, 0.48, 0.05),
+        new THREE.Vector3(-0.18, 0.95, -0.08),
+        new THREE.Vector3(0, 1.42, -0.08),
+      ]),
+      28,
+      0.062,
+      8,
+      false,
+    ),
+    canvas,
+  );
   hose.name = 'hose';
+  hose.castShadow = true;
   g.add(hose);
+
   const spray = new THREE.Mesh(
-    new THREE.ConeGeometry(0.22, 1.4, 8, 1, true),
+    new THREE.ConeGeometry(0.28, 1.6, 8, 1, true),
     new THREE.MeshBasicMaterial({
       color: PALETTE.foam,
       transparent: true,
@@ -415,16 +554,16 @@ function buildMonitor(
   );
   spray.name = 'spray';
   spray.rotation.x = Math.PI / 2;
-  spray.position.set(0, 1.02, 1.15);
+  spray.position.set(0, 1.42, 1.85);
   spray.visible = false;
   g.add(spray);
-  const berm = new THREE.Mesh(stamp(new THREE.BoxGeometry(1.4, 0.55, 0.7)), timber(2, 1, true));
-  berm.position.set(0, 0.22, 1.7);
+  const berm = new THREE.Mesh(stamp(new THREE.BoxGeometry(1.6, 0.6, 0.85)), earth);
+  berm.position.set(0, 0.24, 2.15);
   berm.name = 'berm';
   berm.castShadow = true;
   berm.receiveShadow = true;
   g.add(berm);
-  flakes(g, 6, 0, 1.55, 0.12, 0.62);
+  flakes(g, 6, 0, 2.05, 0.12, 0.68);
 }
 
 function animate(

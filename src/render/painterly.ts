@@ -259,6 +259,140 @@ export function cutTimber(
   return mat;
 }
 
+let machineWood: {
+  map: THREE.CanvasTexture;
+  normal: THREE.CanvasTexture;
+  ao: THREE.CanvasTexture;
+} | null = null;
+
+/** Sun-bleached claim timber. Lighter than the town logs so a machine reads at mid-shot. */
+function machineWoodTextures(): {
+  map: THREE.CanvasTexture;
+  normal: THREE.CanvasTexture;
+  ao: THREE.CanvasTexture;
+} {
+  const size = 128;
+  const albedo = document.createElement('canvas');
+  albedo.width = size;
+  albedo.height = size;
+  const actx = albedo.getContext('2d');
+  if (!actx) throw new Error('[painterly] canvas 2d unavailable');
+  actx.fillStyle = '#ead7b4';
+  actx.fillRect(0, 0, size, size);
+  const plank = 32;
+  for (let y = 0; y < size; y += plank) {
+    const row = y / plank;
+    const r = 214 + (row % 2) * 18;
+    const g = 176 + (row % 3) * 8;
+    const b = 122 + (row % 2) * 14;
+    actx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+    actx.fillRect(0, y, size, plank - 3);
+    actx.fillStyle = '#8a6844';
+    actx.fillRect(0, y + plank - 3, size, 3);
+    actx.globalAlpha = 0.33;
+    actx.fillStyle = '#b08960';
+    for (let grain = 0; grain < 4; grain++) actx.fillRect(0, y + 5 + grain * 6, size, 1);
+    actx.globalAlpha = 1;
+    if (row % 2 === 0) {
+      actx.globalAlpha = 0.42;
+      actx.fillStyle = '#ddd6c6';
+      actx.fillRect(10, y + 7, 78, 9);
+      actx.globalAlpha = 1;
+    }
+    if (row % 3 === 1) {
+      actx.fillStyle = '#a67c52';
+      actx.beginPath();
+      actx.ellipse(28 + row * 6, y + 16, 7, 5, 0.4, 0, Math.PI * 2);
+      actx.fill();
+    }
+  }
+  const dirt = actx.createLinearGradient(0, size * 0.82, 0, size);
+  dirt.addColorStop(0, 'rgba(0,0,0,0)');
+  dirt.addColorStop(1, 'rgba(120, 84, 48, 0.22)');
+  actx.fillStyle = dirt;
+  actx.fillRect(0, 0, size, size);
+
+  const normal = document.createElement('canvas');
+  normal.width = size;
+  normal.height = size;
+  const nctx = normal.getContext('2d');
+  if (!nctx) throw new Error('[painterly] canvas 2d unavailable');
+  const pixels = nctx.createImageData(size, size);
+  for (let y = 0; y < size; y++) {
+    const inPlank = y % plank;
+    const ny = inPlank < 3 ? -0.28 : inPlank > plank - 4 ? 0.28 : 0;
+    const nx = 0;
+    const nz = 0.92;
+    const len = Math.hypot(nx, ny, nz) || 1;
+    for (let x = 0; x < size; x++) {
+      const o = (y * size + x) * 4;
+      pixels.data[o] = Math.round((nx / len) * 127 + 128);
+      pixels.data[o + 1] = Math.round((ny / len) * 127 + 128);
+      pixels.data[o + 2] = Math.round((nz / len) * 127 + 128);
+      pixels.data[o + 3] = 255;
+    }
+  }
+  nctx.putImageData(pixels, 0, 0);
+
+  const aoCanvas = document.createElement('canvas');
+  aoCanvas.width = size;
+  aoCanvas.height = size;
+  const octx = aoCanvas.getContext('2d');
+  if (!octx) throw new Error('[painterly] canvas 2d unavailable');
+  octx.fillStyle = '#f0ece4';
+  octx.fillRect(0, 0, size, size);
+  for (let y = 0; y < size; y += plank) {
+    octx.fillStyle = '#b9b3a8';
+    octx.fillRect(0, y + plank - 4, size, 4);
+  }
+
+  const map = new THREE.CanvasTexture(albedo);
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.wrapS = THREE.RepeatWrapping;
+  map.wrapT = THREE.RepeatWrapping;
+  map.anisotropy = 4;
+  const normalMap = new THREE.CanvasTexture(normal);
+  normalMap.colorSpace = THREE.NoColorSpace;
+  normalMap.wrapS = THREE.RepeatWrapping;
+  normalMap.wrapT = THREE.RepeatWrapping;
+  const ao = new THREE.CanvasTexture(aoCanvas);
+  ao.colorSpace = THREE.NoColorSpace;
+  ao.wrapS = THREE.RepeatWrapping;
+  ao.wrapT = THREE.RepeatWrapping;
+  return { map, normal: normalMap, ao };
+}
+
+/**
+ * Claim-machine boards. `deepen` below 1 darkens riffle cleats without
+ * falling back to the town's near-black timber.
+ */
+export function machineTimber(
+  repeatU: number,
+  repeatV: number,
+  deepen = 1,
+): THREE.MeshStandardMaterial {
+  const tex = (machineWood ??= machineWoodTextures());
+  const map = tex.map.clone();
+  const normalMap = tex.normal.clone();
+  const aoMap = tex.ao.clone();
+  map.repeat.set(repeatU, repeatV);
+  normalMap.repeat.set(repeatU, repeatV);
+  aoMap.repeat.set(repeatU, repeatV);
+  const mat = new THREE.MeshStandardMaterial({
+    map,
+    normalMap,
+    aoMap,
+    color: new THREE.Color(deepen, deepen * 0.94, deepen * 0.78),
+    roughness: 0.82,
+    metalness: 0.02,
+    emissive: new THREE.Color(0.5 * deepen, 0.36 * deepen, 0.18 * deepen),
+    emissiveIntensity: 0.5,
+    aoMapIntensity: 0.32,
+  });
+  mat.normalScale.set(0.55, 0.55);
+  return mat;
+}
+
 const goldGlintUniforms = { uTime: { value: 0 } };
 
 /** Shared metallic flake. The glint child is what the bloom pass catches. */

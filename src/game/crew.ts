@@ -109,6 +109,19 @@ export function createCrew(scene: THREE.Scene): Crew {
           sack.position.set(0.28, 0.95, 0.18);
           sack.castShadow = true;
           mesh.add(sack);
+          // Fill from the front and a warm rim from behind. These stay on the
+          // group (not the proxy) so the hero swap does not throw them away.
+          const fill = new THREE.PointLight(0xfff4e4, 28, 4.5, 2);
+          fill.name = 'jumper-fill';
+          fill.position.set(0, 1.55, 1.15);
+          fill.castShadow = false;
+          fill.layers.enable(1);
+          const rim = new THREE.PointLight(0xffb56a, 18, 3.4, 2);
+          rim.name = 'jumper-rim';
+          rim.position.set(-0.25, 1.95, -0.9);
+          rim.castShadow = false;
+          rim.layers.enable(1);
+          mesh.add(fill, rim);
           root.add(mesh);
           state = { mesh, phase: 'steal', fleeFor: 0, closeFor: 0, approachFor: 0 };
           jumpers.set(claim.id, state);
@@ -245,7 +258,13 @@ function pose(mesh: THREE.Group, time: number, work: Work, seed: number): void {
 
 function person(shirt: number, hat: number): THREE.Group {
   const g = new THREE.Group();
-  const cloth = new THREE.MeshStandardMaterial({ color: shirt, roughness: 0.82 });
+  const jumper = shirt === 0x8c2f2f;
+  const cloth = new THREE.MeshStandardMaterial({
+    color: jumper ? 0xe23b32 : shirt,
+    roughness: 0.78,
+    emissive: jumper ? 0xa1241c : 0x000000,
+    emissiveIntensity: jumper ? 0.75 : 0,
+  });
   const skin = new THREE.MeshStandardMaterial({ color: 0xc9926a, roughness: 0.72 });
   const dark = new THREE.MeshStandardMaterial({ color: PALETTE.timberDark, roughness: 0.86 });
   const hatMat = new THREE.MeshStandardMaterial({ color: hat, roughness: 0.8 });
