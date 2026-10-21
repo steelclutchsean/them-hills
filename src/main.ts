@@ -63,7 +63,7 @@ import { CAMP_REST_TIME_ADVANCE, computeSurvivalYieldFactor } from '@/game/survi
 import { createTerrain } from '@/game/terrain';
 import { createWeatherController } from '@/game/weather';
 import { createVendors, type Vendor } from '@/game/vendor';
-import { createCameraModeController } from '@/engine/camera-modes';
+import { createCameraModeController, frameToolShot } from '@/engine/camera-modes';
 import { createGameLoop } from '@/engine/loop';
 import { createRenderer } from '@/engine/renderer';
 import { createInputManager } from '@/input/manager';
@@ -84,7 +84,13 @@ import {
   RENDER_QUALITY,
   setQuality,
 } from '@/engine/quality';
-import { readReviewOverride, reviewShot, reviewWorldTime, setReviewPose } from '@/dev/review-shots';
+import {
+  getReviewPose,
+  readReviewOverride,
+  reviewShot,
+  reviewWorldTime,
+  setReviewPose,
+} from '@/dev/review-shots';
 import { setFoliageWindTime } from '@/render/painterly';
 import { createSmokePilot } from '@/dev/smoke-pilot';
 import { mountOverlays, reportBoot } from '@/ui/overlays';
@@ -494,6 +500,8 @@ async function bootstrap(): Promise<void> {
   });
   if (review?.arm) cameraRig.setArmLength(review.arm);
   if (review?.pose) setReviewPose(review.pose);
+  const chaseFov = renderer.camera.fov;
+  let reviewingTool = false;
 
   // ---- Prospect first-person camera + tool mount ----
   // The prospect lifecycle swaps the third-person rig out for a fixed
@@ -753,6 +761,7 @@ async function bootstrap(): Promise<void> {
         if (!shot) return false;
         const y = terrain.getHeightAt(shot.x, shot.z) + 1.5;
         character.placeAt(shot.x, y, shot.z);
+        if (shot.pose === 'dig' || shot.pose === 'pan') character.setYaw(shot.yaw);
         cameraRig.setYawPitch(shot.yaw, shot.pitch);
         cameraRig.setArmLength(shot.arm);
         setReviewPose(shot.pose);
@@ -1035,7 +1044,29 @@ async function bootstrap(): Promise<void> {
           }
         }
       } else {
-        cameraRig.placeCamera(charPosForCamera, physics.rapier, character.getColliderHandle(), dt);
+        const reviewPose = getReviewPose();
+        if (reviewPose === 'dig' || reviewPose === 'pan') {
+          frameToolShot(
+            renderer.camera,
+            charPosForCamera,
+            character.getYaw(),
+            reviewPose,
+            character.getToolFocus(),
+          );
+          reviewingTool = true;
+        } else {
+          if (reviewingTool) {
+            renderer.camera.fov = chaseFov;
+            renderer.camera.updateProjectionMatrix();
+            reviewingTool = false;
+          }
+          cameraRig.placeCamera(
+            charPosForCamera,
+            physics.rapier,
+            character.getColliderHandle(),
+            dt,
+          );
+        }
       }
 
       // 7. Proximity: precedence is vendor > general store > inn > Pete > mine > camp > site.

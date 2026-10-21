@@ -52,6 +52,7 @@ export interface Character {
   getPosition(): THREE.Vector3;
   /** Teleport the kinematic body. Used by the playtest pilot to reach a site. */
   placeAt(x: number, y: number, z: number): void;
+  setYaw(yaw: number): void;
   getYaw(): number;
   /** World point the dig or pan camera and the wrist aim share. */
   getToolFocus(): THREE.Vector3;
@@ -312,6 +313,10 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
       group.position.set(x, y, z);
       verticalVelocity = 0;
       grounded = false;
+    },
+    setYaw(next) {
+      yaw = next;
+      group.rotation.y = next;
     },
     getYaw: () => yaw,
     getToolFocus: () => focusAt(toolStep),

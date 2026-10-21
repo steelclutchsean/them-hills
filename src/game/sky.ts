@@ -43,12 +43,12 @@ const KEY_PALETTES: { hour: number; palette: SkyPalette }[] = [
   {
     hour: 0,
     palette: {
-      bg: 0x142033,
-      fog: 0x1c2c48,
-      sunColor: 0xb7c9e6,
-      sunIntensity: 0.16,
-      ambientColor: 0x9eb4d2,
-      ambientIntensity: 0.32,
+      bg: 0x102038,
+      fog: 0x1a3050,
+      sunColor: 0xc5d6ef,
+      sunIntensity: 0.07,
+      ambientColor: 0x7f97b8,
+      ambientIntensity: 0.16,
     },
   },
   {
@@ -65,12 +65,12 @@ const KEY_PALETTES: { hour: number; palette: SkyPalette }[] = [
   {
     hour: 6.5,
     palette: {
-      bg: 0xc9866a,
-      fog: 0x7e6a86,
+      bg: 0xc48a72,
+      fog: 0x6e6884,
       sunColor: 0xffc18a,
-      sunIntensity: 0.72,
-      ambientColor: 0x7f8eae,
-      ambientIntensity: 0.42,
+      sunIntensity: 0.62,
+      ambientColor: 0x8496b4,
+      ambientIntensity: 0.4,
     },
   },
   {
@@ -109,34 +109,34 @@ const KEY_PALETTES: { hour: number; palette: SkyPalette }[] = [
   {
     hour: 18.5,
     palette: {
-      bg: 0x6e4e6e,
-      fog: 0x8a625c,
+      bg: 0x5a4a68,
+      fog: 0x6d627c,
       sunColor: 0xffb07a,
-      sunIntensity: 0.85,
-      ambientColor: 0x6a7a98,
-      ambientIntensity: 0.42,
+      sunIntensity: 0.48,
+      ambientColor: 0x7384a4,
+      ambientIntensity: 0.32,
     },
   },
   {
     hour: 20,
     palette: {
-      bg: 0x1a2744,
-      fog: 0x243656,
-      sunColor: 0x9bb4d8,
-      sunIntensity: 0.22,
-      ambientColor: 0x8aa4c8,
-      ambientIntensity: 0.34,
+      bg: 0x162844,
+      fog: 0x203454,
+      sunColor: 0xb7c8e4,
+      sunIntensity: 0.08,
+      ambientColor: 0x7a92b4,
+      ambientIntensity: 0.17,
     },
   },
   {
     hour: 22,
     palette: {
-      bg: 0x142033,
-      fog: 0x1c2c48,
-      sunColor: 0xb7c9e6,
-      sunIntensity: 0.16,
-      ambientColor: 0x9eb4d2,
-      ambientIntensity: 0.32,
+      bg: 0x102038,
+      fog: 0x1a3050,
+      sunColor: 0xc5d6ef,
+      sunIntensity: 0.07,
+      ambientColor: 0x7f97b8,
+      ambientIntensity: 0.16,
     },
   },
 ];
@@ -296,7 +296,9 @@ export function createSkyController(opts: {
     // Night tone-mapping lift so the moonlit hills stay readable. Caves
     // still crush the lights after this runs.
     const night = smooth01(0.18, -0.2, elev);
-    let exposure = 1.02 + night * 0.34;
+    // A small lift keeps silhouettes readable. The old +0.34 was tuned for
+    // crushed blacks and blew the moonlit ground out to daylight.
+    let exposure = 1.02 + night * 0.1;
     if (weather && weather.state !== 'clear') exposure *= 1 - weather.intensity * 0.1;
     renderer.toneMappingExposure = exposure;
 

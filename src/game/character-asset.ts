@@ -2,18 +2,9 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { upgradeLoadedMaterials } from '@/render/materials';
 
-// Loads a single Quaternius glTF (Modular Outfits — Ranger) and treats it as the
-// character. Procedural head + hat are parented to the Head bone.
-//
-// The Ranger outfit ships 9 skinned meshes: body + two belts + arms + bracers +
-// boots + pauldron + hood + legs. The pauldron and hood are hidden at runtime
-// — we use the procedural cowboy hat instead.
-//
-// The pack does NOT ship a head mesh. Earlier we loaded a second glTF
-// (Universal Base Characters Superhero) for its rigged head + eyes + eyebrows,
-// but that left visible bare-arm skin where the Ranger outfit only has bracers.
-// Now we drop the second skeleton entirely and use a procedural skin-toned head
-// sphere; clean, single-skeleton, no skin gaps. Face details revisitable later.
+// Loads the Quaternius Ranger outfit and bakes the Superhero head (eyes and
+// brows included) onto the Ranger Head bone. The pauldron and hood stay
+// hidden. The procedural sphere head is only the fallback if that extract fails.
 
 const OUTFIT_GLTF = '/assets/characters/Male_Ranger.gltf';
 const HEAD_GLTF = '/assets/characters/Superhero_Male_FullBody.gltf';
@@ -111,7 +102,9 @@ export async function loadCharacter(): Promise<CharacterRig> {
     const modeled = await attachModeledHead(headBone);
     if (!modeled) headBone.add(createProspectorHead());
     const hat = createProspectorHat();
-    hat.position.y = 0.05;
+    hat.position.y = 0.08;
+    // Front of the hat is local -Z. A negative X tilt lifts the brim off the eyes.
+    hat.rotation.x = -0.22;
     headBone.add(hat);
   }
   const tools = attachHandTools(bones.get('hand_r'));

@@ -114,7 +114,7 @@ function addLantern(
   parent.add(globe);
   const cap = mesh(new THREE.ConeGeometry(0.07, 0.08, 6), timberDarkMaterial(), x, y + 0.1, z);
   parent.add(cap);
-  const light = new THREE.PointLight(PALETTE.lantern, 0, 14, 2);
+  const light = new THREE.PointLight(PALETTE.lantern, 0, 8, 2);
   light.position.set(x, y, z);
   light.castShadow = false;
   parent.add(light);
@@ -304,6 +304,32 @@ export function buildCabin(opts: {
       addLog(root, width * 0.27, y, hz, seg, 'x', true);
     } else {
       addLog(root, 0, y, hz, width - 0.05, 'x', true);
+    }
+    if (i < 6) {
+      const yChink = y + 0.15;
+      const zChink = hz + 0.04;
+      if (doorCourse) {
+        root.add(
+          mesh(
+            new THREE.BoxGeometry(width * 0.28, 0.05, 0.05),
+            stone,
+            -width * 0.27,
+            yChink,
+            zChink,
+          ),
+        );
+        root.add(
+          mesh(
+            new THREE.BoxGeometry(width * 0.28, 0.05, 0.05),
+            stone,
+            width * 0.27,
+            yChink,
+            zChink,
+          ),
+        );
+      } else {
+        root.add(mesh(new THREE.BoxGeometry(width - 0.4, 0.05, 0.05), stone, 0, yChink, zChink));
+      }
     }
     addLog(root, 0, y, -hz, width - 0.05, 'x', true);
     addLog(root, -hx, y, 0, depth - 0.2, 'z', false);
@@ -605,6 +631,6 @@ export function updateTownDressing(time: number, camera: THREE.Camera): void {
 
 export function updateTownLights(sunY: number): void {
   const night = 1 - smooth01(-0.02, 0.22, sunY);
-  for (const light of townLights) light.intensity = 7.5 * night;
+  for (const light of townLights) light.intensity = 2.4 * night;
   for (const pane of windowPanes) pane.emissiveIntensity = 0.2 + 1.5 * night;
 }

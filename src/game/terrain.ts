@@ -97,7 +97,8 @@ function generateHeights(courses: readonly Watercourse[]): Float32Array {
           let bedShape = 1 - t * t;
           if (q.sample.bar !== 0 && Math.sign(q.lateral || 1) === q.sample.bar) {
             const band = smoothstep01(0.12, 0.32, t) * (1 - smoothstep01(0.72, 0.95, t));
-            bedShape *= 1 - 0.72 * band;
+            bedShape *= 1 - 0.94 * band;
+            scaled += (0.1 / HEIGHT_SCALE) * band * endFade;
           }
           scaled = scaled + (target - scaled) * bedShape * endFade;
         }
@@ -257,9 +258,9 @@ const TERRAIN_FS = /* glsl */ `
       float denom = max(dot(ab, ab), 0.001);
       float tt = clamp(dot(worldXZ - a, ab) / denom, 0.0, 1.0);
       float pd = length(worldXZ - (a + ab * tt));
-      wear = max(wear, 1.0 - smoothstep(0.4, 1.45, pd));
+      wear = max(wear, 1.0 - smoothstep(0.35, 1.7, pd));
     }
-    albedo = mix(albedo, dirt * 0.82, wear * 0.78);
+    albedo = mix(albedo, dirt * 0.58, wear * 0.92);
 
     // Detail normal from the same hash noise, added in world XZ so lighting
     // breaks up the heightfield's large facets without extra vertices.
@@ -282,11 +283,12 @@ const TERRAIN_FS = /* glsl */ `
         );
       #endif
     #endif
-    // Keep a readable floor. Pitch-black shade fights the stylized kit.
-    shadow = mix(0.38, 1.0, shadow);
-
     vec3 sunDir = normalize(uSunDir);
-    float wrap = clamp(dot(n, sunDir) * 0.62 + 0.38, 0.0, 1.0);
+    // Soft wrap at noon. Once the sun drops, shade falls back to the cool
+    // fill so dusk and night are not one warm wash.
+    float sunUp = smoothstep(-0.14, 0.02, sunDir.y);
+    shadow = mix(mix(0.18, 0.38, sunUp), 1.0, shadow);
+    float wrap = clamp(dot(n, sunDir) * mix(0.92, 0.62, sunUp) + mix(0.04, 0.38, sunUp), 0.0, 1.0);
     float hemiW = clamp(n.y * 0.5 + 0.5, 0.0, 1.0);
     vec3 gi = uAmbientColor * (uAmbientIntensity * 0.65)
             + mix(uHemiGround, uHemiSky, hemiW) * uHemiIntensity;
@@ -312,7 +314,7 @@ const TERRAIN_FS = /* glsl */ `
     for (int i = 0; i < 4; i++) {
       float ld = distance(vWorld, uLampPos[i]);
       float att = clamp(1.0 - ld / uLampRange, 0.0, 1.0);
-      lit += uLampColor[i] * att * att * night * 1.7;
+      lit += uLampColor[i] * att * att * night * 0.55;
     }
 
     gl_FragColor = vec4(lit, 1.0);
@@ -488,7 +490,7 @@ export function createTerrain(world: RAPIER.World, courses: readonly Watercourse
       uPaths: { value: PATHS },
       uLampPos: { value: LAMP_POS },
       uLampColor: { value: LAMP_COLOR },
-      uLampRange: { value: 16 },
+      uLampRange: { value: 7 },
     },
   ]);
   bindFrameUniforms(uniforms);
