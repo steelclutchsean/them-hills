@@ -141,7 +141,8 @@ export function createPostPipeline(
       }): void;
     }
   ).updateGtaoMaterial({
-    samples: softwareGl ? 4 : 12,
+    // Two samples on software GL. Four was enough to push the nine shot pages past 240s.
+    samples: softwareGl ? 2 : 12,
     radius: 0.4,
     thickness: 0.5,
   });
