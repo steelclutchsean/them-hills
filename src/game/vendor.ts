@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { VendorId } from '@/save/schema';
+import { buildShop } from '@/game/structures';
 
 // Vendors are simple stationary NPCs the player walks up to in order to sell
 // their gold. v0 ships two:
@@ -94,91 +95,9 @@ function makeVendor(
   multipliers: VendorMultipliers,
   signColor: number,
 ): Vendor {
-  const group = new THREE.Group();
+  const built = buildShop({ sign: name, accent: signColor });
+  const group = built.root;
   group.name = `vendor_${id}`;
   group.position.copy(position);
-
-  // Wooden post
-  const matWood = new THREE.MeshStandardMaterial({
-    color: 0x4a3826,
-    flatShading: true,
-    roughness: 0.92,
-  });
-  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 1.8, 8), matWood);
-  post.position.y = 0.9;
-  post.castShadow = true;
-  group.add(post);
-
-  // Crossbar (top of the post, supporting the sign)
-  const crossbar = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.05, 0.05), matWood);
-  crossbar.position.y = 1.78;
-  crossbar.castShadow = true;
-  group.add(crossbar);
-
-  // Sign hanging below the crossbar
-  const signTexture = makeSignTexture(name, signColor);
-  const matSign = new THREE.MeshStandardMaterial({
-    map: signTexture,
-    color: 0xffffff,
-    flatShading: false,
-    roughness: 0.7,
-    side: THREE.DoubleSide,
-  });
-  const sign = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.4), matSign);
-  sign.position.y = 1.5;
-  // Slight rotation so signs aren't perfectly axis-aligned to camera
-  sign.castShadow = true;
-  group.add(sign);
-
-  // Floating glow ring above sign — analogous to panning-site markers
-  const ringGeom = new THREE.TorusGeometry(0.25, 0.04, 6, 24);
-  ringGeom.rotateX(-Math.PI / 2);
-  const ringMat = new THREE.MeshStandardMaterial({
-    color: 0xc89b3b,
-    emissive: 0x553311,
-    emissiveIntensity: 0.4,
-    roughness: 0.5,
-    flatShading: true,
-  });
-  const marker = new THREE.Mesh(ringGeom, ringMat);
-  marker.position.y = 2.05;
-  group.add(marker);
-
-  return { id, name, position: position.clone(), multipliers, visual: group, marker };
-}
-
-// Render text + label onto an offscreen canvas, returned as a Three.js texture
-// for use as a sign material map. No font loading required — uses the system
-// serif/sans fallback.
-function makeSignTexture(label: string, accent: number): THREE.CanvasTexture {
-  const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 256;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('[vendor] canvas context unavailable');
-
-  // Wood-grain background
-  const bg = ctx.createLinearGradient(0, 0, 0, canvas.height);
-  bg.addColorStop(0, '#5e442e');
-  bg.addColorStop(1, '#3a2818');
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  // Border
-  const accentHex = `#${accent.toString(16).padStart(6, '0')}`;
-  ctx.strokeStyle = accentHex;
-  ctx.lineWidth = 8;
-  ctx.strokeRect(8, 8, canvas.width - 16, canvas.height - 16);
-
-  // Label
-  ctx.fillStyle = '#f5d088';
-  ctx.font = 'bold 60px Georgia, "Times New Roman", serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(label, canvas.width / 2, canvas.height / 2);
-
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
-  return tex;
+  return { id, name, position: position.clone(), multipliers, visual: group, marker: built.marker };
 }

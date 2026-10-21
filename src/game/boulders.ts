@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { upgradeLoadedMaterials } from '@/render/materials';
+import { kitRockMaterial, stoneMaterial, timberDarkMaterial } from '@/render/painterly';
 import type { Terrain } from './terrain';
 import type { StreamConfig } from './stream';
 import { createRng } from './rng';
@@ -13,11 +13,7 @@ import { createRng } from './rng';
 // boulder gets a random diffuse, scale, displacement seed, and rotation,
 // so visible variety comes from the combination rather than any one factor.
 
-const TEXTURE_VARIANTS = [
-  'assets/textures/rock_moss_set_01_diff_4k.jpg',
-  'assets/textures/namaqualand_boulder_02_diff_4k.jpg',
-  'assets/textures/namaqualand_boulder_03_diff_4k.jpg',
-];
+const ROCK_VARIANTS = [kitRockMaterial(), stoneMaterial(), timberDarkMaterial()];
 
 /**
  * Sphere → boulder. Conservative per-vertex displacement so neighbors can't
@@ -91,25 +87,7 @@ export function placeBoulders(opts: PlaceBouldersOpts): BoulderField {
   const { scene, terrain, streams, minePositions, seed = 0xb0 } = opts;
   const rng = createRng(seed);
 
-  // Load each diffuse once; share the texture across all instances that
-  // pick it. Sharing keeps GPU memory bounded and means there are at most
-  // 3 distinct materials in the scene from this system.
-  const loader = new THREE.TextureLoader();
-  const variantMaterials = TEXTURE_VARIANTS.map((url) => {
-    const tex = loader.load(url);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.anisotropy = 8;
-    return new THREE.MeshStandardMaterial({
-      map: tex,
-      roughness: 0.92,
-      metalness: 0,
-      // Render both sides — the displaced icosahedron's winding can be
-      // borderline at high-frequency areas, and double-side rendering hides
-      // any sliver of inverted-normal faces without a perceptible cost on
-      // ~52 small meshes.
-      side: THREE.DoubleSide,
-    });
-  });
+  const variantMaterials = ROCK_VARIANTS;
 
   const root = new THREE.Group();
   root.name = 'boulders';
@@ -205,6 +183,5 @@ export function placeBoulders(opts: PlaceBouldersOpts): BoulderField {
     }
   }
 
-  upgradeLoadedMaterials(root);
   return { group: root, count: placed, colliders };
 }

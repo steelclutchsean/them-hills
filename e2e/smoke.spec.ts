@@ -1,11 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
 
-declare global {
-  interface Window {
-    __themHills?: Probe & { save(): Promise<void> };
-  }
-}
-
 interface Probe {
   ready: boolean;
   phase: string;
@@ -16,7 +10,14 @@ interface Probe {
   error: string | null;
   frameLuma: number;
   peakCarryGrams: number;
+  graphics?: string;
   applyShot?: (name: string) => boolean;
+}
+
+declare global {
+  interface Window {
+    __themHills?: Probe & { save(): Promise<void>; graphics?: string };
+  }
 }
 
 function trackErrors(page: Page): string[] {
@@ -96,6 +97,9 @@ test('boots, guides the first claim, and the panels respond', async ({ page }) =
   await expect(page.locator('.panel-map-note')).toBeHidden();
   await page.keyboard.press('Escape');
   await expect(page.locator('.panel-card h2')).toHaveText('Paused');
+  await expect(page.locator('[data-quality="high"]')).toBeVisible();
+  await page.locator('[data-quality="medium"]').click();
+  await page.waitForFunction(() => window.__themHills?.graphics === 'medium');
   await page.keyboard.press('Escape');
 
   const origin = (await readProbe(page)).position;
@@ -174,9 +178,19 @@ test('plays the prospect loop and reloads the save', async ({ page }) => {
 });
 
 test('captures fixed cameras', async ({ page }) => {
-  test.setTimeout(150_000);
+  test.setTimeout(240_000);
   const errors = trackErrors(page);
-  const shots = ['spawn', 'creek', 'camp', 'dusk', 'night', 'dawn'] as const;
+  const shots = [
+    'spawn',
+    'creek',
+    'camp',
+    'dusk',
+    'night',
+    'dawn',
+    'inn',
+    'creekbank',
+    'prospector',
+  ] as const;
   await page.goto('/?shot=spawn');
   await waitReady(page);
   for (const shot of shots) {

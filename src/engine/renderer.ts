@@ -23,6 +23,8 @@ export interface RendererBundle {
   /** Coarse sky bucket → PMREM. Safe to call every frame. */
   updateEnvironment(grade: SkyGrade): void;
   render(): void;
+  /** Re-read RENDER_QUALITY after a preset change. */
+  applyGraphics(): void;
   dispose(): void;
 }
 
@@ -123,6 +125,21 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererBundle {
     },
     updateEnvironment(grade) {
       environment.update(grade);
+    },
+    applyGraphics() {
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, RENDER_QUALITY.maxPixelRatio));
+      renderer.toneMappingExposure = RENDER_QUALITY.exposure;
+      sun.shadow.mapSize.set(RENDER_QUALITY.shadowMapSize, RENDER_QUALITY.shadowMapSize);
+      const shadowMap = sun.shadow.map;
+      if (shadowMap) {
+        shadowMap.dispose();
+        sun.shadow.map = null;
+      }
+      sun.shadow.radius = RENDER_QUALITY.shadowRadius;
+      sun.shadow.intensity = RENDER_QUALITY.shadowIntensity;
+      scene.environmentIntensity = RENDER_QUALITY.environmentIntensity;
+      post.bloom.strength = RENDER_QUALITY.bloomStrength;
+      post.setSize(window.innerWidth, window.innerHeight);
     },
     render: () => post.render(),
     dispose: () => {

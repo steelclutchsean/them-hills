@@ -45,7 +45,10 @@ import {
   updateToolBounce,
   updateToolSwing,
 } from '@/game/minigames/tool-models';
-import { scatterAssets } from '@/game/scatter';
+import { scatterAssets, updateScatterWind } from '@/game/scatter';
+import { createMotes } from '@/game/motes';
+import { createLightShafts } from '@/game/shafts';
+import { emitGameplay, bindGameplayAudio } from '@/game/events';
 import { SKY_SECONDS_PER_DAY, createSkyController, formatClock, getSkyHour } from '@/game/sky';
 import {
   createStream,
@@ -70,7 +73,15 @@ import { mountMinimap, type MinimapLandmark, type MinimapStream } from '@/ui/min
 import { createSettingsPanel } from '@/ui/settings';
 import { defaultSettings } from '@/save/schema';
 import { createAudioSystem } from '@/audio/system';
-import { readReviewOverride, reviewShot, reviewWorldTime } from '@/dev/review-shots';
+import {
+  glRendererString,
+  getQualityName,
+  initQuality,
+  RENDER_QUALITY,
+  setQuality,
+} from '@/engine/quality';
+import { readReviewOverride, reviewShot, reviewWorldTime, setReviewPose } from '@/dev/review-shots';
+import { setFoliageWindTime } from '@/render/painterly';
 import { createSmokePilot } from '@/dev/smoke-pilot';
 import { mountOverlays, reportBoot } from '@/ui/overlays';
 import { presentProspectFind, presentToolImpact } from '@/game/presentation';
@@ -120,6 +131,14 @@ async function bootstrap(): Promise<void> {
 
   // ---- Renderer ----
   const renderer = createRenderer(canvas);
+  if (params.has('shot')) setQuality('high');
+  else initQuality(glRendererString(renderer.renderer.getContext()));
+  renderer.applyGraphics();
+  const motes = createMotes(110);
+  motes.resize();
+  renderer.scene.add(motes.points);
+  const shafts = createLightShafts();
+  renderer.scene.add(shafts.group);
 
   // ---- Sky / day-night ----
   const sky = createSkyController({
@@ -210,10 +229,12 @@ async function bootstrap(): Promise<void> {
   function spawnGrass(): void {
     if (grass) return;
     grass = createGrassField(terrain, {
-      count: 5000,
+      count: RENDER_QUALITY.grassTall,
       extent: 95,
       reject: (x, z) => streams.isInStreamZone(x, z, 0.5),
       seed: 0xa9,
+      baseColor: { r: [0.32, 0.42], g: [0.36, 0.46], b: [0.12, 0.18] },
+      tipColor: { r: [0.7, 0.82], g: [0.58, 0.7], b: [0.18, 0.28] },
     });
     renderer.scene.add(grass.mesh);
   }
@@ -299,7 +320,7 @@ async function bootstrap(): Promise<void> {
       renderer.scene,
       terrain,
       {
-        count: 140,
+        count: Math.round(140 * RENDER_QUALITY.scatter),
         models: [
           ...ASSETS.trees.common,
           ...ASSETS.trees.pine,
@@ -317,7 +338,7 @@ async function bootstrap(): Promise<void> {
       renderer.scene,
       terrain,
       {
-        count: 70,
+        count: Math.round(70 * RENDER_QUALITY.scatter),
         models: ASSETS.rocks.medium,
         scale: { min: 0.6, max: 1.6 },
         yOffset: -0.05,
@@ -331,7 +352,7 @@ async function bootstrap(): Promise<void> {
       renderer.scene,
       terrain,
       {
-        count: 40,
+        count: Math.round(40 * RENDER_QUALITY.scatter),
         models: [...ASSETS.rocks.pebbleRound, ...ASSETS.rocks.pebbleSquare],
         scale: { min: 0.5, max: 1.1 },
         yOffset: -0.02,
@@ -349,7 +370,7 @@ async function bootstrap(): Promise<void> {
       renderer.scene,
       terrain,
       {
-        count: 220,
+        count: Math.round(220 * RENDER_QUALITY.scatter),
         models: ASSETS.vegetation.grass,
         scale: { min: 0.6, max: 1.2 },
         reject,
@@ -361,7 +382,7 @@ async function bootstrap(): Promise<void> {
       renderer.scene,
       terrain,
       {
-        count: 90,
+        count: Math.round(90 * RENDER_QUALITY.scatter),
         models: [
           ...ASSETS.vegetation.bushes,
           ...ASSETS.vegetation.ferns,
@@ -378,7 +399,7 @@ async function bootstrap(): Promise<void> {
       renderer.scene,
       terrain,
       {
-        count: 110,
+        count: Math.round(110 * RENDER_QUALITY.scatter),
         models: [...ASSETS.vegetation.flowers, ...ASSETS.vegetation.mushrooms],
         scale: { min: 0.7, max: 1.3 },
         reject,
@@ -397,7 +418,7 @@ async function bootstrap(): Promise<void> {
       const allPositions = results.flatMap((r) => r.positions);
       const exclusion = buildExclusionGrid(allPositions);
       const grassCover = createGrassField(terrain, {
-        count: 28000,
+        count: RENDER_QUALITY.grassCover,
         extent: 95,
         seed: 0xb1,
         bladeHeight: 0.11,
@@ -407,8 +428,8 @@ async function bootstrap(): Promise<void> {
         // Ground-cover blades are short, so go a bit darker / less vivid
         // than the tall layer — they read as moss/lawn underlayer rather
         // than fresh prairie growth.
-        baseColor: { r: [0.1, 0.16], g: [0.26, 0.38], b: [0.07, 0.12] },
-        tipColor: { r: [0.36, 0.46], g: [0.5, 0.62], b: [0.16, 0.22] },
+        baseColor: { r: [0.28, 0.38], g: [0.32, 0.4], b: [0.12, 0.18] },
+        tipColor: { r: [0.62, 0.75], g: [0.52, 0.64], b: [0.18, 0.26] },
         reject: (x, z) => streams.isInStreamZone(x, z, 0.5) || exclusion.isExcluded(x, z),
       });
       renderer.scene.add(grassCover.mesh);
@@ -445,6 +466,8 @@ async function bootstrap(): Promise<void> {
     initialYaw: spawnYaw,
     initialPitch: review?.pitch ?? 0.25,
   });
+  if (review?.arm) cameraRig.setArmLength(review.arm);
+  if (review?.pose) setReviewPose(review.pose);
 
   // ---- Prospect first-person camera + tool mount ----
   // The prospect lifecycle swaps the third-person rig out for a fixed
@@ -504,7 +527,7 @@ async function bootstrap(): Promise<void> {
   // produce sound, so we wire tryEnable() into the existing canvas click
   // handler (and the first keydown) — first interaction unlocks audio
   // for the rest of the session.
-  const audio = createAudioSystem();
+  const audio = bindGameplayAudio(createAudioSystem());
   let audioEnabledOnce = false;
   function nudgeAudioEnabled(): void {
     audio.tryEnable();
@@ -693,12 +716,15 @@ async function bootstrap(): Promise<void> {
         await saveCurrentState(buildSaveSnapshot());
         publishProbe();
       },
+      graphics: getQualityName(),
       applyShot: (name: string) => {
         const shot = reviewShot(name);
         if (!shot) return false;
         const y = terrain.getHeightAt(shot.x, shot.z) + 1.5;
         character.placeAt(shot.x, y, shot.z);
         cameraRig.setYawPitch(shot.yaw, shot.pitch);
+        cameraRig.setArmLength(shot.arm);
+        setReviewPose(shot.pose);
         worldTime = reviewWorldTime(shot.hour);
         return true;
       },
@@ -726,6 +752,13 @@ async function bootstrap(): Promise<void> {
       void Promise.resolve(canvas.requestPointerLock?.()).catch(() => undefined);
     },
     onSettings: () => settings.open(),
+    onQuality: (name) => {
+      setQuality(name);
+      renderer.applyGraphics();
+      grass?.setCount(RENDER_QUALITY.grassTall);
+      for (const cover of grassCovers) cover.setCount(RENDER_QUALITY.grassCover);
+      motes.resize();
+    },
   });
 
   // ---- Game loop ----
@@ -1102,6 +1135,10 @@ async function bootstrap(): Promise<void> {
       // player, then publish one lighting block for every custom shader.
       const sunDirWorld = renderer.followSun(charPos);
       renderer.syncFrame(worldTime, sunDirWorld);
+      updateScatterWind(worldTime, charPos);
+      setFoliageWindTime(worldTime);
+      shafts.update(sunDirWorld, charPos, true);
+      motes.update(worldTime, charPos, sunDirWorld.y);
 
       headlamp.update({
         playerPos: charPos,
@@ -1242,6 +1279,7 @@ async function bootstrap(): Promise<void> {
                 worldTime,
               );
             gameStore.getState().markFirstSale();
+            emitGameplay('sell', { vendorId: activeVendor!.id, earned: result.earned });
             console.log(
               `[vendor] sold ${totalG.toFixed(3)}g at ${activeVendor!.id} for $${result.earned.toFixed(2)}`,
             );
@@ -1340,6 +1378,7 @@ async function bootstrap(): Promise<void> {
             toolTiers: gameStore.getState().save.equipment.ownedTiers,
           });
           audio.playSplash();
+          emitGameplay('prospect-start', { siteId: nearestSite.site.id });
           const bonusTag = siteBonus !== 1 ? ` × site${siteBonus.toFixed(2)}` : '';
           console.log(
             `[prospect] start ${nearestSite.site.id} (digs=${site.digsRemaining}/${site.maxDigs}, firstEver=${firstEver}, yield=${yieldMultiplier.toFixed(2)} = gear${globalMult.toFixed(2)} × survival${survivalMult.toFixed(2)}${bonusTag})`,
