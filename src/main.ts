@@ -2146,7 +2146,7 @@ async function bootstrap(): Promise<void> {
                 : undefined;
             clearSceneCamera(renderer.camera.position, sceneLook, sceneSubjects, keepFront);
             renderer.camera.lookAt(sceneLook);
-            fadeFoliageNear(renderer.camera.position, 9);
+            fadeFoliageNear(renderer.camera.position, 9, sceneLook);
           } else {
             fadeFoliageNear(null);
           }

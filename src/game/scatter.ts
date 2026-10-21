@@ -388,23 +388,47 @@ export function scatterLogs(
 
 const fadedFoliage: THREE.Mesh[] = [];
 
-/** Soften trees and brush the lens is sitting in. Shared materials stay on the far copies. */
-export function fadeFoliageNear(camera: THREE.Vector3 | null, radius = 2.5): void {
+/** Soften trees and brush the lens is sitting in, and trees standing in a scene camera's view. */
+export function fadeFoliageNear(
+  camera: THREE.Vector3 | null,
+  radius = 2.5,
+  look: THREE.Vector3 | null = null,
+): void {
   for (const mesh of fadedFoliage) {
     const base = mesh.userData.baseMat as THREE.Material | undefined;
     if (base) mesh.material = base;
+    mesh.visible = mesh.userData.fadeWasVisible !== false;
   }
   fadedFoliage.length = 0;
   if (!camera) return;
   const radiusSq = radius * radius;
+  let aimX = 0;
+  let aimY = 0;
+  let aimZ = 1;
+  if (look) {
+    aimX = look.x - camera.x;
+    aimY = look.y - camera.y;
+    aimZ = look.z - camera.z;
+    const aim = Math.hypot(aimX, aimY, aimZ) || 1;
+    aimX /= aim;
+    aimY /= aim;
+    aimZ /= aim;
+  }
   for (const node of swayNodes) {
     if (node.kind !== 'tree' && node.kind !== 'brush') continue;
     const dx = node.obj.position.x - camera.x;
     const dy = node.obj.position.y + 1.6 - camera.y;
     const dz = node.obj.position.z - camera.z;
-    if (dx * dx + dy * dy + dz * dz > radiusSq) continue;
     const dist = Math.hypot(dx, dy, dz);
-    const fade = dist < 4.5 ? 1 : 1 - (dist - 4.5) / Math.max(0.2, radius - 4.5);
+    const inLens = dist * dist <= radiusSq;
+    const inView =
+      look !== null &&
+      node.kind === 'tree' &&
+      dist > 0.4 &&
+      dist < 18 &&
+      (dx * aimX + dy * aimY + dz * aimZ) / dist > 0.62;
+    if (!inLens && !inView) continue;
+    const fade = inView || dist < 4.5 ? 1 : 1 - (dist - 4.5) / Math.max(0.2, radius - 4.5);
     node.obj.traverse((obj) => {
       if (!(obj instanceof THREE.Mesh)) return;
       const current = obj.material;
@@ -415,11 +439,13 @@ export function fadeFoliageNear(camera: THREE.Vector3 | null, radius = 2.5): voi
       obj.userData.fadeMat = fadeMat;
       if ('opacity' in fadeMat) {
         fadeMat.transparent = true;
-        fadeMat.opacity = fade > 0.85 ? 0.04 : 1 - fade * 0.96;
+        fadeMat.opacity = fade > 0.85 ? 0 : 1 - fade * 0.96;
         fadeMat.depthWrite = fade < 0.25;
         fadeMat.needsUpdate = true;
       }
+      if (obj.userData.fadeWasVisible === undefined) obj.userData.fadeWasVisible = obj.visible;
       obj.material = fadeMat;
+      if (fade > 0.85) obj.visible = false;
       fadedFoliage.push(obj);
     });
   }
