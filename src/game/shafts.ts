@@ -146,8 +146,8 @@ export function createLightShafts(): LightShafts {
     fog: false,
     toneMapped: false,
     uniforms: {
-      uColor: { value: new THREE.Color(1.12, 0.74, 0.34) },
-      uStrength: { value: 1.25 },
+      uColor: { value: new THREE.Color(1.55, 0.72, 0.22) },
+      uStrength: { value: 0.85 },
       uTime: { value: 0 },
       uNoise: { value: shaftNoise() },
     },
@@ -171,12 +171,13 @@ export function createLightShafts(): LightShafts {
       void main() {
         float across = abs(vUv.x - 0.5) * 2.0;
         float soft = pow(1.0 - smoothstep(0.05, 0.92, across), 1.7);
-        float along = smoothstep(0.0, 0.04, vUv.y) * smoothstep(1.0, 0.9, vUv.y);
-        float n = texture2D(uNoise, vUv * vec2(1.2, 2.6) + vec2(0.0, uTime * 0.04)).r;
-        float depthFade = smoothstep(2.0, 7.0, vDist) * (1.0 - smoothstep(55.0, 84.0, vDist));
-        float alpha = soft * along * (0.7 + 0.3 * n) * depthFade * uStrength;
-        if (alpha < 0.004) discard;
-        gl_FragColor = vec4(uColor, alpha);
+        float along = smoothstep(0.0, 0.07, vUv.y) * smoothstep(1.0, 0.8, vUv.y);
+        float n = texture2D(uNoise, vUv * vec2(1.1, 3.2) + vec2(0.0, uTime * 0.04)).r;
+        float depthFade = smoothstep(1.5, 6.0, vDist) * (1.0 - smoothstep(48.0, 78.0, vDist));
+        float alpha = soft * along * (0.62 + 0.38 * n) * depthFade * uStrength;
+        if (alpha < 0.02) discard;
+        // Premultiplied. Additive blending on this renderer is ONE, ONE.
+        gl_FragColor = vec4(uColor * alpha, 1.0);
       }
     `,
   });
@@ -200,6 +201,7 @@ export function createLightShafts(): LightShafts {
   const crown = new THREE.Vector3();
   const ndcA = new THREE.Vector3();
   const ndcB = new THREE.Vector3();
+  const spans: { x0: number; y0: number; x1: number; y1: number }[] = [];
   let clock = 0;
 
   return {
@@ -210,56 +212,70 @@ export function createLightShafts(): LightShafts {
       const golden = hour > 16.3 && hour < 18.15;
       const show = enabled && RENDER_QUALITY.shafts && sunDir.y > 0.02 && (dawn || golden);
       group.visible = show;
-      if (!show) return;
+      spans.length = 0;
+      if (!show) {
+        publishSpans(spans);
+        return;
+      }
       material.uniforms.uTime!.value = clock;
       sunFlat.set(sunDir.x, 0, sunDir.z);
       if (sunFlat.lengthSq() < 1e-4) sunFlat.set(1, 0, 0);
       sunFlat.normalize();
       camera.updateMatrixWorld();
       camera.getWorldDirection(forward);
-      // Screen-right, flattened, so a shaft that aims at the sun still has width.
-      widthDir.setFromMatrixColumn(camera.matrixWorld, 0);
-      widthDir.y = 0;
-      if (widthDir.lengthSq() < 1e-4) widthDir.set(1, 0, 0);
-      widthDir.normalize();
-      // The sun's screen position. Each shaft is a world quad whose ends
-      // sit on two different view rays, so the streak cannot collapse.
-      ndcA.copy(camera.position).addScaledVector(sunDir, 60);
+      ndcA.copy(camera.position).addScaledVector(sunDir, 80);
       ndcA.project(camera);
+      const sunX = ndcA.x;
       const sunInFront = ndcA.z < 1 && sunDir.dot(forward) > 0.12;
       const gaps = findGaps(camera.position, sunFlat);
-      const rayPoint = (nx: number, ny: number, dist: number, out: THREE.Vector3) => {
-        ndcB.set(
-          THREE.MathUtils.clamp(nx, -0.92, 0.92),
-          THREE.MathUtils.clamp(ny, -0.35, 0.94),
-          0.5,
-        );
-        ndcB.unproject(camera);
-        ndcB.sub(camera.position);
-        if (ndcB.lengthSq() < 1e-8) ndcB.copy(forward);
-        ndcB.normalize();
-        out.copy(camera.position).addScaledVector(ndcB, dist);
-      };
+      const sideX = -sunFlat.z;
+      const sideZ = sunFlat.x;
       for (let i = 0; i < beams.length; i++) {
         const beam = beams[i];
-        if (!beam || !sunInFront) {
-          if (beam) beam.visible = false;
+        if (!beam) continue;
+        const gap = gaps[i];
+        const lateral = (i - 2.5) * 5.4;
+        const along = 13 + (i % 3) * 6.5;
+        if (gap) crown.set(gap.x, gap.y, gap.z);
+        else {
+          crown.set(
+            camera.position.x + sunFlat.x * along + sideX * lateral,
+            camera.position.y + 3.4,
+            camera.position.z + sunFlat.z * along + sideZ * lateral,
+          );
+        }
+        // The shaft follows the sun through a crown gap. The near end steps
+        // toward the camera so the streak stays open when we look into the sun.
+        toCam.copy(camera.position).sub(crown);
+        toCam.y = 0;
+        if (toCam.lengthSq() < 1e-4) toCam.set(forward.x, 0, forward.z);
+        if (toCam.lengthSq() < 1e-4) toCam.set(sideX, 0, sideZ);
+        toCam.normalize();
+        end.copy(crown).addScaledVector(sunDir, 36);
+        start.copy(crown).addScaledVector(sunDir, -9);
+        start.y -= 8;
+        start.addScaledVector(toCam, 4.2);
+        widthDir.copy(end).sub(start);
+        widthDir.cross(toCam);
+        if (widthDir.lengthSq() < 1e-6) widthDir.set(sideX, 0, sideZ);
+        widthDir.normalize();
+        ndcA.copy(start).project(camera);
+        ndcB.copy(end).project(camera);
+        if (Math.hypot(ndcA.x - ndcB.x, ndcA.y - ndcB.y) < 0.18) {
+          start.addScaledVector(toCam, 10);
+          start.y -= 4;
+          ndcA.copy(start).project(camera);
+        }
+        const midX = (ndcA.x + ndcB.x) * 0.5;
+        const farFromSun = Math.abs(midX - sunX) > 0.82 && Math.abs(ndcB.x - sunX) > 0.7;
+        const behind = ndcA.z > 1 && ndcB.z > 1;
+        if (!sunInFront || farFromSun || behind) {
+          beam.visible = false;
           continue;
         }
         beam.visible = true;
-        const half = (widths[i] ?? 0.8) * 0.38;
-        const gap = gaps[i];
-        let xFar = ndcA.x + (i - 2.5) * 0.14;
-        let yFar = ndcA.y - 0.02;
-        if (gap) {
-          crown.set(gap.x, gap.y, gap.z);
-          toCam.copy(crown).project(camera);
-          if (toCam.z < 1 && toCam.x > -1.2 && toCam.x < 1.2) xFar = toCam.x;
-        }
-        const yNear = yFar - (0.78 + (i % 3) * 0.05);
-        const xNear = xFar + (i - 2.5) * 0.025;
-        rayPoint(xFar, yFar, 26 + (i % 3) * 5, end);
-        rayPoint(xNear, yNear, 8 + i * 0.35, start);
+        spans.push({ x0: ndcA.x, y0: ndcA.y, x1: ndcB.x, y1: ndcB.y });
+        const half = (widths[i] ?? 0.8) * 2.2;
         const attr = beam.geometry.getAttribute('position') as THREE.BufferAttribute;
         const place = (index: number, base: THREE.Vector3, span: number) => {
           attr.setXYZ(
@@ -271,14 +287,22 @@ export function createLightShafts(): LightShafts {
         };
         place(0, start, -half);
         place(1, start, half);
-        place(2, end, -half * 0.45);
-        place(3, end, half * 0.45);
+        place(2, end, -half * 0.32);
+        place(3, end, half * 0.32);
         attr.needsUpdate = true;
         beam.position.set(0, 0, 0);
         beam.quaternion.identity();
         beam.scale.set(1, 1, 1);
         beam.updateMatrix();
       }
+      publishSpans(spans);
     },
   };
+}
+
+function publishSpans(spans: readonly { x0: number; y0: number; x1: number; y1: number }[]): void {
+  const host = globalThis as { __creekDebug?: { shafts?: unknown } };
+  const debug = host.__creekDebug ?? {};
+  debug.shafts = spans.map((span) => ({ ...span }));
+  host.__creekDebug = debug;
 }

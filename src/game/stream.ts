@@ -282,7 +282,8 @@ const FRAG_SHADER = /* glsl */ `
     float mirrorHit = 0.0;
     float planarHit = 0.0;
     if (uHasProbe > 0.5) {
-      vec3 dir = reflect(-viewDir, surfNormal);
+      vec3 reflN = normalize(vec3(surfNormal.x * 0.32, 1.0, surfNormal.z * 0.32));
+      vec3 dir = reflect(-viewDir, reflN);
       float d0 = distance(vWorld, uProbePos[0]);
       float d1 = distance(vWorld, uProbePos[1]);
       float d2 = distance(vWorld, uProbePos[2]);
@@ -305,12 +306,14 @@ const FRAG_SHADER = /* glsl */ `
       vec4 clip = uPlanarVP * vec4(vWorld, 1.0);
       if (clip.w > 0.15) {
         vec2 uv = clip.xy / clip.w * 0.5 + 0.5;
-        uv.y = 1.0 - uv.y;
-        uv += surfNormal.xz * 0.003;
+        uv += surfNormal.xz * 0.004;
         if (uv.x > 0.015 && uv.x < 0.985 && uv.y > 0.015 && uv.y < 0.985) {
           vec3 bank = texture2D(uPlanar, uv).rgb;
           float bl = dot(bank, vec3(0.2126, 0.7152, 0.0722));
-          if (bl > 0.012) {
+          float cubeL = dot(reflected, vec3(0.2126, 0.7152, 0.0722));
+          // A flat dark texel is the underground side of the bake. The cube
+          // already holds the trees, so only a brighter planar sample wins.
+          if (bl > 0.04 && bl + 0.03 > cubeL) {
             reflected = bank;
             mirrorHit = 1.0;
             planarHit = 1.0;
@@ -318,21 +321,16 @@ const FRAG_SHADER = /* glsl */ `
         }
       }
     }
-    // The bake is the shape of the bank. The water keeps its own color, so a
-    // sunlit dirt reflection cannot turn the channel amber. Trunks show up
-    // as darker streaks in that color.
-    float reflectAmt = mix(0.04, 0.12, smoothstep(0.15, 0.75, fres));
-    if (planarHit > 0.5) {
-      float rl = dot(reflected, vec3(0.2126, 0.7152, 0.0722));
-      rl = smoothstep(0.05, 0.72, rl);
-      reflected = base * mix(0.22, 1.7, rl);
-      reflectAmt = mix(0.78, 0.94, smoothstep(0.02, 0.35, fres));
-    } else if (mirrorHit > 0.5) {
-      float rl = dot(reflected, vec3(0.2126, 0.7152, 0.0722));
-      rl = smoothstep(0.08, 0.7, rl);
-      reflected = base * mix(0.55, 1.25, rl);
-      reflectAmt = mix(0.08, 0.28, smoothstep(0.12, 0.7, fres));
-      reflectAmt *= mix(1.0, 0.35, depthFactor);
+    // Keep the bake's light and dark (trunk against sky) and throw away its
+    // chroma. Sunlit dirt stays out of the pigment; gold is the gravel bed.
+    float rl = dot(reflected, vec3(0.2126, 0.7152, 0.0722));
+    float shaped = clamp(pow(max(rl, 0.001), 0.58) * 1.85, 0.05, 2.15);
+    vec3 cool = vec3(0.22, 0.66, 0.62) * shaped;
+    float reflectAmt = mix(0.05, 0.16, smoothstep(0.15, 0.75, fres));
+    if (planarHit > 0.5 || mirrorHit > 0.5) {
+      reflected = cool;
+      reflectAmt = mix(0.34, 0.9, smoothstep(0.06, 0.62, fres));
+      reflectAmt *= mix(0.22, 1.0, smoothstep(0.08, 0.55, depthFactor));
     } else {
       reflectAmt *= 0.35;
     }

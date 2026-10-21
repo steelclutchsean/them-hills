@@ -12,8 +12,8 @@ import { revealFadedMirrorTrees, TREE_MIRROR_LAYER } from '@/render/reflection';
 // is still there. Walking away falls back to the cubes.
 
 const PROBE_COUNT = 4;
-const PROBE_SIZE = 160;
-const CULL_RADIUS = 42;
+const PROBE_SIZE = 192;
+const CULL_RADIUS = 64;
 const FACES = 6;
 
 export interface CreekProbePoint {
@@ -64,7 +64,7 @@ layerMask.set(TREE_MIRROR_LAYER);
 export function createCreekProbe(): CreekProbe {
   const slots = Array.from({ length: PROBE_COUNT }, () => {
     const target = new THREE.WebGLCubeRenderTarget(PROBE_SIZE, {
-      type: THREE.HalfFloatType,
+      type: THREE.UnsignedByteType,
       format: THREE.RGBAFormat,
       depthBuffer: true,
       generateMipmaps: false,
@@ -72,7 +72,7 @@ export function createCreekProbe(): CreekProbe {
       minFilter: THREE.LinearFilter,
     });
     target.texture.colorSpace = THREE.LinearSRGBColorSpace;
-    const cube = new THREE.CubeCamera(0.45, 80, target);
+    const cube = new THREE.CubeCamera(0.2, 120, target);
     cube.layers.set(TREE_MIRROR_LAYER);
     return { cube, target };
   });
@@ -295,6 +295,33 @@ export function createCreekProbe(): CreekProbe {
           faceCursor += 1;
           if (faceCursor >= PROBE_COUNT * FACES) phase = 'planar';
         } else {
+          const heroSlot = slots[2] ?? slots[0];
+          if (heroSlot && creekProbeUniforms.uHasProbe.value < 0.5) {
+            try {
+              const side = PROBE_SIZE;
+              const cubeBuf = new Uint8Array(side * side * 4);
+              renderer.setRenderTarget(heroSlot.target, 0);
+              renderer.readRenderTargetPixels(heroSlot.target, 0, 0, side, side, cubeBuf);
+              let clo = 255;
+              let chi = 0;
+              for (let y = 0; y < side; y += 16) {
+                for (let x = 0; x < side; x += 16) {
+                  const i = (y * side + x) * 4;
+                  const l =
+                    0.2126 * (cubeBuf[i] ?? 0) +
+                    0.7152 * (cubeBuf[i + 1] ?? 0) +
+                    0.0722 * (cubeBuf[i + 2] ?? 0);
+                  if (l < clo) clo = l;
+                  if (l > chi) chi = l;
+                }
+              }
+              console.log(
+                `[creek-probe] cube luma ${clo.toFixed(0)}-${chi.toFixed(0)} contrast ${(chi - clo).toFixed(0)}`,
+              );
+            } catch (err) {
+              console.log('[creek-probe] cube readback failed', err);
+            }
+          }
           const hero = points[2] ?? points[0];
           const planeY = Number.isFinite(waterY) ? waterY : (hero?.y ?? 0) - 0.45;
           let source: THREE.Camera | null = null;
@@ -346,22 +373,6 @@ export function createCreekProbe(): CreekProbe {
               console.log(
                 `[creek-probe] planar luma ${lo.toFixed(0)}-${hi.toFixed(0)} contrast ${planarContrast.toFixed(0)}`,
               );
-              const cols = 16;
-              const rows = 8;
-              for (let gy = rows - 1; gy >= 0; gy--) {
-                let glyph = '';
-                const sy = Math.min(h - 1, Math.floor(((gy + 0.5) * h) / rows));
-                for (let gx = 0; gx < cols; gx++) {
-                  const sx = Math.min(w - 1, Math.floor(((gx + 0.5) * w) / cols));
-                  const pi = (sy * w + sx) * 4;
-                  const pl =
-                    0.2126 * (buf[pi] ?? 0) +
-                    0.7152 * (buf[pi + 1] ?? 0) +
-                    0.0722 * (buf[pi + 2] ?? 0);
-                  glyph += pl > 90 ? '#' : pl > 45 ? '+' : pl > 18 ? '.' : ' ';
-                }
-                console.log(`[creek-probe] ${glyph}`);
-              }
             } catch (err) {
               console.log('[creek-probe] planar readback failed', err);
             }

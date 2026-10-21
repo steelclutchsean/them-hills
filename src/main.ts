@@ -353,7 +353,7 @@ async function bootstrap(): Promise<void> {
   creekProbe.setPoints(
     [0.3, 0.46, 0.58, 0.72].map((t) => {
       const sample = coyoteCourse.at(t);
-      return { x: sample.x, y: sample.waterY + 0.45, z: sample.z };
+      return { x: sample.x, y: sample.waterY + 1.7, z: sample.z };
     }),
   );
   for (const s of streamList) {
