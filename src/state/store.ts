@@ -30,8 +30,12 @@ import {
 } from '@/quests/quests';
 import type { GroundRead } from '@/game/geology';
 import {
+  CABIN_COST,
+  CACHE_COST,
   CREEK_LESSON,
   HIRE_COST,
+  LEANTO_COST,
+  LODE_FEE,
   MAX_HANDS,
   RUMORS,
   bestCamp,
@@ -72,8 +76,9 @@ export interface GameStateStore {
   setSettings(patch: Partial<SettingsState>): void;
 
   /** Merge a partial slice into save.settings[key]. Easier than
-   *  rebuilding the whole audio block to change one slider. */
-  updateSettingsSlice<K extends keyof SettingsState>(
+   *  rebuilding the whole audio block to change one slider.
+   *  Scalar settings (text size, subtitles) go through setSettings. */
+  updateSettingsSlice<K extends SettingsObjectKey>(
     key: K,
     patch: Partial<SettingsState[K]>,
   ): void;
@@ -182,6 +187,10 @@ export interface GameStateStore {
   tickThreats(gameTime: number): ThreatEvent[];
   workClaimsNear(x: number, z: number, gameTime: number, mineId?: string | null): void;
 }
+
+type SettingsObjectKey = {
+  [K in keyof SettingsState]-?: SettingsState[K] extends object ? K : never;
+}[keyof SettingsState];
 
 export const gameStore = createStore<GameStateStore>((set, get) => ({
   save: createDefaultSave(),
@@ -685,8 +694,8 @@ export const gameStore = createStore<GameStateStore>((set, get) => ({
       return { ok: false, reason: 'You already hold a lode.' };
     }
     if (save.fieldwork.claims.length >= 3) return { ok: false, reason: 'The county book is full.' };
-    const cost = 250;
-    if (save.wallet.balance < cost) return { ok: false, reason: 'Filing a lode costs $250.' };
+    const cost = LODE_FEE;
+    if (save.wallet.balance < cost) return { ok: false, reason: `Filing a lode costs $${LODE_FEE}.` };
     const id = `lode_${mineId}`;
     const claim: ClaimRecord = {
       id,
@@ -865,15 +874,15 @@ export const gameStore = createStore<GameStateStore>((set, get) => ({
     let nailsNeeded = 0;
     if (id === 'leanto') {
       if (camp >= 1) return false;
-      cost = 20;
+      cost = LEANTO_COST;
       nailsNeeded = 4;
     } else if (id === 'cabin') {
       if (camp !== 1) return false;
-      cost = 80;
+      cost = CABIN_COST;
       nailsNeeded = 8;
     } else if (id === 'cache') {
       if (save.fieldwork.claims.some((c) => c.improvements.cache)) return false;
-      cost = 55;
+      cost = CACHE_COST;
     } else {
       return false;
     }

@@ -1,3 +1,4 @@
+import { HIRE_COST, LODE_FEE } from '@/game/fieldwork';
 import type { SaveV1 } from '@/save/schema';
 import {
   isQuestActive,
@@ -295,19 +296,19 @@ export const OLD_PETE_DIALOGUE: DialogueTree = {
       },
       { text: 'What are folks saying?', action: { kind: 'hearRumor' } },
       {
-        text: 'Hire a hand ($120).',
+        text: `Hire a hand ($${HIRE_COST}).`,
         action: { kind: 'hireHand' },
-        enabled: (save) => save.wallet.balance >= 120 && save.fieldwork.hands < 3,
-        disabledHint: '(need $120, and room in the crew)',
+        enabled: (save) => save.wallet.balance >= HIRE_COST && save.fieldwork.hands < 3,
+        disabledHint: `(need $${HIRE_COST}, and room in the crew)`,
       },
       {
-        text: 'File a lode on the north mine ($250).',
+        text: `File a lode on the north mine ($${LODE_FEE}).`,
         action: { kind: 'fileLode', mineId: 'north', x: -45, z: -45 },
         visible: (save) =>
           (save.equipment.ownedTiers.pick >= 1 || save.equipment.ownedTiers.shovel >= 3) &&
           !save.fieldwork.claims.some((c) => c.kind === 'lode'),
-        enabled: (save) => save.wallet.balance >= 250,
-        disabledHint: '(need $250)',
+        enabled: (save) => save.wallet.balance >= LODE_FEE,
+        disabledHint: `(need $${LODE_FEE})`,
       },
       { text: 'How long you been out here?', action: { kind: 'goto', nodeId: 'bio' } },
       { text: 'Goodbye.', action: { kind: 'leave' } },

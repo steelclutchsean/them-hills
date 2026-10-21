@@ -1,39 +1,42 @@
+import * as THREE from 'three';
 import type { BoneJoint, CharacterRig } from './character-asset';
 
-// Hand-coded poses for the rigged character. Each animation expresses a DELTA
-// from the bone's REST rotation captured at load (T-pose). applyDelta() lerps
-// `bone.rotation.{x,y,z}` toward `rest + delta` so the rig's natural posture
-// is preserved and animations stack on top of it.
+// The Ranger ships in a bind T-pose: upper arms rest straight out to the sides.
+// A measured euler on this skeleton drops them only when the shoulder Z is
+// about -1.45 on the left and +1.45 on the right. Shoulder X is a forward
+// lift on top of that drop. Writing a small X and a zero Z — what the old
+// dig keys did — puts the arms back out in a T.
 //
-// Phase 3.2 deliberately STRIPS this back to the bare minimum:
-//   - All bones held at rest (T-pose) EXCEPT shoulders, which get rotated
-//     down to bring arms to the sides.
-//   - Walk/Run add a leg-swing cycle on top.
-//   - Jump / fall / land / dig / classify / pan / collect all currently render
-//     as the same rest-with-arms-down pose. Adding character-specific motions
-//     for those is the next iteration once arm rotation is dialed in.
-//
-// Two unknowns being pinned down empirically (one Vercel screenshot per try):
-//   ARM_DOWN_AXIS  — which bone-local axis swings the arm from horizontal to down
-//   ARM_DOWN_VALUE — sign + magnitude (about ±π/2 = ±1.57)
-//
-// Try sequence (flip these and rebuild on each screenshot):
-//   1. axis='x', L=-1.5, R=-1.5  ← currently shipping
-//   2. axis='x', L=+1.5, R=+1.5
-//   3. axis='z', L=-1.5, R=+1.5  (mirrored)
-//   4. axis='z', L=+1.5, R=-1.5  (mirrored, opposite)
+// Every clip keeps that Z drop and snaps it (no lerp) so a transition cannot
+// pass through the bind pose. Unknown work falls back to idle-hold-tool.
 
-const ARM_DOWN_AXIS: 'x' | 'y' | 'z' = 'x';
-const ARM_DOWN_L = -1.5;
-const ARM_DOWN_R = -1.5;
+export type PoseClip =
+  | 'idle'
+  | 'idle-hold-tool'
+  | 'walk'
+  | 'run'
+  | 'jump'
+  | 'fall'
+  | 'land'
+  | 'shovel'
+  | 'rock'
+  | 'aim'
+  | 'pan'
+  | 'sort';
+
+const DROP_L = -1.45;
+const DROP_R = 1.45;
+
+const shoulderA = new THREE.Vector3();
+const shoulderB = new THREE.Vector3();
 
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }
 
+let posedOnce = false;
+
 function applyDelta(j: BoneJoint, dx: number, dy: number, dz: number, t: number): void {
-  // Drive every paired bone (Peasant + Superhero skeletons share names) so the
-  // outfit and the body+head animate identically.
   const tx = j.restX + dx;
   const ty = j.restY + dy;
   const tz = j.restZ + dz;
@@ -44,304 +47,281 @@ function applyDelta(j: BoneJoint, dx: number, dy: number, dz: number, t: number)
   }
 }
 
-function armDownDelta(side: 'L' | 'R'): { x: number; y: number; z: number } {
-  const v = side === 'L' ? ARM_DOWN_L : ARM_DOWN_R;
-  return {
-    x: ARM_DOWN_AXIS === 'x' ? v : 0,
-    y: ARM_DOWN_AXIS === 'y' ? v : 0,
-    z: ARM_DOWN_AXIS === 'z' ? v : 0,
-  };
-}
-
-function applyRestPose(rig: CharacterRig, t: number): void {
-  applyDelta(rig.spine, 0, 0, 0, t);
-  applyDelta(rig.head, 0, 0, 0, t);
-
-  const dL = armDownDelta('L');
-  const dR = armDownDelta('R');
-  applyDelta(rig.shoulderL, dL.x, dL.y, dL.z, t);
-  applyDelta(rig.shoulderR, dR.x, dR.y, dR.z, t);
-  applyDelta(rig.elbowL, 0, 0, 0, t);
-  applyDelta(rig.elbowR, 0, 0, 0, t);
-  applyDelta(rig.handL, 0, 0, 0, t);
-  applyDelta(rig.handR, 0, 0, 0, t);
-
-  applyDelta(rig.hipL, 0, 0, 0, t);
-  applyDelta(rig.hipR, 0, 0, 0, t);
-  applyDelta(rig.kneeL, 0, 0, 0, t);
-  applyDelta(rig.kneeR, 0, 0, 0, t);
-}
-
-// ----- Idle -----
-export function applyIdle(rig: CharacterRig, _time: number, smoothing = 0.15): void {
-  applyRestPose(rig, smoothing);
-}
-
-// Arm swing axis when walking. With arm-down on bone-X applied, the perpendicular
-// world-X swing axis (which we want for fore/aft motion) lines up with bone-Y in
-// the rig's local frame after the rest rotation.
-const ARM_SWING_AXIS: 'x' | 'y' | 'z' = 'y';
-const ARM_SWING_AMP = 0.25;
-
-function applyArmSwing(rig: CharacterRig, sin: number, smoothing: number): void {
-  // Compose arm-down baseline + forward/back swing into one delta per shoulder.
-  // L and R use the SAME swing sign because the rig's bone-Y axes are already
-  // mirrored (L Y is +Y-mostly, R Y is -Y-mostly). Same code value + opposite
-  // axes = arms swing in OPPOSITE world directions, which is the natural gait.
-  const dL = { x: 0, y: 0, z: 0 };
-  const dR = { x: 0, y: 0, z: 0 };
-  dL[ARM_DOWN_AXIS] = ARM_DOWN_L;
-  dR[ARM_DOWN_AXIS] = ARM_DOWN_R;
-  const swing = sin * ARM_SWING_AMP;
-  dL[ARM_SWING_AXIS] += swing;
-  dR[ARM_SWING_AXIS] += swing;
-  applyDelta(rig.shoulderL, dL.x, dL.y, dL.z, smoothing);
-  applyDelta(rig.shoulderR, dR.x, dR.y, dR.z, smoothing);
-}
-
-// ----- Walk -----
-// Hip and knee values are NEGATED relative to the procedural-rig versions because
-// the gltf.scene's 180° Y-flip (to put the model's face on local -Z) also flips
-// bone-X in world. So +bone-X rotation now produces backward swing in world; we
-// negate so positive `sin` still corresponds to forward swing intent.
-export function applyWalk(rig: CharacterRig, time: number, smoothing = 0.3): void {
-  applyRestPose(rig, smoothing);
-  const phase = time * 6;
-  const sin = Math.sin(phase);
-  applyArmSwing(rig, sin, smoothing);
-  applyDelta(rig.hipL, -sin * 0.6, 0, 0, smoothing);
-  applyDelta(rig.hipR, sin * 0.6, 0, 0, smoothing);
-  applyDelta(rig.kneeL, Math.max(0, sin * 0.5), 0, 0, smoothing);
-  applyDelta(rig.kneeR, Math.max(0, -sin * 0.5), 0, 0, smoothing);
-}
-
-// ----- Run -----
-export function applyRun(rig: CharacterRig, time: number, smoothing = 0.35): void {
-  applyRestPose(rig, smoothing);
-  const phase = time * 9;
-  const sin = Math.sin(phase);
-  applyArmSwing(rig, sin * 1.6, smoothing);
-  applyDelta(rig.hipL, -sin * 0.95, 0, 0, smoothing);
-  applyDelta(rig.hipR, sin * 0.95, 0, 0, smoothing);
-  applyDelta(rig.kneeL, Math.max(0, sin * 0.85), 0, 0, smoothing);
-  applyDelta(rig.kneeR, Math.max(0, -sin * 0.85), 0, 0, smoothing);
-}
-
-// ----- Jump / Fall / Land -----
-// During airborne states (briefly going off the ground while running, jumping,
-// landing), keep the leg cycle going so the character doesn't appear to glide.
-// Re-uses the same sin-based leg + arm cycle as walking, with knees slightly
-// more bent for visual differentiation.
-function applyAirborneCycle(rig: CharacterRig, time: number, smoothing: number): void {
-  applyRestPose(rig, smoothing);
-  const phase = time * 6;
-  const sin = Math.sin(phase);
-  applyArmSwing(rig, sin, smoothing);
-  applyDelta(rig.hipL, -sin * 0.5, 0, 0, smoothing);
-  applyDelta(rig.hipR, sin * 0.5, 0, 0, smoothing);
-  applyDelta(rig.kneeL, 0.25 + Math.max(0, sin * 0.4), 0, 0, smoothing);
-  applyDelta(rig.kneeR, 0.25 + Math.max(0, -sin * 0.4), 0, 0, smoothing);
-}
-
-export function applyJumping(rig: CharacterRig, time: number, smoothing = 0.25): void {
-  applyAirborneCycle(rig, time, smoothing);
-}
-
-export function applyFalling(rig: CharacterRig, time: number, smoothing = 0.2): void {
-  applyAirborneCycle(rig, time, smoothing);
-}
-
-export function applyLanded(rig: CharacterRig, time: number, _t01: number, smoothing = 0.5): void {
-  applyAirborneCycle(rig, time, smoothing);
-}
-
-// Dig and pan are keyframe clips: a short list of poses sampled by time.
-// Deltas are added on top of the arm-down rest, same as the walk cycle.
-type Vec3 = readonly [number, number, number];
-interface DigKey {
-  t: number;
-  shoulderL: Vec3;
-  shoulderR: Vec3;
-  elbowL: Vec3;
-  elbowR: Vec3;
-  spine: Vec3;
+interface Gesture {
+  shLx: number;
+  shLy: number;
+  shRx: number;
+  shRy: number;
+  elbL: number;
+  elbR: number;
+  spineX: number;
+  spineY: number;
+  headX: number;
+  hipL: number;
+  hipR: number;
   kneeL: number;
   kneeR: number;
+  hand: number;
 }
 
-const DIG_CLIP: readonly DigKey[] = [
-  {
-    t: 0,
-    shoulderL: [-1.5, 0, 0],
-    shoulderR: [-1.5, 0, 0],
-    elbowL: [0, 0, 0],
-    elbowR: [0, 0, 0],
-    spine: [0, 0, 0],
-    kneeL: 0,
-    kneeR: 0,
-  },
-  {
-    t: 0.28,
-    shoulderL: [-0.2, 0.2, 0.4],
-    shoulderR: [-0.15, -0.2, -0.35],
-    elbowL: [0.9, 0, 0],
-    elbowR: [0.8, 0, 0],
-    spine: [0.35, 0, 0],
-    kneeL: 0.2,
-    kneeR: 0.15,
-  },
-  {
-    t: 0.48,
-    shoulderL: [-1.7, 0.1, 0.2],
-    shoulderR: [-1.8, -0.1, -0.15],
-    elbowL: [0.15, 0, 0],
-    elbowR: [0.1, 0, 0],
-    spine: [0.7, 0, 0],
-    kneeL: 0.45,
-    kneeR: 0.4,
-  },
-  {
-    t: 0.78,
-    shoulderL: [-1.4, 0, 0.1],
-    shoulderR: [-1.45, 0, -0.1],
-    elbowL: [0.2, 0, 0],
-    elbowR: [0.2, 0, 0],
-    spine: [0.2, 0, 0],
-    kneeL: 0.1,
-    kneeR: 0.1,
-  },
-  {
-    t: 1.15,
-    shoulderL: [-1.5, 0, 0],
-    shoulderR: [-1.5, 0, 0],
-    elbowL: [0, 0, 0],
-    elbowR: [0, 0, 0],
-    spine: [0, 0, 0],
-    kneeL: 0,
-    kneeR: 0,
-  },
-];
-
-function sampleClip(keys: readonly DigKey[], time: number): DigKey {
-  const duration = keys[keys.length - 1]!.t;
-  const t = time % duration;
-  let i = 0;
-  while (i < keys.length - 2 && keys[i + 1]!.t < t) i++;
-  const a = keys[i]!;
-  const b = keys[i + 1]!;
-  const span = Math.max(0.0001, b.t - a.t);
-  const u = (t - a.t) / span;
-  const mix = (x: number, y: number) => x + (y - x) * u;
-  const mix3 = (x: Vec3, y: Vec3): Vec3 => [mix(x[0], y[0]), mix(x[1], y[1]), mix(x[2], y[2])];
+function still(): Gesture {
   return {
-    t,
-    shoulderL: mix3(a.shoulderL, b.shoulderL),
-    shoulderR: mix3(a.shoulderR, b.shoulderR),
-    elbowL: mix3(a.elbowL, b.elbowL),
-    elbowR: mix3(a.elbowR, b.elbowR),
-    spine: mix3(a.spine, b.spine),
-    kneeL: mix(a.kneeL, b.kneeL),
-    kneeR: mix(a.kneeR, b.kneeR),
+    shLx: 0.08,
+    shLy: 0.04,
+    shRx: 0.08,
+    shRy: -0.04,
+    elbL: 0.28,
+    elbR: 0.28,
+    spineX: 0,
+    spineY: 0,
+    headX: 0,
+    hipL: 0,
+    hipR: 0,
+    kneeL: 0.04,
+    kneeR: 0.04,
+    hand: 0.15,
   };
 }
 
-function applyKeyed(rig: CharacterRig, pose: DigKey, smoothing: number): void {
-  applyDelta(rig.spine, pose.spine[0], pose.spine[1], pose.spine[2], smoothing);
-  applyDelta(rig.shoulderL, pose.shoulderL[0], pose.shoulderL[1], pose.shoulderL[2], smoothing);
-  applyDelta(rig.shoulderR, pose.shoulderR[0], pose.shoulderR[1], pose.shoulderR[2], smoothing);
-  applyDelta(rig.elbowL, pose.elbowL[0], pose.elbowL[1], pose.elbowL[2], smoothing);
-  applyDelta(rig.elbowR, pose.elbowR[0], pose.elbowR[1], pose.elbowR[2], smoothing);
-  applyDelta(rig.kneeL, pose.kneeL, 0, 0, smoothing);
-  applyDelta(rig.kneeR, pose.kneeR, 0, 0, smoothing);
+function write(rig: CharacterRig, g: Gesture, smoothing: number): void {
+  const t = posedOnce ? smoothing : 1;
+  posedOnce = true;
+  applyDelta(rig.spine, g.spineX, g.spineY, 0, t);
+  applyDelta(rig.head, g.headX, 0, 0, t);
+  // Snap. A lerped drop spends frames in the bind T.
+  applyDelta(rig.shoulderL, g.shLx, g.shLy, DROP_L, 1);
+  applyDelta(rig.shoulderR, g.shRx, g.shRy, DROP_R, 1);
+  applyDelta(rig.elbowL, g.elbL, 0, 0, t);
+  applyDelta(rig.elbowR, g.elbR, 0, 0, t);
+  applyDelta(rig.handL, g.hand, 0, 0, t);
+  applyDelta(rig.handR, g.hand, 0, 0, t);
+  applyDelta(rig.hipL, g.hipL, 0, 0, t);
+  applyDelta(rig.hipR, g.hipR, 0, 0, t);
+  applyDelta(rig.kneeL, g.kneeL, 0, 0, t);
+  applyDelta(rig.kneeR, g.kneeR, 0, 0, t);
 }
 
-export function applyDig(
-  rig: CharacterRig,
-  time: number,
-  _progress: number,
-  smoothing = 0.45,
-): void {
-  applyRestPose(rig, smoothing);
-  applyKeyed(rig, sampleClip(DIG_CLIP, time), smoothing);
+function breathe(time: number): number {
+  return Math.sin(time * 1.35) * 0.035;
+}
+
+/** True when either upper arm is still out to the side like the bind pose. */
+export function armsAreBind(rig: CharacterRig): boolean {
+  const flat = (shoulder: BoneJoint, elbow: BoneJoint): boolean => {
+    const s = shoulder.bones[0];
+    const e = elbow.bones[0];
+    if (!s || !e) return true;
+    s.updateWorldMatrix(true, false);
+    e.updateWorldMatrix(true, false);
+    shoulderA.setFromMatrixPosition(s.matrixWorld);
+    shoulderB.setFromMatrixPosition(e.matrixWorld).sub(shoulderA);
+    const horizontal = Math.hypot(shoulderB.x, shoulderB.z);
+    return Math.abs(shoulderB.y) < horizontal * 0.55;
+  };
+  return flat(rig.shoulderL, rig.elbowL) || flat(rig.shoulderR, rig.elbowR);
+}
+
+export function applyIdle(rig: CharacterRig, time: number, smoothing = 0.2): PoseClip {
+  const g = still();
+  g.spineX = breathe(time);
+  write(rig, g, smoothing);
+  return 'idle';
+}
+
+export function applyIdleHold(rig: CharacterRig, time: number, smoothing = 0.2): PoseClip {
+  const g = still();
+  g.shLx = 0.42;
+  g.shRx = 0.48;
+  g.elbL = 0.95;
+  g.elbR = 1.05;
+  g.hand = 0.55;
+  g.spineX = 0.08 + breathe(time);
+  write(rig, g, smoothing);
+  return 'idle-hold-tool';
+}
+
+function gait(time: number, speed: number, amp: number): Gesture {
+  const g = still();
+  const sin = Math.sin(time * speed);
+  g.shLx = 0.12 + sin * amp;
+  g.shRx = 0.12 - sin * amp;
+  g.elbL = 0.4 + Math.max(0, sin) * 0.35;
+  g.elbR = 0.4 + Math.max(0, -sin) * 0.35;
+  g.hipL = -sin * (0.55 + amp);
+  g.hipR = sin * (0.55 + amp);
+  g.kneeL = Math.max(0, sin) * (0.45 + amp);
+  g.kneeR = Math.max(0, -sin) * (0.45 + amp);
+  g.spineX = 0.06;
+  g.spineY = sin * 0.06;
+  return g;
+}
+
+export function applyWalk(rig: CharacterRig, time: number, smoothing = 0.3): PoseClip {
+  write(rig, gait(time, 6, 0.28), smoothing);
+  return 'walk';
+}
+
+export function applyRun(rig: CharacterRig, time: number, smoothing = 0.35): PoseClip {
+  const g = gait(time, 9, 0.42);
+  g.spineX = 0.14;
+  g.kneeL += 0.08;
+  g.kneeR += 0.08;
+  write(rig, g, smoothing);
+  return 'run';
+}
+
+function airborne(time: number, tuck: number): Gesture {
+  const g = gait(time, 6, 0.18);
+  g.kneeL = tuck;
+  g.kneeR = tuck * 0.85;
+  g.shLx = 0.2;
+  g.shRx = 0.2;
+  g.elbL = 0.55;
+  g.elbR = 0.55;
+  g.hipL = -0.2;
+  g.hipR = 0.15;
+  return g;
+}
+
+export function applyJumping(rig: CharacterRig, time: number, smoothing = 0.25): PoseClip {
+  write(rig, airborne(time, 0.7), smoothing);
+  return 'jump';
+}
+
+export function applyFalling(rig: CharacterRig, time: number, smoothing = 0.2): PoseClip {
+  const g = airborne(time, 0.35);
+  g.shLx = 0.55;
+  g.shRx = 0.55;
+  g.elbL = 0.3;
+  g.elbR = 0.3;
+  write(rig, g, smoothing);
+  return 'fall';
+}
+
+export function applyLanded(rig: CharacterRig, time: number, t01: number, smoothing = 0.45): PoseClip {
+  const g = still();
+  g.kneeL = 0.55 * (1 - t01);
+  g.kneeR = 0.5 * (1 - t01);
+  g.spineX = 0.25 * (1 - t01);
+  g.hipL = 0.2 * (1 - t01);
+  g.hipR = -0.15 * (1 - t01);
+  void time;
+  write(rig, g, smoothing);
+  return 'land';
+}
+
+function shovelGesture(time: number): Gesture {
+  const g = still();
+  const u = (time % 1.25) / 1.25;
+  let lift = 0;
+  if (u < 0.34) lift = u / 0.34;
+  else if (u < 0.48) lift = 1 - (u - 0.34) / 0.14;
+  else lift = 0;
+  const strike = u >= 0.34 && u < 0.56 ? Math.sin(((u - 0.34) / 0.22) * Math.PI) : 0;
+  g.shLx = 0.28 + lift * 0.9;
+  g.shRx = 0.4 + lift * 1.05;
+  g.shLy = 0.12;
+  g.shRy = -0.16;
+  g.elbL = 0.5 + lift * 0.85;
+  g.elbR = 0.65 + lift * 1.0;
+  g.spineX = 0.16 + strike * 0.62;
+  g.kneeL = 0.1 + strike * 0.38;
+  g.kneeR = 0.14 + strike * 0.3;
+  g.hand = 0.7;
+  g.headX = 0.18 + strike * 0.15;
+  return g;
+}
+
+export function applyDig(rig: CharacterRig, time: number, _progress: number, smoothing = 0.35): PoseClip {
+  write(rig, shovelGesture(time), smoothing);
+  return 'shovel';
+}
+
+export function applyRock(rig: CharacterRig, time: number, smoothing = 0.3): PoseClip {
+  const g = still();
+  const sway = Math.sin(time * 3.6);
+  g.shLx = 0.5;
+  g.shRx = 0.55;
+  g.shLy = sway * 0.38;
+  g.shRy = sway * 0.38;
+  g.elbL = 0.9;
+  g.elbR = 0.95;
+  g.spineY = sway * 0.42;
+  g.spineX = 0.12;
+  g.kneeL = 0.12 + Math.max(0, sway) * 0.15;
+  g.kneeR = 0.12 + Math.max(0, -sway) * 0.15;
+  g.hand = 0.65;
+  g.headX = 0.12;
+  write(rig, g, smoothing);
+  return 'rock';
+}
+
+export function applyAim(rig: CharacterRig, time: number, smoothing = 0.3): PoseClip {
+  const g = still();
+  const sway = Math.sin(time * 1.5) * 0.08;
+  g.shLx = 0.95;
+  g.shRx = 1.05;
+  g.shLy = 0.22 + sway;
+  g.shRy = -0.18 + sway;
+  g.elbL = 1.05;
+  g.elbR = 0.85;
+  g.spineX = 0.1;
+  g.spineY = sway;
+  g.headX = 0.06;
+  g.hand = 0.45;
+  g.kneeL = 0.08;
+  g.kneeR = 0.1;
+  write(rig, g, smoothing);
+  return 'aim';
+}
+
+export function applyPan(rig: CharacterRig, time: number, _progress: number, smoothing = 0.35): PoseClip {
+  const g = still();
+  const swirl = Math.sin(time * 2.3);
+  g.shLx = 0.62;
+  g.shRx = 0.7;
+  g.shLy = 0.28 + swirl * 0.32;
+  g.shRy = -0.22 + swirl * 0.32;
+  g.elbL = 0.95;
+  g.elbR = 1.05;
+  g.spineX = 0.22;
+  g.spineY = swirl * 0.2;
+  g.headX = 0.28;
+  g.kneeL = 0.16;
+  g.kneeR = 0.12;
+  g.hand = 0.4;
+  write(rig, g, smoothing);
+  return 'pan';
 }
 
 export function applyClassify(
   rig: CharacterRig,
-  _time: number,
-  _progress: number,
-  smoothing = 0.4,
-): void {
-  applyRestPose(rig, smoothing);
-}
-
-const PAN_CLIP: readonly DigKey[] = [
-  {
-    t: 0,
-    shoulderL: [-0.7, 0.35, 0.5],
-    shoulderR: [-0.55, -0.4, -0.45],
-    elbowL: [0.7, 0, 0],
-    elbowR: [0.85, 0, 0],
-    spine: [0.25, 0.15, 0],
-    kneeL: 0.15,
-    kneeR: 0.1,
-  },
-  {
-    t: 0.5,
-    shoulderL: [-0.55, -0.2, 0.2],
-    shoulderR: [-0.7, 0.25, -0.2],
-    elbowL: [0.9, 0, 0],
-    elbowR: [0.7, 0, 0],
-    spine: [0.3, -0.2, 0],
-    kneeL: 0.1,
-    kneeR: 0.2,
-  },
-  {
-    t: 1.0,
-    shoulderL: [-0.8, 0.4, 0.55],
-    shoulderR: [-0.5, -0.45, -0.5],
-    elbowL: [0.65, 0, 0],
-    elbowR: [0.95, 0, 0],
-    spine: [0.22, 0.22, 0],
-    kneeL: 0.2,
-    kneeR: 0.08,
-  },
-  {
-    t: 1.5,
-    shoulderL: [-0.6, 0.1, 0.3],
-    shoulderR: [-0.65, -0.1, -0.3],
-    elbowL: [0.8, 0, 0],
-    elbowR: [0.8, 0, 0],
-    spine: [0.28, 0, 0],
-    kneeL: 0.12,
-    kneeR: 0.12,
-  },
-  {
-    t: 2.0,
-    shoulderL: [-0.7, 0.35, 0.5],
-    shoulderR: [-0.55, -0.4, -0.45],
-    elbowL: [0.7, 0, 0],
-    elbowR: [0.85, 0, 0],
-    spine: [0.25, 0.15, 0],
-    kneeL: 0.15,
-    kneeR: 0.1,
-  },
-];
-
-export function applyPan(
-  rig: CharacterRig,
   time: number,
   _progress: number,
-  smoothing = 0.4,
-): void {
-  applyRestPose(rig, smoothing);
-  applyKeyed(rig, sampleClip(PAN_CLIP, time), smoothing);
+  smoothing = 0.35,
+): PoseClip {
+  const g = still();
+  const sort = Math.sin(time * 2.8);
+  g.shLx = 0.55;
+  g.shRx = 0.6;
+  g.shLy = 0.2 + sort * 0.12;
+  g.shRy = -0.16 - sort * 0.12;
+  g.elbL = 1.15;
+  g.elbR = 1.2;
+  g.spineX = 0.4;
+  g.headX = 0.38;
+  g.hand = 0.5;
+  g.kneeL = 0.18;
+  g.kneeR = 0.16;
+  write(rig, g, smoothing);
+  return 'sort';
 }
 
 export function applyCollect(
   rig: CharacterRig,
-  _time: number,
-  _progress: number,
+  time: number,
+  progress: number,
   smoothing = 0.35,
-): void {
-  applyRestPose(rig, smoothing);
+): PoseClip {
+  return applyClassify(rig, time, progress, smoothing);
 }

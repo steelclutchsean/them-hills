@@ -45,6 +45,12 @@ export interface InputManager {
   /** Multiplier applied on top of the default mouse-look sensitivity.
    *  Default 1.0 → no change. Driven by settings.look.mouseSensitivity. */
   setMouseSensitivityMultiplier(value: number): void;
+  /** Positive pitch from a downward mouse move looks up when inverted. */
+  setInvertY(invert: boolean): void;
+  setKeyboardBinding(action: ActionId, code: string): void;
+  getKeyboardBinding(action: ActionId): string;
+  /** D-pad and left stick, for menus. Keyboard arrows stay on the key listener. */
+  gamepadMenu(): { x: number; y: number };
 }
 
 // Mouse pixels → radians. Multiplied by the settings-driven multiplier
@@ -58,6 +64,8 @@ export function createInputManager(): InputManager {
   const gp = new GamepadInput();
   let lastDevice: InputDevice = 'keyboard';
   let mouseSensitivityMultiplier = 1.0;
+  let invertY = false;
+  const keyboardBindings: Record<ActionId, string> = { ...DEFAULT_KEYBOARD_BINDINGS };
 
   // Per-frame consumed mouse delta (set in poll()).
   let frameMouseDx = 0;
@@ -77,7 +85,7 @@ export function createInputManager(): InputManager {
   };
 
   const isActiveRaw = (action: ActionId): boolean => {
-    const kbBinding = DEFAULT_KEYBOARD_BINDINGS[action];
+    const kbBinding = keyboardBindings[action];
     const gpButton = DEFAULT_GAMEPAD_BINDINGS[action];
     if (kb.isPressed(kbBinding)) {
       lastDevice = 'keyboard';
@@ -101,7 +109,7 @@ export function createInputManager(): InputManager {
   };
 
   const getValueRaw = (action: ActionId): number => {
-    const kbBinding = DEFAULT_KEYBOARD_BINDINGS[action];
+    const kbBinding = keyboardBindings[action];
     const gpButton = DEFAULT_GAMEPAD_BINDINGS[action];
     if (kb.isPressed(kbBinding)) return 1;
     const kb2 = SECONDARY_KB[action];
@@ -137,10 +145,10 @@ export function createInputManager(): InputManager {
       // Keyboard first; if any key is held, prefer it (deterministic for sims).
       let kx = 0;
       let ky = 0;
-      if (kb.isPressed(DEFAULT_KEYBOARD_BINDINGS.MOVE_LEFT)) kx -= 1;
-      if (kb.isPressed(DEFAULT_KEYBOARD_BINDINGS.MOVE_RIGHT)) kx += 1;
-      if (kb.isPressed(DEFAULT_KEYBOARD_BINDINGS.MOVE_FORWARD)) ky -= 1;
-      if (kb.isPressed(DEFAULT_KEYBOARD_BINDINGS.MOVE_BACKWARD)) ky += 1;
+      if (kb.isPressed(keyboardBindings.MOVE_LEFT)) kx -= 1;
+      if (kb.isPressed(keyboardBindings.MOVE_RIGHT)) kx += 1;
+      if (kb.isPressed(keyboardBindings.MOVE_FORWARD)) ky -= 1;
+      if (kb.isPressed(keyboardBindings.MOVE_BACKWARD)) ky += 1;
       if (kx !== 0 || ky !== 0) {
         lastDevice = 'keyboard';
         // Normalize diagonal so Pythagorean speed isn't > 1.
@@ -159,11 +167,13 @@ export function createInputManager(): InputManager {
     getLookDelta(dt) {
       const sens = MOUSE_LOOK_SENSITIVITY * mouseSensitivityMultiplier;
       const mouseDx = frameMouseDx * sens;
-      const mouseDy = frameMouseDy * sens;
+      const mouseDy = frameMouseDy * sens * (invertY ? -1 : 1);
       // Stick rate gets the same multiplier so settings affect both
       // input methods consistently.
       const stickX = gp.getAxis(2) * STICK_LOOK_RATE_RAD_PER_SEC * mouseSensitivityMultiplier * dt;
-      const stickY = gp.getAxis(3) * STICK_LOOK_RATE_RAD_PER_SEC * mouseSensitivityMultiplier * dt;
+      const stickSign = invertY ? -1 : 1;
+      const stickY =
+        gp.getAxis(3) * STICK_LOOK_RATE_RAD_PER_SEC * mouseSensitivityMultiplier * dt * stickSign;
       if (mouseDx !== 0 || mouseDy !== 0) lastDevice = 'keyboard';
       else if (stickX !== 0 || stickY !== 0) lastDevice = 'gamepad';
       return { dx: mouseDx + stickX, dy: mouseDy + stickY };
@@ -179,6 +189,31 @@ export function createInputManager(): InputManager {
     },
     setMouseSensitivityMultiplier(value) {
       mouseSensitivityMultiplier = Math.max(0.05, Math.min(5, value));
+    },
+    setInvertY(invert) {
+      invertY = invert;
+    },
+    setKeyboardBinding(action, code) {
+      for (const other of ALL_ACTIONS) {
+        if (other !== action && keyboardBindings[other] === code) keyboardBindings[other] = '';
+      }
+      keyboardBindings[action] = code;
+    },
+    getKeyboardBinding(action) {
+      return keyboardBindings[action];
+    },
+    gamepadMenu() {
+      let x = 0;
+      let y = 0;
+      if (gp.isPressed(14)) x -= 1;
+      if (gp.isPressed(15)) x += 1;
+      if (gp.isPressed(12)) y -= 1;
+      if (gp.isPressed(13)) y += 1;
+      const sx = gp.getAxis(0);
+      const sy = gp.getAxis(1);
+      if (Math.abs(sx) > 0.65) x = Math.sign(sx);
+      if (Math.abs(sy) > 0.65) y = Math.sign(sy);
+      return { x, y };
     },
   };
 }

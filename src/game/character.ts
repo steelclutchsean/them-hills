@@ -2,16 +2,20 @@ import * as THREE from 'three';
 import { RAPIER } from '@/physics/world';
 import type { MoveInput } from '@/input/manager';
 import {
+  applyAim,
   applyClassify,
-  applyCollect,
   applyDig,
   applyFalling,
   applyIdle,
+  applyIdleHold,
   applyJumping,
   applyLanded,
   applyPan,
+  applyRock,
   applyRun,
   applyWalk,
+  armsAreBind,
+  type PoseClip,
 } from './character-animations';
 import { loadCharacter, type CharacterRig } from './character-asset';
 import { getReviewPose } from '@/dev/review-shots';
@@ -27,8 +31,24 @@ export type CharacterState = 'idle' | 'walking' | 'running' | 'jumping' | 'falli
 
 /** Optional task overlay; if non-null it overrides movement-state animation. */
 export interface ProspectingActivity {
-  step: 'dig' | 'classify' | 'pan' | 'collect' | 'strike' | 'extract';
+  step:
+    | 'dig'
+    | 'classify'
+    | 'pan'
+    | 'collect'
+    | 'strike'
+    | 'extract'
+    | 'rocker'
+    | 'sluice'
+    | 'tom'
+    | 'monitor';
   progress: number;
+}
+
+export interface PlayerPose {
+  clip: PoseClip;
+  /** True only if an upper arm is still out in the bind T. */
+  bind: boolean;
 }
 
 export interface CharacterOpts {
@@ -51,7 +71,14 @@ export interface Character {
   /** A dig swing spends a little stamina. Food and coffee lower the cost. */
   spendStamina(amount: number): void;
   /** activity overrides movement animation when non-null (e.g. during prospecting). */
-  postStep(dt: number, time: number, activity: ProspectingActivity | null): void;
+  postStep(
+    dt: number,
+    time: number,
+    activity: ProspectingActivity | null,
+    pose?: { menu?: boolean },
+  ): void;
+  /** Clip name plus whether the arms have fallen back to the bind T. */
+  getPose(): PlayerPose;
   getPosition(): THREE.Vector3;
   /** Teleport the kinematic body. Used by the playtest pilot to reach a site. */
   placeAt(x: number, y: number, z: number): void;
@@ -231,6 +258,8 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
   }
 
   let toolStep: 'dig' | 'pan' | 'other' = 'other';
+  let clip: PoseClip = 'idle-hold-tool';
+  applyIdleHold(rig, 0, 1);
 
   function focusAt(step: 'dig' | 'pan' | 'other'): THREE.Vector3 {
     const t = body.translation();
@@ -241,7 +270,19 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
     return new THREE.Vector3(t.x + forwardX * reach, t.y + lift, t.z + forwardZ * reach);
   }
 
-  function postStep(_dt: number, time: number, activity: ProspectingActivity | null): void {
+  function showFor(step: ProspectingActivity['step'] | null, livePan: boolean): void {
+    if (step === 'dig' || step === 'sluice' || step === 'tom' || step === 'strike') {
+      rig.showTool('shovel');
+    } else if (step === 'pan' && !livePan) rig.showTool('pan');
+    else rig.showTool('none');
+  }
+
+  function postStep(
+    _dt: number,
+    time: number,
+    activity: ProspectingActivity | null,
+    pose?: { menu?: boolean },
+  ): void {
     const t = body.translation();
     group.position.set(t.x, t.y, t.z);
     group.rotation.y = yaw;
@@ -250,57 +291,73 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
     const posed: ProspectingActivity | null =
       reviewPose === 'dig' || reviewPose === 'pan' ? { step: reviewPose, progress: 0.5 } : activity;
     const livePan = activity?.step === 'pan';
-    toolStep = posed?.step === 'dig' || posed?.step === 'pan' ? posed.step : 'other';
+    const grip =
+      posed?.step === 'pan' ? 'pan' : posed?.step === 'dig' || posed?.step === 'sluice' || posed?.step === 'tom' || posed?.step === 'strike' ? 'dig' : 'other';
+    toolStep = grip === 'other' ? 'other' : grip;
 
-    if (posed?.step === 'dig') rig.showTool('shovel');
-    else if (posed?.step === 'pan' && !livePan) rig.showTool('pan');
-    else rig.showTool('none');
+    if (pose?.menu && !posed) {
+      showFor(null, false);
+      clip = applyIdleHold(rig, time);
+      return;
+    }
 
-    // Animation dispatch — task overlay wins over movement state.
+    showFor(posed?.step ?? null, livePan);
+
     if (posed) {
-      activity = posed;
-      switch (activity.step) {
+      const progress = posed.progress;
+      switch (posed.step) {
         case 'dig':
-          applyDig(rig, time, activity.progress);
+        case 'sluice':
+        case 'tom':
+        case 'strike':
+          clip = applyDig(rig, time, progress);
           break;
-        case 'classify':
-          applyClassify(rig, time, activity.progress);
+        case 'rocker':
+          clip = applyRock(rig, time);
+          break;
+        case 'monitor':
+          clip = applyAim(rig, time);
           break;
         case 'pan':
-          applyPan(rig, time, activity.progress);
+          clip = applyPan(rig, time, progress);
           break;
+        case 'classify':
         case 'collect':
-          applyCollect(rig, time, activity.progress);
+        case 'extract':
+          clip = applyClassify(rig, time, progress);
+          break;
+        default:
+          clip = applyIdleHold(rig, time);
           break;
       }
-      if (posed.step === 'dig' || posed.step === 'pan') {
+      if (grip !== 'other') {
         group.updateWorldMatrix(true, true);
-        aimGrip(rig.handR.bones[0], focusAt(posed.step));
+        aimGrip(rig.handR.bones[0], focusAt(grip));
       }
       return;
     }
 
     switch (state) {
       case 'walking':
-        applyWalk(rig, time);
+        clip = applyWalk(rig, time);
         break;
       case 'running':
-        applyRun(rig, time);
+        clip = applyRun(rig, time);
         break;
       case 'jumping':
-        applyJumping(rig, time);
+        clip = applyJumping(rig, time);
         break;
       case 'falling':
-        applyFalling(rig, time);
+        clip = applyFalling(rig, time);
         break;
       case 'landed': {
         const t01 = Math.max(0, Math.min(1, 1 - landedTimer / LANDED_DURATION));
-        applyLanded(rig, time, t01);
+        clip = applyLanded(rig, time, t01);
         break;
       }
       case 'idle':
       default:
-        applyIdle(rig, time);
+        clip = applyIdle(rig, time);
         break;
     }
   }
@@ -327,6 +384,10 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
     getYaw: () => yaw,
     getToolFocus: () => focusAt(toolStep),
     getState: () => state,
+    getPose: () => {
+      group.updateWorldMatrix(true, true);
+      return { clip, bind: armsAreBind(rig) };
+    },
     getStamina: () => stamina,
     spendStamina(amount: number) {
       stamina = Math.max(0, stamina - Math.max(0, amount));

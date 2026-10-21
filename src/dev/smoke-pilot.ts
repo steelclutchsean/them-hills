@@ -69,6 +69,8 @@ export interface ThemHillsProbe {
   spawnJumper: () => boolean;
   /** Teleport to a named review camera. Returns false for an unknown name. */
   applyShot?: (name: string) => boolean;
+  /** Live clip. `bind` is true only when an arm is back in the T-pose. */
+  playerPose: { clip: string; bind: boolean };
 }
 
 declare global {

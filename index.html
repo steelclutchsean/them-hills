@@ -8,6 +8,12 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon.ico" sizes="32x32" />
     <style>
+      :root {
+        --text-scale: 1;
+        --paper: #f3e6c8;
+        --ink: #2a2118;
+        --gold-ink: #8a5a12;
+      }
       html,
       body {
         margin: 0;
@@ -15,7 +21,8 @@
         height: 100%;
         overflow: hidden;
         background: #000;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-family: Palatino, 'Iowan Old Style', Palatino Linotype, Georgia, serif;
+        font-size: calc(16px * var(--text-scale));
         color: #fff;
       }
       #game-canvas {
@@ -47,36 +54,115 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        background:
-          radial-gradient(ellipse at 50% 30%, rgba(200, 155, 59, 0.18), transparent 55%), #141a22;
+        background: #1b140e;
         pointer-events: auto;
+      }
+      .boot-layout {
+        display: flex;
+        width: min(980px, calc(100vw - 28px));
+        min-height: min(560px, calc(100vh - 28px));
+        border: 1px solid #8a6a3b;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+        background: #f3e6c8;
+        color: #2a2118;
+      }
+      .boot-art {
+        position: relative;
+        flex: 1.15;
+        overflow: hidden;
+        background: #87b4c4;
+        min-height: 320px;
+      }
+      .art-sky {
+        position: absolute;
+        inset: 0 0 42% 0;
+        background: linear-gradient(#f2d7a2, #e7a15a 55%, #d7e4ea);
+      }
+      .art-ridge {
+        position: absolute;
+        left: -10%;
+        right: -10%;
+        bottom: 28%;
+        height: 38%;
+        background: #6e8f86;
+        clip-path: polygon(0 70%, 12% 40%, 28% 62%, 46% 18%, 63% 48%, 80% 22%, 100% 58%, 100% 100%, 0 100%);
+      }
+      .art-hill {
+        position: absolute;
+        left: -8%;
+        right: -8%;
+        bottom: 16%;
+        height: 34%;
+        background: #3f6a45;
+        clip-path: polygon(0 60%, 18% 30%, 40% 55%, 62% 20%, 84% 48%, 100% 28%, 100% 100%, 0 100%);
+      }
+      .art-creek {
+        position: absolute;
+        left: -5%;
+        right: -5%;
+        bottom: 8%;
+        height: 18%;
+        background: linear-gradient(#d8efe8, #2f7f86);
+        clip-path: polygon(0 40%, 100% 10%, 100% 100%, 0 80%);
+      }
+      .art-figure {
+        position: absolute;
+        left: 22%;
+        bottom: 18%;
+        width: 18px;
+        height: 48px;
+        background: #3a2a1c;
+        border-radius: 8px 8px 2px 2px;
+        box-shadow: 14px 18px 0 -6px #c4a574;
+      }
+      .art-figure::before {
+        content: '';
+        position: absolute;
+        left: 2px;
+        top: -12px;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: #e7c19e;
+      }
+      .art-caption {
+        position: absolute;
+        left: 16px;
+        bottom: 12px;
+        margin: 0;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        font-size: 12px;
+        color: #f7edd4;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
       }
       #boot[hidden] {
         display: none;
       }
       .boot-card {
-        width: min(440px, calc(100vw - 32px));
-        padding: 28px 28px 22px;
-        border: 1px solid rgba(200, 155, 59, 0.45);
-        border-radius: 14px;
-        background: rgba(8, 10, 14, 0.88);
-        box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+        width: min(380px, 100%);
+        padding: 32px 28px 24px;
+        background:
+          repeating-linear-gradient(0deg, rgba(90, 60, 30, 0.04) 0 1px, transparent 1px 7px),
+          #f3e6c8;
+        color: #2a2118;
       }
       .boot-kicker {
         margin: 0;
         letter-spacing: 0.22em;
         text-transform: uppercase;
-        color: #c89b3b;
+        color: #8a5a12;
         font-size: 12px;
       }
       .boot-card h1 {
         margin: 6px 0 12px;
-        font-size: 32px;
+        font-size: 40px;
         font-weight: 650;
+        letter-spacing: 0.02em;
       }
       #boot-status {
         margin: 0 0 14px;
-        color: rgba(255, 255, 255, 0.82);
+        color: #3a2e24;
         line-height: 1.45;
       }
       .boot-track {
@@ -94,19 +180,49 @@
       .panel-card ul {
         margin: 8px 0 16px;
         padding-left: 18px;
-        color: rgba(255, 255, 255, 0.82);
+        color: #3a2e24;
         line-height: 1.55;
       }
+      #boot-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-top: 12px;
+      }
       #boot-start,
+      #boot-new,
+      #boot-settings,
       .panel-actions button {
         font: inherit;
-        color: #1a1408;
-        background: #e2c27a;
-        border: 0;
-        border-radius: 8px;
+        color: #2a2118;
+        background: #f7edd4;
+        border: 1px solid #8a6a3b;
+        border-bottom-width: 3px;
+        border-radius: 3px;
         padding: 10px 16px;
         cursor: pointer;
         font-weight: 650;
+      }
+      #boot-start {
+        background: #6b3e16;
+        color: #f3e6c8;
+      }
+      #boot-start:hover,
+      #boot-new:hover,
+      #boot-settings:hover,
+      .panel-actions button:hover,
+      #boot-start.is-selected,
+      #boot-new.is-selected,
+      #boot-settings.is-selected,
+      .panel-actions button.is-selected {
+        background: #8a5a12;
+        color: #f7edd4;
+      }
+      #boot-start:active,
+      #boot-new:active,
+      #boot-settings:active,
+      .panel-actions button:active {
+        transform: translateY(1px);
       }
       .panel-scrim {
         position: fixed;
@@ -121,25 +237,42 @@
         top: 50%;
         left: 50%;
         transform: translate(-50%, -50%);
-        width: min(440px, calc(100vw - 32px));
-        max-height: min(80vh, 640px);
+        width: min(520px, calc(100vw - 32px));
+        max-height: min(84vh, 720px);
         overflow: auto;
         padding: 22px 24px;
-        border-radius: 14px;
-        border: 1px solid rgba(200, 155, 59, 0.45);
-        background: rgba(8, 10, 14, 0.94);
+        border-radius: 3px;
+        border: 1px solid #8a6a3b;
+        background:
+          repeating-linear-gradient(0deg, rgba(90, 60, 30, 0.04) 0 1px, transparent 1px 7px),
+          #f3e6c8;
+        color: #2a2118;
         pointer-events: auto;
+        box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35);
       }
       .panel-card h2 {
         margin: 0 0 8px;
         letter-spacing: 0.16em;
         text-transform: uppercase;
-        color: #c89b3b;
-        font-size: 14px;
+        color: #6b3e16;
+        font-size: 18px;
+      }
+      .panel-kicker {
+        margin: 14px 0 6px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        font-size: 12px;
+        color: #8a5a12;
       }
       .panel-actions {
         display: flex;
+        flex-wrap: wrap;
         gap: 8px;
+        margin-bottom: 6px;
+      }
+      .panel-books .panel-actions button:first-child {
+        flex: 1;
+        text-align: left;
       }
       body[data-journal='1'] .panel-card {
         width: min(560px, calc(100vw - 32px));
@@ -166,12 +299,22 @@
     <canvas id="game-canvas"></canvas>
     <div id="hud"></div>
     <div id="boot">
-      <div class="boot-card">
-        <p class="boot-kicker">Prospecting</p>
-        <h1>Them Hills</h1>
-        <p id="boot-status">Waking the hills…</p>
-        <div class="boot-track"><div id="boot-fill"></div></div>
-        <div id="boot-actions" hidden></div>
+      <div class="boot-layout">
+        <div class="boot-art" aria-hidden="true">
+          <div class="art-sky"></div>
+          <div class="art-ridge"></div>
+          <div class="art-hill"></div>
+          <div class="art-creek"></div>
+          <div class="art-figure"></div>
+          <p class="art-caption">Coyote Creek</p>
+        </div>
+        <div class="boot-card">
+          <p class="boot-kicker">Prospecting</p>
+          <h1>Them Hills</h1>
+          <p id="boot-status">Waking the hills…</p>
+          <div class="boot-track"><div id="boot-fill"></div></div>
+          <div id="boot-actions" hidden></div>
+        </div>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>

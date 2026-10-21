@@ -68,13 +68,25 @@ export interface SettingsState {
     /** Multiplier on the default mouse sensitivity (default constant
      *  stays in input/manager.ts; this scales it). 1.0 = unchanged. */
     mouseSensitivity: number;
+    /** Older books omit this. Readers treat absence as false. */
+    invertY?: boolean;
   };
   graphics: {
     /** Third-person FOV in degrees. Default 60. */
     fovDegrees: number;
     /** Real-time sun shadows. Disable on low-end hardware. */
     shadowsEnabled: boolean;
+    /** low | medium | high | ultra. Absence keeps the local quality pick. */
+    preset?: 'low' | 'medium' | 'high' | 'ultra';
   };
+  /** 0.85–1.4. Absence is 1. */
+  textScale?: number;
+  /** Dialogue, prompts, and the prospect line repeat in a subtitle row. */
+  subtitles?: boolean;
+  /** Markers keep a shape or hatch so hue is not the only signal. */
+  colorblind?: boolean;
+  /** KeyboardEvent.code per action id. Missing keys keep the defaults. */
+  bindings?: Partial<Record<string, string>>;
 }
 
 export interface SaveMetadata {
@@ -525,7 +537,11 @@ export function createDefaultSave(): SaveV1 {
 export function defaultSettings(): SettingsState {
   return {
     audio: { master: 1.0, music: 0.85, ambient: 1.0, sfx: 1.0 },
-    look: { mouseSensitivity: 1.0 },
-    graphics: { fovDegrees: 60, shadowsEnabled: true },
+    look: { mouseSensitivity: 1.0, invertY: false },
+    graphics: { fovDegrees: 60, shadowsEnabled: true, preset: 'high' },
+    textScale: 1,
+    subtitles: false,
+    colorblind: false,
+    bindings: {},
   };
 }

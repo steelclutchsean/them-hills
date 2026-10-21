@@ -17,7 +17,11 @@ import type {
 // store will sell, how a claim is filed, and how the town price moves.
 // The store applies these and writes the save.
 
-export const HIRE_COST = 120;
+export const HIRE_COST = 1150;
+export const LODE_FEE = 1700;
+export const LEANTO_COST = 1600;
+export const CABIN_COST = 1750;
+export const CACHE_COST = 1680;
 export const MAX_HANDS = 3;
 export const MAX_CLAIMS = 3;
 
@@ -155,8 +159,8 @@ export function townQuote(spot: number, bias: number, weather: WeatherState, hou
 
 export function stakePrice(existing: number): number {
   if (existing <= 0) return 0;
-  if (existing === 1) return 60;
-  return 180;
+  if (existing === 1) return 1650;
+  return 1800;
 }
 
 export function evaluatePlacer(
@@ -388,7 +392,7 @@ export function openingGuide(save: SaveV1): {
   if (owned.rocker < 1) {
     return {
       title: 'A rocker box',
-      detail: 'Ask Pete, then buy a rocker at the store ($320). It sits on your claim. Tap at each end of the rock.',
+      detail: 'Ask Pete, then buy a rocker at the store ($236). It sits on your claim. Tap at each end of the rock.',
       beam: 'store',
     };
   }
@@ -430,14 +434,14 @@ export function openingGuide(save: SaveV1): {
   if (save.fieldwork.hands < 1) {
     return {
       title: 'Hire a hand',
-      detail: 'Pete knows a hand. They walk the machines and watch the claim. One of them can hold a monitor hose. $120.',
+      detail: 'Pete knows a hand. They walk the machines and watch the claim. One of them can hold a monitor hose. $1150.',
       beam: 'pete',
     };
   }
   if (owned.hydraulic < 1) {
     return {
       title: 'Earn the monitor',
-      detail: 'Bring Pete eight grams and he will sign for the hose. Aim it at the dark streak in the bank.',
+      detail: 'Bring Pete eight grams and $1350 and he will sign for the hose. Aim it at the dark streak in the bank.',
       beam: 'pete',
     };
   }
@@ -451,9 +455,52 @@ export function openingGuide(save: SaveV1): {
   if (owned.pick < 1) {
     return {
       title: 'A pick for the ridge',
-      detail: 'The north mine opens with a pick. File a lode with Pete once you own one.',
+      detail: 'The north mine opens with a pick ($1500). File a lode with Pete once you own one.',
       beam: 'store',
     };
+  }
+  const tail: {
+    when: boolean;
+    title: string;
+    detail: string;
+    beam: 'store' | 'pete' | 'claim';
+  }[] = [
+    { when: owned.rocker < 2, title: 'An apron on the rocker', detail: 'The store fits an apron for $1700. It keeps the gravel in the box.', beam: 'store' },
+    { when: owned.sluice < 3, title: 'A power sluice', detail: 'Pump-fed riffles are $1800. The box you have is the manual one.', beam: 'store' },
+    { when: owned.gear < 2, title: 'Waders', detail: 'Personal gear, tier 2, is $1450. Cold water stops being the job.', beam: 'store' },
+    { when: owned.pick < 2, title: 'A double jack', detail: 'The next pick is $1700. The single jack opened the ridge.', beam: 'store' },
+    { when: owned.shovel < 2, title: 'A full shovel', detail: 'Replace the toy spade. $1550 at the store.', beam: 'store' },
+    { when: owned.shovel < 3, title: 'A real shovel', detail: 'The long-handled shovel is $1680.', beam: 'store' },
+    { when: owned.classifier < 2, title: 'A classifier stack', detail: 'Three screens are $1580. The dirt you skip is the dirt you re-wash.', beam: 'store' },
+    { when: owned.classifier < 3, title: 'The five-stack', detail: 'The stand classifier is $1720.', beam: 'store' },
+    { when: owned.headlamp < 2, title: 'A headlamp', detail: 'The store lamp is $1520. The north adit is dark.', beam: 'store' },
+    { when: owned.snuffer < 2, title: 'Vials and a glass', detail: 'A snuffer bottle set is $1500.', beam: 'store' },
+    { when: owned.snuffer < 3, title: 'A scale', detail: 'The pro snuffer is $1680.', beam: 'store' },
+    { when: owned.detector < 2, title: 'A metal detector', detail: 'The mid-range PI is $1600.', beam: 'store' },
+    { when: owned.detector < 3, title: 'A pinpointer', detail: 'The pro detector is $1750.', beam: 'store' },
+    { when: owned.pan < 3, title: 'A riffled pan', detail: 'The 17 inch pan is $1720. The steel 14 inch can wait if you already bought it.', beam: 'store' },
+    { when: owned.gear < 3, title: 'Insulated gear', detail: 'The GPS kit is $1750.', beam: 'store' },
+    { when: owned.pick < 3, title: 'A hard-rock kit', detail: 'The last pick is $1750.', beam: 'store' },
+    { when: save.fieldwork.claims.length < 2, title: 'A second claim', detail: 'The county fee on a second stretch is $1650.', beam: 'claim' },
+    { when: save.fieldwork.claims.length < 3, title: 'A third claim', detail: 'The last filing the county allows is $1800.', beam: 'claim' },
+    { when: !save.fieldwork.claims.some((c) => c.kind === 'lode'), title: 'File the lode', detail: 'Pete will record the north mine for $1700 once the pick is yours.', beam: 'pete' },
+    { when: bestCamp(save.fieldwork.claims) < 1, title: 'A lean-to', detail: 'Nails and $1600 put a roof on the claim.', beam: 'store' },
+    { when: bestCamp(save.fieldwork.claims) < 2, title: 'A cabin', detail: 'The cabin is $1750. Nights stop costing you.', beam: 'store' },
+    {
+      when: !save.fieldwork.claims.some((c) => c.improvements.cache),
+      title: 'A cache',
+      detail: 'A lockbox on the claim is $1680.',
+      beam: 'store',
+    },
+    {
+      when: owned.dredge < 1,
+      title: 'A hand dredge',
+      detail: 'The hand dredge is $1700. It is the last box the store will sell you this season.',
+      beam: 'store',
+    },
+  ];
+  for (const step of tail) {
+    if (step.when) return { title: step.title, detail: step.detail, beam: step.beam };
   }
   return null;
 }

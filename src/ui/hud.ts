@@ -71,6 +71,16 @@ export interface HudUpdate {
   guide: { title: string; detail: string } | null;
   /** Short label for the tools in hand, e.g. "Shovel T1 · Pan T1". */
   toolsLabel: string;
+  /** Pointer lock is held. When false during play, the HUD asks for a click. */
+  lookLocked: boolean;
+  subtitles: boolean;
+}
+
+export interface HudHooks {
+  onStoreRow?: (index: number) => void;
+  onDialogueOption?: (index: number) => void;
+  onVendorConfirm?: () => void;
+  onToolbar?: (id: 'inventory' | 'map' | 'journal' | 'pause' | 'settings') => void;
 }
 
 export interface MountedHud {
@@ -356,6 +366,18 @@ const STYLE = `
   .hud-dialogue[hidden] { display: none; }
   .hud-vendor { border-color: rgba(212, 166, 71, 0.7); }
   .hud-vendor .step-label { color: #d4a647; }
+  .hud-vendor .paper-sell {
+    font: inherit;
+    margin-top: 8px;
+    background: #6b3e16;
+    color: #f3e6c8;
+    border: 0;
+    border-radius: 3px;
+    padding: 8px 14px;
+    cursor: pointer;
+  }
+  .hud-vendor .paper-sell:hover { background: #8a5a12; }
+  .hud-vendor .paper-sell:active { transform: translateY(1px); }
   .hud-store {
     width: 560px;
     max-height: 70vh;
@@ -441,6 +463,195 @@ const STYLE = `
   .hud-quest-tracker .qt-obj.complete { color: #8fc466; text-decoration: line-through; opacity: 0.85; }
   .hud-quest-tracker .qt-progress { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: rgba(255,255,255,0.7); }
   .hud-quest-tracker[hidden] { display: none; }
+  .hud-info, .hud-quest-tracker, .hud-prompt, .hud-prospect, .hud-store, .hud-vendor, .hud-dialogue {
+    font-family: Palatino, 'Iowan Old Style', Palatino Linotype, Georgia, serif;
+  }
+  .hud-info {
+    background:
+      linear-gradient(180deg, rgba(42, 33, 24, 0.2), rgba(42, 33, 24, 0.55)),
+      rgba(28, 22, 16, 0.28);
+    border: 0;
+    box-shadow: none;
+    backdrop-filter: none;
+    min-width: 0;
+    width: auto;
+    padding: 8px 12px;
+  }
+  .hud-info .card-title, .hud-info .debug-row { display: none; }
+  body[data-debug='1'] .hud-info .debug-row { display: block; }
+  .hud-info .meter {
+    max-height: 22px;
+    opacity: 1;
+    overflow: hidden;
+    transition: opacity 420ms ease, max-height 420ms ease, margin 420ms ease;
+  }
+  .hud-info .meter.is-full {
+    opacity: 0;
+    max-height: 0;
+    margin: 0;
+    pointer-events: none;
+  }
+  .hud-inventory {
+    top: auto;
+    bottom: 18px;
+    right: 18px;
+    left: auto;
+    width: auto;
+    min-width: 0;
+    padding: 8px 12px;
+    background: rgba(42, 33, 24, 0.55);
+    border: 1px solid rgba(226, 194, 122, 0.35);
+    border-radius: 3px;
+  }
+  .hud-inventory .card-title,
+  .hud-inventory .divider,
+  .hud-inventory .row { display: none; }
+  .hud-inventory .row.keep { display: flex; }
+  .hud-prompt {
+    bottom: 108px;
+    background: rgba(243, 230, 200, 0.94);
+    color: #2a2118;
+    border: 1px solid #8a6a3b;
+    border-radius: 3px;
+    box-shadow: 0 8px 24px rgba(20, 12, 4, 0.28);
+  }
+  .hud-prompt .glyph, .hud-prospect .keycap {
+    display: inline-block;
+    min-width: 1.4em;
+    padding: 1px 7px;
+    margin-right: 8px;
+    border-radius: 4px;
+    border: 1px solid #8a6a3b;
+    border-bottom-width: 3px;
+    background: #f7edd4;
+    color: #2a2118;
+    font-family: Palatino, Georgia, serif;
+    font-weight: 700;
+  }
+  .hud-prospect, .hud-vendor, .hud-store, .hud-dialogue {
+    background:
+      repeating-linear-gradient(0deg, rgba(90, 60, 30, 0.035) 0 1px, transparent 1px 6px),
+      #f3e6c8;
+    color: #2a2118;
+    border: 1px solid #8a6a3b;
+    border-radius: 3px;
+    box-shadow: 0 16px 40px rgba(20, 12, 4, 0.35);
+    pointer-events: auto;
+  }
+  .hud-prospect .step-label, .hud-store .store-title, .hud-dialogue .dlg-speaker, .hud-vendor .step-label {
+    color: #8a5a12;
+  }
+  .hud-prospect .step-message, .hud-prospect .step-extra, .hud-dialogue .dlg-body, .hud-store .store-name {
+    color: #2a2118;
+  }
+  .hud-store .store-row, .hud-dialogue .dlg-option {
+    cursor: pointer;
+    border: 1px solid transparent;
+  }
+  .hud-store .store-row:hover, .hud-dialogue .dlg-option:hover,
+  .hud-store .store-row.selected, .hud-dialogue .dlg-option.selected {
+    background: rgba(138, 90, 18, 0.14);
+    border-color: rgba(138, 90, 18, 0.4);
+  }
+  .hud-store .store-row:active, .hud-dialogue .dlg-option:active { background: rgba(138, 90, 18, 0.24); }
+  .hud-store .store-footer, .hud-dialogue .dlg-footer { color: #6b5344; }
+  .hud-quest-tracker {
+    background: rgba(243, 230, 200, 0.9);
+    color: #2a2118;
+    border: 1px solid #8a6a3b;
+    border-radius: 3px;
+    text-shadow: none;
+  }
+  .hud-quest-tracker .qt-header { color: #8a5a12; }
+  .hud-quest-tracker .qt-title { color: #6b3e16; }
+  .hud-quest-tracker .qt-obj { color: #2a2118; }
+  .hud-toolbar {
+    position: fixed;
+    left: 50%;
+    bottom: 18px;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 8px;
+    z-index: 12;
+    pointer-events: auto;
+  }
+  .hud-toolbar button {
+    width: 46px;
+    height: 46px;
+    border-radius: 6px;
+    border: 1px solid #8a6a3b;
+    border-bottom-width: 3px;
+    background: #f3e6c8;
+    color: #6b3e16;
+    cursor: pointer;
+    padding: 6px;
+  }
+  .hud-toolbar button:hover { background: #f7edd4; }
+  .hud-toolbar button:active { transform: translateY(1px); }
+  .hud-toolbar svg { width: 100%; height: 100%; display: block; }
+  .hud-toasts {
+    position: fixed;
+    top: 72px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    z-index: 14;
+    pointer-events: none;
+    width: min(420px, calc(100vw - 32px));
+  }
+  .hud-toast {
+    background: #f3e6c8;
+    color: #2a2118;
+    border: 1px solid #8a6a3b;
+    border-radius: 3px;
+    padding: 8px 12px;
+    box-shadow: 0 8px 18px rgba(20, 12, 4, 0.2);
+    font-family: Palatino, Georgia, serif;
+  }
+  .hud-subtitles {
+    position: fixed;
+    left: 50%;
+    bottom: 168px;
+    transform: translateX(-50%);
+    max-width: min(640px, calc(100vw - 32px));
+    text-align: center;
+    color: #f7edd4;
+    font-family: Palatino, Georgia, serif;
+    font-size: calc(18px * var(--text-scale, 1));
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+    pointer-events: none;
+    z-index: 13;
+  }
+  .hud-subtitles[hidden], .look-resume[hidden] { display: none; }
+  .look-resume {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 16;
+    pointer-events: none;
+    background: rgba(243, 230, 200, 0.94);
+    color: #2a2118;
+    border: 1px solid #8a6a3b;
+    border-radius: 3px;
+    padding: 10px 14px;
+    font-family: Palatino, Georgia, serif;
+  }
+  html[data-colorblind='1'] .hud-inventory .gold-dot.flake {
+    background: repeating-linear-gradient(45deg, #ffe26a, #ffe26a 2px, #2a2118 2px, #2a2118 3px);
+  }
+  html[data-colorblind='1'] .hud-inventory .gold-dot.picker {
+    background: repeating-linear-gradient(90deg, #f0b145, #f0b145 2px, #2a2118 2px, #2a2118 4px);
+  }
+  html[data-colorblind='1'] .hud-inventory .gold-dot.nugget {
+    background: #2a2118;
+    box-shadow: inset 0 0 0 2px #f0b145;
+  }
+  html[data-colorblind='1'] .hud-info .meter .bar-fill {
+    background-image: repeating-linear-gradient(135deg, transparent, transparent 3px, rgba(0,0,0,0.35) 3px, rgba(0,0,0,0.35) 4px);
+  }
 `;
 
 function injectStyle(): void {
@@ -471,7 +682,7 @@ function glyphFor(
   return '?';
 }
 
-export function mountHud(root: HTMLElement): MountedHud {
+export function mountHud(root: HTMLElement, hooks: HudHooks = {}): MountedHud {
   injectStyle();
 
   // Re-style the index.html host to be a no-op container; we mount our own panels.
@@ -504,22 +715,55 @@ export function mountHud(root: HTMLElement): MountedHud {
   document.body.appendChild(prospect);
 
   const vendor = document.createElement('div');
-  vendor.className = 'hud-prospect hud-vendor';
+  vendor.className = 'hud-prospect hud-vendor paper';
   vendor.hidden = true;
   document.body.appendChild(vendor);
 
   const store = document.createElement('div');
-  store.className = 'hud-prospect hud-store';
+  store.className = 'hud-prospect hud-store paper';
   store.hidden = true;
   document.body.appendChild(store);
 
   const dialogue = document.createElement('div');
-  dialogue.className = 'hud-prospect hud-dialogue';
+  dialogue.className = 'hud-prospect hud-dialogue paper';
   dialogue.hidden = true;
   document.body.appendChild(dialogue);
 
   const questTracker = document.createElement('div');
   questTracker.className = 'hud-quest-tracker';
+  const toolbar = document.createElement('div');
+  toolbar.className = 'hud-toolbar';
+  toolbar.setAttribute('role', 'toolbar');
+  toolbar.setAttribute('aria-label', 'Kit');
+  const toolIcons: { id: 'inventory' | 'map' | 'journal' | 'pause' | 'settings'; label: string; path: string }[] = [
+    { id: 'inventory', label: 'Pack', path: 'M4 8h16v12H4z M8 8V6a4 4 0 0 1 8 0v2' },
+    { id: 'map', label: 'Map', path: 'M4 6l6-2 4 2 6-2v14l-6 2-4-2-6 2z' },
+    { id: 'journal', label: 'Journal', path: 'M6 4h10a2 2 0 0 1 2 2v14H8a2 2 0 0 0-2 2z M6 4v16' },
+    { id: 'settings', label: 'Settings', path: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z M12 2v3 M12 19v3 M2 12h3 M19 12h3 M5 5l2 2 M17 17l2 2 M19 5l-2 2 M7 17l-2 2' },
+    { id: 'pause', label: 'Pause', path: 'M7 5h3v14H7z M14 5h3v14h-3z' },
+  ];
+  for (const icon of toolIcons) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.title = icon.label;
+    button.setAttribute('aria-label', icon.label);
+    button.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"><path d="${icon.path}"/></svg>`;
+    button.addEventListener('click', () => hooks.onToolbar?.(icon.id));
+    toolbar.appendChild(button);
+  }
+  document.body.appendChild(toolbar);
+  const toasts = document.createElement('div');
+  toasts.className = 'hud-toasts';
+  document.body.appendChild(toasts);
+  const subtitles = document.createElement('div');
+  subtitles.className = 'hud-subtitles';
+  subtitles.hidden = true;
+  document.body.appendChild(subtitles);
+  const lookResume = document.createElement('div');
+  lookResume.className = 'look-resume';
+  lookResume.hidden = true;
+  lookResume.textContent = 'Click to look';
+  document.body.appendChild(lookResume);
   questTracker.hidden = true;
   document.body.appendChild(questTracker);
 
@@ -615,7 +859,7 @@ export function mountHud(root: HTMLElement): MountedHud {
   inventory.appendChild(div1);
 
   const totalRow = document.createElement('div');
-  totalRow.className = 'row';
+  totalRow.className = 'row keep';
   const totalLab = document.createElement('span');
   totalLab.className = 'label';
   totalLab.textContent = 'Total';
@@ -633,7 +877,7 @@ export function mountHud(root: HTMLElement): MountedHud {
   inventory.appendChild(div2);
 
   const walletRow = document.createElement('div');
-  walletRow.className = 'row';
+  walletRow.className = 'row keep';
   const walletLab = document.createElement('span');
   walletLab.className = 'label';
   walletLab.textContent = '💵 Wallet';
@@ -650,6 +894,18 @@ export function mountHud(root: HTMLElement): MountedHud {
   let frameCount = 0;
   let lastFpsTime = performance.now();
   let fps = 0;
+  let seenCarry = -1;
+  let seenWallet = -1;
+  const toastTimers: number[] = [];
+  function pushToast(text: string): void {
+    const toast = document.createElement('div');
+    toast.className = 'hud-toast';
+    toast.textContent = text;
+    toasts.appendChild(toast);
+    const timer = window.setTimeout(() => toast.remove(), 3200);
+    toastTimers.push(timer);
+    while (toasts.childElementCount > 3) toasts.firstElementChild?.remove();
+  }
 
   return {
     update(s) {
@@ -704,6 +960,15 @@ export function mountHud(root: HTMLElement): MountedHud {
       lines.invValue!.textContent = `$${dollarEst.toFixed(2)}`;
 
       lines.invWallet!.textContent = `$${s.walletBalance.toFixed(2)}`;
+      if (seenCarry >= 0 && totalG > seenCarry + 0.004) {
+        pushToast(`Found ${(totalG - seenCarry).toFixed(2)} g`);
+      }
+      if (seenWallet >= 0 && s.walletBalance > seenWallet + 0.05) {
+        pushToast(`Sold for $${(s.walletBalance - seenWallet).toFixed(2)}`);
+      }
+      seenCarry = totalG;
+      seenWallet = s.walletBalance;
+      lookResume.hidden = s.lookLocked || s.prospect !== null || s.store !== null || s.vendor !== null || s.dialogue !== null;
 
       // Live spot price + source indicator (live = filled circle, cached =
       // half, baseline = empty). Updated by the spot-price service every 15 min.
@@ -730,6 +995,11 @@ export function mountHud(root: HTMLElement): MountedHud {
       } else {
         prompt.hidden = true;
       }
+      const subtitleLine = s.subtitles
+        ? (s.dialogue?.body ?? s.prompt?.text ?? s.prospect?.message ?? '')
+        : '';
+      subtitles.hidden = subtitleLine.length === 0;
+      subtitles.textContent = subtitleLine;
 
       // Prospect overlay
       if (s.prospect) {
@@ -814,6 +1084,14 @@ export function mountHud(root: HTMLElement): MountedHud {
           ? `[${glyph}]  Confirm sale     [Esc]  Cancel`
           : `[Esc]  Leave`;
         vendor.appendChild(msg);
+        if (s.vendor.canSell) {
+          const sell = document.createElement('button');
+          sell.type = 'button';
+          sell.className = 'paper-sell';
+          sell.textContent = 'Sell the poke';
+          sell.addEventListener('click', () => hooks.onVendorConfirm?.());
+          vendor.appendChild(sell);
+        }
       } else {
         vendor.hidden = true;
       }
@@ -846,6 +1124,9 @@ export function mountHud(root: HTMLElement): MountedHud {
             hint.textContent = ` ${opt.hint}`;
             row.appendChild(hint);
           }
+          row.addEventListener('click', () => {
+            if (opt.enabled) hooks.onDialogueOption?.(idx);
+          });
           dialogue.appendChild(row);
         });
 
@@ -940,6 +1221,7 @@ export function mountHud(root: HTMLElement): MountedHud {
             right.textContent = `${r.nextLabel}  $${r.nextCost.toFixed(2)}`;
           }
           row.appendChild(right);
+          row.addEventListener('click', () => hooks.onStoreRow?.(idx));
           store.appendChild(row);
         });
 
@@ -960,10 +1242,10 @@ export function mountHud(root: HTMLElement): MountedHud {
 function setMeter(m: { fill: HTMLElement; pct: HTMLElement }, value: number, suffix = ''): void {
   const clamped = Math.max(0, Math.min(1, value));
   m.fill.style.width = `${(clamped * 100).toFixed(0)}%`;
-  // Color shifts red → amber → green as the meter fills.
   const color = clamped < 0.25 ? '#d65454' : clamped < 0.55 ? '#e0a542' : '#7cbf6c';
   m.fill.style.background = color;
   m.pct.textContent = `${(clamped * 100).toFixed(0)}%${suffix}`;
+  m.fill.parentElement?.parentElement?.classList.toggle('is-full', clamped >= 0.97 && suffix.length === 0);
 }
 
 // stepNumber() is no longer needed — the snapshot carries stepIndex /

@@ -34,6 +34,7 @@ declare global {
       cancelProspect?: () => void;
       lookAt?: (x: number, z: number) => void;
       spawnJumper?: () => boolean;
+      playerPose?: { clip: string; bind: boolean };
     };
   }
 }
@@ -337,6 +338,16 @@ test('places machines on a claim and starts each one', async ({ page }) => {
     const started = await page.evaluate((name) => window.__themHills?.startMachine?.(name) ?? false, kind);
     expect(started, kind).toBe(true);
     await page.waitForFunction((name) => window.__themHills?.activeViz === name, kind, { timeout: 10_000 });
+    await page.waitForTimeout(400);
+    const pose = await page.evaluate(() => window.__themHills?.playerPose ?? { clip: 'missing', bind: true });
+    const fitting: Record<string, string> = {
+      rocker: 'rock',
+      sluice: 'shovel',
+      longtom: 'shovel',
+      monitor: 'aim',
+    };
+    expect(pose.bind, `${kind} clip ${pose.clip}`).toBe(false);
+    expect(pose.clip, kind).toBe(fitting[kind]);
     await page.evaluate(() => window.__themHills?.cancelProspect?.());
   }
   expect(spot.x + spot.z).not.toBeNaN();

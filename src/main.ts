@@ -31,7 +31,7 @@ import { createHeadlamp } from '@/game/headlamp';
 import { createInn } from '@/game/inn';
 import { createMineEntrance, type MineConfig, type MineInfo } from '@/game/mine';
 import { createOldPete } from '@/game/old-pete';
-import { createProspectingController, type StepKind } from '@/game/prospecting';
+import { createProspectingController } from '@/game/prospecting';
 import { createClassifyMeterView } from '@/game/minigames/classify-meter';
 import { createCollectView } from '@/game/minigames/collect-view';
 import { createDigMeterView } from '@/game/minigames/dig-meter';
@@ -90,8 +90,17 @@ import { createGameLoop } from '@/engine/loop';
 import { createRenderer } from '@/engine/renderer';
 import { createInputManager } from '@/input/manager';
 import { createPhysicsWorld, RAPIER } from '@/physics/world';
-import { initSaveSystem, loadSave, saveCurrentState } from '@/save/store';
-import type { SaveV1 } from '@/save/schema';
+import {
+  deleteSave,
+  describeManualSlots,
+  initSaveSystem,
+  loadSlot,
+  saveCurrentState,
+  saveToSlot,
+} from '@/save/store';
+import type { SaveV1, SettingsState } from '@/save/schema';
+import { createDefaultSave } from '@/save/schema';
+import type { ActionId } from '@/input/actions';
 import { gameStore } from '@/state/store';
 import { mountHud, type HudUpdate } from '@/ui/hud';
 import { mountMinimap, type MinimapLandmark, type MinimapStream } from '@/ui/minimap';
@@ -133,7 +142,13 @@ async function bootstrap(): Promise<void> {
 
   // ---- Save system ----
   await initSaveSystem();
-  const loaded = await loadSave();
+  const loadedReport = await loadSlot('continue');
+  const loaded = loadedReport.save;
+  const bootNotice = loadedReport.recovered
+    ? 'The claim book was torn. The last good page is restored.'
+    : loadedReport.corrupt
+      ? 'The claim book could not be read. A fresh page is open.'
+      : null;
   if (loaded) {
     console.log(
       `[save] Loaded existing save (saveCount=${loaded.metadata.saveCount}, build=${loaded.metadata.buildVersion})`,
@@ -624,7 +639,25 @@ async function bootstrap(): Promise<void> {
   });
 
   // ---- HUD ----
-  const hud = mountHud(hudEl);
+  let storePick: number | null = null;
+  let dialoguePick: number | null = null;
+  let vendorClick = false;
+  const hud = mountHud(hudEl, {
+    onStoreRow: (index) => {
+      storePick = index;
+    },
+    onDialogueOption: (index) => {
+      dialoguePick = index;
+    },
+    onVendorConfirm: () => {
+      vendorClick = true;
+    },
+    onToolbar: (id) => {
+      if (!simRunning || prospect.isActive() || activeVendor || storeOpen || dialogue) return;
+      if (id === 'settings') settings.open();
+      else overlays.toggle(id);
+    },
+  });
 
   // ---- Mini-map ----
   // Landmark positions are pulled from each system's known anchor; if any
@@ -672,6 +705,12 @@ async function bootstrap(): Promise<void> {
   audio.setAmbientVolume(initialSettings.audio.ambient);
   audio.setSfxVolume(initialSettings.audio.sfx);
   input.setMouseSensitivityMultiplier(initialSettings.look.mouseSensitivity);
+  input.setInvertY(initialSettings.look.invertY === true);
+  for (const [action, code] of Object.entries(initialSettings.bindings ?? {})) {
+    if (code) input.setKeyboardBinding(action as ActionId, code);
+  }
+  applyReading(initialSettings);
+  if (initialSettings.graphics.preset) setQuality(initialSettings.graphics.preset);
   renderer.camera.fov = initialSettings.graphics.fovDegrees;
   renderer.camera.updateProjectionMatrix();
   renderer.renderer.shadowMap.enabled = initialSettings.graphics.shadowsEnabled;
@@ -680,12 +719,14 @@ async function bootstrap(): Promise<void> {
   const settings = createSettingsPanel({
     initial: initialSettings,
     updateSetting: (key, patch) => gameStore.getState().updateSettingsSlice(key, patch),
+    setSettings: (patch) => gameStore.getState().setSettings(patch),
     apply: {
       masterVolume: (v) => audio.setMasterVolume(v),
       musicVolume: (v) => audio.setMusicVolume(v),
       ambientVolume: (v) => audio.setAmbientVolume(v),
       sfxVolume: (v) => audio.setSfxVolume(v),
       mouseSensitivity: (v) => input.setMouseSensitivityMultiplier(v),
+      invertY: (v) => input.setInvertY(v),
       fov: (v) => {
         renderer.camera.fov = v;
         renderer.camera.updateProjectionMatrix();
@@ -694,8 +735,31 @@ async function bootstrap(): Promise<void> {
         renderer.renderer.shadowMap.enabled = v;
         renderer.sun.castShadow = v;
       },
+      quality: (name) => {
+        setQuality(name);
+        publishProbe();
+        requestAnimationFrame(() => {
+          renderer.applyGraphics();
+          waterReflection.setEnabled(RENDER_QUALITY.reflections && !softwareGl);
+          setScatterDensity(RENDER_QUALITY.scatter / QUALITY_PRESETS.ultra.scatter);
+          grass?.setCount(RENDER_QUALITY.grassTall);
+          for (const cover of grassCovers) cover.setCount(RENDER_QUALITY.grassCover);
+          motes.resize();
+        });
+      },
+      textScale: (v) => applyReading({ ...gameStore.getState().save.settings, textScale: v }),
+      subtitles: (v) => applyReading({ ...gameStore.getState().save.settings, subtitles: v }),
+      colorblind: (v) => applyReading({ ...gameStore.getState().save.settings, colorblind: v }),
+      binding: (action, code) => input.setKeyboardBinding(action, code),
     },
   });
+
+  function applyReading(next: SettingsState): void {
+    document.documentElement.style.setProperty('--text-scale', String(next.textScale ?? 1));
+    document.documentElement.dataset.subtitles = next.subtitles ? '1' : '0';
+    if (next.colorblind) document.documentElement.dataset.colorblind = '1';
+    else delete document.documentElement.dataset.colorblind;
+  }
 
   // ---- Prospecting ----
   const prospect = createProspectingController({
@@ -708,6 +772,8 @@ async function bootstrap(): Promise<void> {
 
   // Edge-detection state (input manager doesn't expose just-pressed; tracked here).
   let interactWasDown = false;
+  let padMenuX = 0;
+  let padMenuY = 0;
   let pauseWasDown = false;
   let helpWasDown = false;
   let mapWasDown = false;
@@ -812,6 +878,7 @@ async function bootstrap(): Promise<void> {
       sampleHoles: geologyMarks.counts().holes,
       machineCount: placedMachines.list().length,
       activeViz: prospect.getSnapshot()?.viz?.kind ?? null,
+      playerPose: character.getPose(),
       exportLegacyV4: () => {
         const snap = gameStore.getState().serialize();
         const owned = { ...snap.equipment.ownedTiers };
@@ -1010,6 +1077,7 @@ async function bootstrap(): Promise<void> {
   renderer.scene.add(beacon);
 
   let simRunning = skipIntro;
+  if (skipIntro) document.body.dataset.sim = '1';
   let presentedFrames = 0;
   const overlays = mountOverlays({
     onResume: () => {
@@ -1018,6 +1086,7 @@ async function bootstrap(): Promise<void> {
     onSettings: () => settings.open(),
     onQuality: (name) => {
       setQuality(name);
+      gameStore.getState().updateSettingsSlice('graphics', { preset: name, shadowsEnabled: name !== 'low' });
       publishProbe();
       requestAnimationFrame(() => {
         renderer.applyGraphics();
@@ -1030,9 +1099,31 @@ async function bootstrap(): Promise<void> {
         motes.resize();
       });
     },
+    onSaveSlot: (slot) => {
+      void saveToSlot(slot, buildSaveSnapshot()).then(() => refreshBooks());
+    },
+    onLoadSlot: (slot) => {
+      void loadSlot(slot).then((page) => {
+        if (!page.save) return;
+        gameStore.getState().hydrate(page.save);
+        const p = page.save.player;
+        character.placeAt(p.position.x, p.position.y, p.position.z);
+        character.setYaw(p.rotation.yaw);
+        worldTime = page.save.world.gameTime;
+        applyReading(page.save.settings);
+        input.setInvertY(page.save.settings.look.invertY === true);
+        input.setMouseSensitivityMultiplier(page.save.settings.look.mouseSensitivity);
+      });
+    },
   });
 
   markSceneReflections(renderer.scene);
+
+  function refreshBooks(): void {
+    void describeManualSlots().then((rows) => {
+      overlays.setSlotNotes(rows.map((row) => row.label));
+    });
+  }
 
   const sunNdc = new THREE.Vector3();
   const _audioForward = new THREE.Vector3();
@@ -1073,7 +1164,7 @@ async function bootstrap(): Promise<void> {
     maxFrameDt: smoke.active ? 1 : 0.25,
     update: (dt) => {
       input.poll();
-      if (!simRunning) {
+      if (!simRunning || document.hidden) {
         publishProbe();
         return;
       }
@@ -1093,7 +1184,7 @@ async function bootstrap(): Promise<void> {
 
       const interactDown = input.isActive('INTERACT') || drive.interact;
       const useToolDown = input.isActive('USE_TOOL') || drive.useTool;
-      const interactJustPressed = interactDown && !interactWasDown;
+      let interactJustPressed = interactDown && !interactWasDown;
       interactWasDown = interactDown;
 
       const pauseDown = input.isActive('PAUSE');
@@ -1144,12 +1235,27 @@ async function bootstrap(): Promise<void> {
           overlays.close();
           pauseJustPressed = false;
         } else if (!inSession) {
+          refreshBooks();
           overlays.toggle('pause');
           pauseJustPressed = false;
         }
       }
       const settingsOpen = settings.isOpen();
       const uiBlocked = settingsOpen || overlays.isBlocking();
+      if (uiBlocked && interactJustPressed) {
+        if (settingsOpen) settings.activate();
+        else overlays.activate();
+        interactJustPressed = false;
+      }
+      const padMenu = input.gamepadMenu();
+      if (settingsOpen) {
+        if (padMenu.y !== 0 && padMenuY === 0) settings.move(padMenu.y > 0 ? 1 : -1);
+        if (padMenu.x !== 0 && padMenuX === 0) settings.nudge(padMenu.x);
+      } else if (overlays.current() !== 'none') {
+        if (padMenu.y !== 0 && padMenuY === 0) overlays.move(padMenu.y > 0 ? 1 : -1);
+      }
+      padMenuX = padMenu.x;
+      padMenuY = padMenu.y;
       const moveInput =
         !inSession && !uiBlocked && drive.move
           ? drive.move
@@ -1191,9 +1297,10 @@ async function bootstrap(): Promise<void> {
       // 5. Character visuals — pass prospecting activity so animations match the active step
       const prospectSnap = prospect.getSnapshot();
       const activity = prospectSnap
-        ? { step: poseStep(prospectSnap.step), progress: prospectSnap.progress }
+        ? { step: prospectSnap.step, progress: prospectSnap.progress }
         : null;
-      character.postStep(dt, worldTime, activity);
+      const menuPose = overlays.isBlocking() || settings.isOpen();
+      character.postStep(dt, worldTime, activity, { menu: menuPose });
 
       // 6. Camera position. During a prospect minigame, swap the spring-arm
       // rig for the fixed first-person prospect view + tool viewmodel.
@@ -1625,6 +1732,12 @@ async function bootstrap(): Promise<void> {
 
       // 10. Session state machine — dialogue → store → vendor → prospecting → camp → idle.
       if (inDialogueSession) {
+        if (dialogue && dialoguePick !== null) {
+          const pick = dialoguePick;
+          dialoguePick = null;
+          if (pick === dialogue.selectionIdx) interactJustPressed = true;
+          else dialogue.selectionIdx = pick;
+        }
         if (pauseJustPressed) {
           dialogue = null;
           console.log('[dialogue] left');
@@ -1771,7 +1884,17 @@ async function bootstrap(): Promise<void> {
             storeSelectionIdx = (storeSelectionIdx - 1 + listings.length) % listings.length;
             audio.playUITap();
           }
-          if (interactJustPressed && listings.length > 0) {
+          let storeBuy = false;
+          if (storePick !== null && listings.length > 0) {
+            const pick = Math.max(0, Math.min(listings.length - 1, storePick));
+            storePick = null;
+            if (pick === storeSelectionIdx) storeBuy = true;
+            else {
+              storeSelectionIdx = pick;
+              audio.playUITap();
+            }
+          }
+          if ((interactJustPressed || storeBuy) && listings.length > 0) {
             const row = listings[storeSelectionIdx];
             if (row && row.affordable && row.nextCost !== null && !row.questGated) {
               const before = gameStore.getState().save.fieldwork.method;
@@ -1806,10 +1929,12 @@ async function bootstrap(): Promise<void> {
           }
         }
       } else if (inVendorSession) {
+        const confirmSale = interactJustPressed || vendorClick;
+        vendorClick = false;
         if (pauseJustPressed) {
           console.log(`[vendor] left ${activeVendor!.id}`);
           activeVendor = null;
-        } else if (interactJustPressed) {
+        } else if (confirmSale) {
           const carry = gameStore.getState().save.inventory.carry.gold;
           const totalG = carry.flake_g + carry.picker_g + carry.nugget_g;
           if (totalG > 1e-6) {
@@ -2295,6 +2420,8 @@ async function bootstrap(): Promise<void> {
         prompt: shownPrompt,
         guide,
         toolsLabel: `${methodLabel(save.fieldwork.method)} · Shovel T${save.equipment.ownedTiers.shovel} · Pan T${save.equipment.ownedTiers.pan}`,
+        lookLocked: document.pointerLockElement === canvas || uiBlocked,
+        subtitles: gameStore.getState().save.settings.subtitles === true,
         vendor: vendorOverlay,
         store: storeOverlay,
         dialogue: dialogueOverlay,
@@ -2334,13 +2461,45 @@ async function bootstrap(): Promise<void> {
   if (skipIntro) {
     overlays.hide();
   } else {
-    overlays.showTitle(() => {
-      simRunning = true;
-      overlays.hide();
-      void Promise.resolve(canvas.requestPointerLock?.()).catch(() => undefined);
+    overlays.showTitle({
+      hasContinue: loaded !== null,
+      notice: bootNotice,
+      onContinue: () => startPlaying(),
+      onNewGame: () => {
+        void deleteSave().then(() => {
+          const fresh = createDefaultSave();
+          gameStore.getState().hydrate(fresh);
+          const p = fresh.player.position;
+          character.placeAt(p.x, p.y, p.z);
+          character.setYaw(fresh.player.rotation.yaw);
+          worldTime = fresh.world.gameTime;
+          startPlaying();
+        });
+      },
+      onSettings: () => settings.open(),
     });
   }
+  function startPlaying(): void {
+    simRunning = true;
+    document.body.dataset.sim = '1';
+    overlays.hide();
+    settings.close();
+    if (canvas) void Promise.resolve(canvas.requestPointerLock()).catch(() => undefined);
+  }
+
   loop.start();
+
+  document.addEventListener('pointerlockchange', () => {
+    document.body.dataset.look = document.pointerLockElement === canvas ? 'locked' : 'free';
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      document.exitPointerLock?.();
+      if (!freezeSave && simRunning) {
+        saveCurrentState(buildSaveSnapshot()).catch((e) => console.error('[save] hide save failed', e));
+      }
+    }
+  });
 
   // ---- Persistence ----
   const freezeSave = params.get('freezeSave') === '1';
@@ -2443,13 +2602,6 @@ function buildExclusionGrid(
 
 // Snapshot of the dialogue UI for the HUD: speaker, body line, and the list
 // of options with enabled state + optional disabled hints.
-function poseStep(step: StepKind): 'dig' | 'classify' | 'pan' | 'collect' | 'strike' | 'extract' {
-  if (step === 'rocker') return 'classify';
-  if (step === 'sluice' || step === 'tom') return 'dig';
-  if (step === 'monitor') return 'classify';
-  return step;
-}
-
 function samplePresentedLuma(renderer: THREE.WebGLRenderer): number {
   const gl = renderer.getContext();
   const w = gl.drawingBufferWidth;
