@@ -11,13 +11,13 @@ interface Probe {
   frameLuma: number;
   peakCarryGrams: number;
   graphics?: string;
-      saveVersion?: number;
-      panTier?: number;
-      claimCount?: number;
-      geologyMarks?: number;
-      sampleHoles?: number;
-      machineCount?: number;
-      activeViz?: string | null;
+  saveVersion?: number;
+  panTier?: number;
+  claimCount?: number;
+  geologyMarks?: number;
+  sampleHoles?: number;
+  machineCount?: number;
+  activeViz?: string | null;
   applyShot?: (name: string) => boolean;
 }
 
@@ -120,9 +120,9 @@ test('boots, guides the first claim, and the panels respond', async ({ page }) =
   await expect(page.locator('.panel-map-note')).toBeHidden();
   await page.keyboard.press('Escape');
   await expect(page.locator('.panel-card h2')).toHaveText('Paused');
-  await expect(page.locator('[data-quality="high"]')).toBeVisible();
+  await expect(page.locator('button[data-quality="high"]')).toBeVisible();
   await page.evaluate(() => document.exitPointerLock());
-  await page.locator('[data-quality="medium"]').click();
+  await page.locator('button[data-quality="medium"]').click();
   await page.waitForFunction(() => document.documentElement.dataset.quality === 'medium');
   await page.waitForFunction(() => window.__themHills?.graphics === 'medium');
   await page.keyboard.press('Escape');
@@ -239,9 +239,13 @@ test('migrates a v4 save, buys a tool, and stakes a claim', async ({ page }) => 
   const errors = trackErrors(page);
   await page.goto('/?freezeSave=1');
   await page.waitForSelector('#boot-start', { timeout: 120_000 });
-  await page.waitForFunction(() => typeof window.__themHills?.exportLegacyV4 === 'function', undefined, {
-    timeout: 30_000,
-  });
+  await page.waitForFunction(
+    () => typeof window.__themHills?.exportLegacyV4 === 'function',
+    undefined,
+    {
+      timeout: 30_000,
+    },
+  );
   await page.evaluate(async () => {
     const legacy = window.__themHills?.exportLegacyV4();
     if (!legacy) throw new Error('no legacy snapshot');
@@ -293,7 +297,9 @@ test('migrates a v4 save, buys a tool, and stakes a claim', async ({ page }) => 
 
   const bought = await page.evaluate(() => window.__themHills?.buyUpgrade('pan') ?? false);
   expect(bought).toBe(true);
-  const staked = await page.evaluate(() => window.__themHills?.stakeClaim() ?? { ok: false, reason: 'missing' });
+  const staked = await page.evaluate(
+    () => window.__themHills?.stakeClaim() ?? { ok: false, reason: 'missing' },
+  );
   expect(staked.ok, staked.reason).toBe(true);
 
   await page.evaluate(async () => {
@@ -335,19 +341,29 @@ test('places machines on a claim and starts each one', async ({ page }) => {
     timeout: 10_000,
   });
   for (const kind of ['rocker', 'sluice', 'longtom', 'monitor'] as const) {
-    const started = await page.evaluate((name) => window.__themHills?.startMachine?.(name) ?? false, kind);
+    const started = await page.evaluate(
+      (name) => window.__themHills?.startMachine?.(name) ?? false,
+      kind,
+    );
     expect(started, kind).toBe(true);
-    await page.waitForFunction((name) => window.__themHills?.activeViz === name, kind, { timeout: 10_000 });
-    await page.waitForTimeout(400);
-    const pose = await page.evaluate(() => window.__themHills?.playerPose ?? { clip: 'missing', bind: true });
+    await page.waitForFunction((name) => window.__themHills?.activeViz === name, kind, {
+      timeout: 10_000,
+    });
     const fitting: Record<string, string> = {
       rocker: 'rock',
       sluice: 'shovel',
       longtom: 'shovel',
       monitor: 'aim',
     };
-    expect(pose.bind, `${kind} clip ${pose.clip}`).toBe(false);
-    expect(pose.clip, kind).toBe(fitting[kind]);
+    // The shovel swing spends part of its cycle near the bind pose. Wait for a frame that has left it.
+    await page.waitForFunction(
+      ({ name, clip }) => {
+        const pose = window.__themHills?.playerPose;
+        return window.__themHills?.activeViz === name && pose?.clip === clip && pose.bind === false;
+      },
+      { name: kind, clip: fitting[kind] },
+      { timeout: 8_000 },
+    );
     await page.evaluate(() => window.__themHills?.cancelProspect?.());
   }
   expect(spot.x + spot.z).not.toBeNaN();
