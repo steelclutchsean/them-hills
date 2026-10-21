@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { ClaimRecord } from '@/save/schema';
 import { createCrewVariant } from '@/game/character-asset';
+import { seatHat } from '@/game/hat-fit';
 import type { PlacedMachine } from '@/game/machines/placed';
 import { PALETTE } from '@/render/palette';
 import { markReflective } from '@/render/reflection';
@@ -344,15 +345,24 @@ function person(shirt: number, hat: number, variant = 0): THREE.Group {
   const body = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 0.52, 7), cloth);
   body.position.y = 0.78;
   body.castShadow = true;
+  const headPivot = new THREE.Group();
+  headPivot.position.y = 1.16;
   const head = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 7), skin);
-  head.position.y = 1.16;
+  head.name = 'skull';
   head.castShadow = true;
+  headPivot.add(head);
+  const hatGroup = new THREE.Group();
+  hatGroup.name = 'prospector_hat';
   const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.035, 8), hatMat);
-  brim.position.y = 1.26;
+  brim.position.y = 0.11;
   brim.castShadow = true;
-  const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 0.1, 8), hatMat);
-  crown.position.y = 1.32;
-  g.add(body, head, brim, crown);
+  const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 0.11, 8), hatMat);
+  crown.position.y = 0.18;
+  crown.castShadow = true;
+  hatGroup.add(brim, crown);
+  headPivot.add(hatGroup);
+  seatHat(headPivot, hatGroup);
+  g.add(body, headPivot);
 
   const legGeo = new THREE.CylinderGeometry(0.06, 0.07, 0.42, 6);
   const legL = new THREE.Mesh(legGeo, dark);
@@ -423,6 +433,9 @@ async function drainHeroes(): Promise<void> {
           item.mesh.clear();
           item.mesh.add(hero);
           for (const extra of extras) item.mesh.add(extra);
+          const bone = hero.getObjectByName('Head');
+          const cap = bone?.getObjectByName('prospector_hat');
+          if (bone && cap) seatHat(bone, cap);
           item.mesh.userData.hero = true;
         } catch (err) {
           console.warn('[crew] ranger variant failed, keeping the proxy', err);

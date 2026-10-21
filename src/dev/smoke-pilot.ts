@@ -103,6 +103,10 @@ export interface ThemHillsProbe {
   scatterCount?: () => number;
   /** Props inside a building box, and props standing in the creek channel. */
   propAudit?: () => { overlaps: string[]; intruders: string[] };
+  /** Visible meshes wearing the default white material or an untextured gray. */
+  bareMeshes?: () => string[];
+  /** Hats parented to a head bone. `floating` is the ones whose box misses the skull. */
+  hatFit?: () => { checked: number; floating: string[] };
   /** Live clip. `bind` is true only when an arm is back in the T-pose. */
   playerPose: { clip: string; bind: boolean };
 }

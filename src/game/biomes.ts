@@ -4,7 +4,7 @@ import type { Watercourse } from '@/game/watercourse';
 // Where the town was cleared, and where the forest is allowed to stand.
 // Street props and the false-front row live inside the clearing. Trees do not.
 
-export const TOWN_CLEAR = { minX: -36, maxX: 8, minZ: -24, maxZ: 32 };
+export const TOWN_CLEAR = { minX: -40, maxX: 8, minZ: -28, maxZ: 100 };
 
 export function inTownClearing(x: number, z: number): boolean {
   return x > TOWN_CLEAR.minX && x < TOWN_CLEAR.maxX && z > TOWN_CLEAR.minZ && z < TOWN_CLEAR.maxZ;
@@ -12,7 +12,7 @@ export function inTownClearing(x: number, z: number): boolean {
 
 /** Dirt street between the false fronts and the original shops. */
 export function inStreet(x: number, z: number): boolean {
-  return x > -25.2 && x < -16.6 && z > -19 && z < 26;
+  return x > -32 && x < -14 && z > -24 && z < 100;
 }
 
 /** A point on the bank, `outward` meters past the water's edge, on the town side. */

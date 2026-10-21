@@ -50,6 +50,9 @@ declare global {
       playerPose?: { clip: string; bind: boolean };
       scatterCount?: () => number;
       propAudit?: () => { overlaps: string[]; intruders: string[] };
+      bareMeshes?: () => string[];
+      hatFit?: () => { checked: number; floating: string[] };
+      crewReady?: () => boolean;
       previewScene?: (who: string) => boolean;
       enterDrift?: () => boolean;
       standInDrift?: (localZ: number) => boolean;
@@ -454,6 +457,15 @@ test('drift, blast, cave-in, flood, and fire stay in frame', async ({ page }) =>
   );
   expect(audit.overlaps, audit.overlaps.join('; ')).toEqual([]);
   expect(audit.intruders, audit.intruders.join('; ')).toEqual([]);
+  const bare = await page.evaluate(() => window.__themHills?.bareMeshes?.() ?? ['missing']);
+  expect(bare, bare.join('; ')).toEqual([]);
+  await page.waitForFunction(() => (window.__themHills?.hatFit?.().checked ?? 0) >= 4, undefined, {
+    timeout: 25_000,
+  });
+  const hats = await page.evaluate(
+    () => window.__themHills?.hatFit?.() ?? { checked: 0, floating: ['missing'] },
+  );
+  expect(hats.floating, hats.floating.join('; ')).toEqual([]);
 
   const entered = await page.evaluate(() => window.__themHills?.enterDrift?.() ?? false);
   expect(entered).toBe(true);

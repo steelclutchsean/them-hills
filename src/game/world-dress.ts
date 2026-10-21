@@ -24,6 +24,40 @@ export interface WorldDress {
   snap(eventId: string): { rise: number; spread: number; dry: number };
 }
 
+function tentCloth(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('[world-dress] no 2d');
+  ctx.fillStyle = '#cbb892';
+  ctx.fillRect(0, 0, 128, 128);
+  ctx.strokeStyle = '#5c3a22';
+  ctx.lineWidth = 3;
+  for (let y = 16; y < 128; y += 18) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(128, y + 4);
+    ctx.stroke();
+  }
+  ctx.strokeStyle = 'rgba(42, 26, 14, 0.55)';
+  ctx.lineWidth = 2;
+  for (let x = 8; x < 128; x += 14) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x + 3, 128);
+    ctx.stroke();
+  }
+  ctx.fillStyle = 'rgba(70, 42, 22, 0.35)';
+  ctx.fillRect(0, 100, 128, 28);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.needsUpdate = true;
+  return tex;
+}
+
 function wallTent(
   canvas: THREE.Material,
   wood: THREE.Material,
@@ -132,9 +166,12 @@ export function createWorldDress(
   // Wall tents on the town-side bar, clear of the channel.
   const tentSpots = [4, 9, 14, 19, 24].map((z) => bankPoint(coyote, z, 3.1));
   const canvas = new THREE.MeshStandardMaterial({
-    color: PALETTE.canvas,
-    roughness: 0.92,
+    map: tentCloth(),
+    color: 0xffffff,
+    roughness: 0.9,
+    flatShading: true,
     side: THREE.DoubleSide,
+    transparent: false,
   });
   const ridgeMat = new THREE.MeshStandardMaterial({ color: PALETTE.timberDark, roughness: 0.9 });
   tentSpots.forEach((spot, index) => {

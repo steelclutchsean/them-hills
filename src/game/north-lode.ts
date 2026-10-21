@@ -298,6 +298,30 @@ function carveTunnel(): THREE.BufferGeometry {
   return geom;
 }
 
+function quartzMap(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('[north-lode] no 2d');
+  ctx.fillStyle = '#e6e0d4';
+  ctx.fillRect(0, 0, 64, 64);
+  ctx.strokeStyle = 'rgba(90, 80, 60, 0.55)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(8, 0);
+  ctx.lineTo(28, 64);
+  ctx.moveTo(40, 0);
+  ctx.lineTo(22, 64);
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(255, 250, 240, 0.45)';
+  ctx.fillRect(6, 8, 14, 28);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
 function quartzCrystals(): THREE.Group {
   const group = new THREE.Group();
   const spots: { z: number; side: number; color: number; honey: boolean }[] = [
@@ -310,11 +334,13 @@ function quartzCrystals(): THREE.Group {
   ];
   for (const spot of spots) {
     const mat = new THREE.MeshStandardMaterial({
+      map: quartzMap(),
       color: spot.color,
       roughness: 0.22,
       metalness: 0.08,
       emissive: spot.honey ? 0x6a4a16 : 0x000000,
       emissiveIntensity: spot.honey ? 0.12 : 0,
+      flatShading: true,
     });
     for (let i = 0; i < 3; i++) {
       const shard = new THREE.Mesh(new THREE.OctahedronGeometry(0.045 + (i % 2) * 0.02, 0), mat);

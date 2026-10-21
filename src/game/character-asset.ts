@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { seatHat } from '@/game/hat-fit';
 import { upgradeLoadedMaterials } from '@/render/materials';
 import { addGoldFlake } from '@/render/painterly';
 
@@ -105,10 +106,8 @@ export async function loadCharacter(): Promise<CharacterRig> {
     const modeled = await attachModeledHead(headBone);
     if (!modeled) headBone.add(createProspectorHead());
     const hat = createProspectorHat();
-    hat.position.y = 0.16;
-    // The face is local +Z. Negative X rotation lifts that brim off the eyes.
-    hat.rotation.x = -0.38;
     headBone.add(hat);
+    seatHat(headBone, hat);
   }
   const handR = bones.get('hand_r');
   const handL = bones.get('hand_l');
@@ -306,6 +305,23 @@ function skinAlbedo(): THREE.CanvasTexture {
   return tex;
 }
 
+function scleraMap(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 32;
+  canvas.height = 32;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('[character] canvas 2d unavailable');
+  ctx.fillStyle = '#f4efe6';
+  ctx.fillRect(0, 0, 32, 32);
+  ctx.fillStyle = 'rgba(196, 92, 72, 0.35)';
+  ctx.fillRect(0, 22, 10, 10);
+  ctx.fillRect(22, 22, 10, 10);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
 function createMatchedFace(variant = 0): THREE.Group {
   const group = new THREE.Group();
   group.name = 'matched-face';
@@ -344,7 +360,8 @@ function createMatchedFace(variant = 0): THREE.Group {
   skull.receiveShadow = true;
 
   const whiteMat = new THREE.MeshStandardMaterial({
-    color: 0xf3efe6,
+    map: scleraMap(),
+    color: 0xffffff,
     roughness: 0.42,
     metalness: 0,
   });
@@ -487,8 +504,27 @@ function addRangerHand(hand: THREE.Object3D, side: 1 | -1): void {
 
 // Procedural prospector hat. Sits on top of the Head bone — local Y is upward
 // from the head bone's origin (which is roughly at the base of the skull).
+function hatFelt(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('[character-asset] no 2d');
+  ctx.fillStyle = '#fff6ea';
+  ctx.fillRect(0, 0, 64, 64);
+  ctx.fillStyle = '#c4b09a';
+  for (let y = 0; y < 64; y += 5) ctx.fillRect(0, y, 64, 2);
+  ctx.fillStyle = '#8a7560';
+  ctx.fillRect(0, 0, 64, 8);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
 function createProspectorHat(color = 0x3e2a17, variant = 0): THREE.Group {
   const matHat = new THREE.MeshStandardMaterial({
+    map: hatFelt(),
     color,
     flatShading: true,
     roughness: 0.85,
@@ -592,9 +628,8 @@ export async function createCrewVariant(shirt: number, hat: number, variant = 0)
     const face = createMatchedFace(variant);
     headBone.add(face);
     const cap = createProspectorHat(hat, variant);
-    cap.position.y = 0.14;
-    cap.rotation.x = -0.32;
     headBone.add(cap);
+    seatHat(headBone, cap);
   }
   for (const name of ['upperarm_l', 'upperarm_r', 'thigh_l', 'thigh_r']) {
     const bone = outfit.getObjectByName(name);

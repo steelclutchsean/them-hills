@@ -36,6 +36,8 @@ import {
   sampleTownEdge,
 } from '@/game/biomes';
 import { aabbOverlap, channelViolation, sphereAabb, type Aabb } from '@/game/clearance';
+import { floatingHats } from '@/game/hat-fit';
+import { bareMeshes } from '@/game/surface-audit';
 import { bearingFromYaw, createCameraRig } from '@/game/camera-rig';
 import { createCamp } from '@/game/camp';
 import { createCharacter } from '@/game/character';
@@ -471,6 +473,7 @@ async function bootstrap(): Promise<void> {
       obj.name === 'stamp-mill' ||
       obj.name === 'fire-shed' ||
       obj.name === 'company-wagon' ||
+      obj.name === 'town-street' ||
       obj.name.startsWith('vendor_')
     ) {
       batchRoots.push(obj);
@@ -1066,6 +1069,7 @@ async function bootstrap(): Promise<void> {
   let interiorShot = params.get('shot') === 'lode';
   let driftLit = false;
   let waterRise = 0;
+  let shotKind = '';
   let holdView: { x: number; y: number; z: number; lx: number; ly: number; lz: number } | null =
     null;
   let foliageLook: THREE.Vector3 | null = null;
@@ -1162,17 +1166,17 @@ async function bootstrap(): Promise<void> {
   }
 
   function rushView(): { x: number; y: number; z: number; lx: number; ly: number; lz: number } {
-    // On the town-side bar, looking along the wall tents and the rockers.
-    // The general store stays behind the camera, west of the creek.
+    // South of a tent, on the open bar, looking north at the prospector.
+    // Close enough to read the hat, far enough that the canvas is not the lens.
     const coyote = courseById(courses, 'coyote_creek');
-    const spot = bankPoint(coyote, 5, 5.5);
-    const look = bankPoint(coyote, 16, 2.6);
+    const spot = bankPoint(coyote, 2.2, 8.8);
+    const look = bankPoint(coyote, 8.6, 3.6);
     return {
       x: spot.x,
-      y: terrain.getHeightAt(spot.x, spot.z) + 1.6,
+      y: terrain.getHeightAt(spot.x, spot.z) + 2.1,
       z: spot.z,
       lx: look.x,
-      ly: terrain.getHeightAt(look.x, look.z) + 1.15,
+      ly: terrain.getHeightAt(look.x, look.z) + 1.25,
       lz: look.z,
     };
   }
@@ -1198,24 +1202,25 @@ async function bootstrap(): Promise<void> {
   }
 
   function streetView(): { x: number; y: number; z: number; lx: number; ly: number; lz: number } {
-    const x = -21.1;
-    const z = -20.5;
+    // In the dirt, south of the row, looking northwest so several parapets
+    // and the sign boards face the lens.
+    const x = -14.2;
+    const z = -9.2;
     const y = terrain.getHeightAt(x, z);
-    return { x, y: y + 1.65, z, lx: -21.1, ly: y + 1.85, lz: 14 };
+    return { x, y: y + 2.15, z, lx: -26.4, ly: y + 3.65, lz: -3.1 };
   }
 
   function vistaView(): { x: number; y: number; z: number; lx: number; ly: number; lz: number } {
     const coyote = courseById(courses, 'coyote_creek');
-    const from = bankPoint(coyote, 4, 10);
-    const to = bankPoint(coyote, -62, 0);
+    const from = bankPoint(coyote, -28, 7);
     const y = terrain.getHeightAt(from.x, from.z);
     return {
-      x: from.x - 8,
-      y: y + 6.5,
+      x: from.x + 4,
+      y: y + 3.5,
       z: from.z,
-      lx: to.x,
-      ly: y + 14,
-      lz: to.z,
+      lx: from.x - 8,
+      ly: y + 26,
+      lz: from.z - 48,
     };
   }
 
@@ -1225,7 +1230,7 @@ async function bootstrap(): Promise<void> {
   const fanUp = new THREE.Vector3();
   const fanDir = new THREE.Vector3();
   const occluderSkip =
-    /atmosphere|water_|terrain|grass|drift-|shaft-|guide-|fire-smoke|fire-ember|fire-flame|gravel|sky|rush-tent|stamp-mill|fire-shed|company-wagon|ridgeline|creek-cliff|town-street/i;
+    /atmosphere|water_|terrain|grass|drift-|shaft-|guide-|fire-smoke|fire-ember|fire-flame|gravel|sky|stamp-mill|fire-shed|company-wagon|ridgeline|ridge-trees|creek-cliff|town-street/i;
   let occluderRoots: THREE.Object3D[] | null = null;
 
   function solidOccluder(obj: THREE.Object3D): boolean {
@@ -1245,7 +1250,12 @@ async function bootstrap(): Promise<void> {
     if (occluderRoots && occluderRoots.length > 0) return occluderRoots;
     const found: THREE.Object3D[] = [];
     renderer.scene.traverse((obj) => {
-      if (obj.name.startsWith('scatter:') || obj.name === 'scatter-logs' || obj.name === 'boulders')
+      if (
+        obj.name.startsWith('scatter:') ||
+        obj.name === 'scatter-logs' ||
+        obj.name === 'boulders' ||
+        obj.name === 'rush-tents'
+      )
         found.push(obj);
     });
     occluderRoots = found;
@@ -1260,6 +1270,7 @@ async function bootstrap(): Promise<void> {
       const dist = fanDir.length();
       if (dist < 0.4) continue;
       fanDir.multiplyScalar(1 / dist);
+      sceneRay.camera = renderer.camera;
       sceneRay.set(cam, fanDir);
       sceneRay.near = 0.2;
       sceneRay.far = Math.max(0.3, dist - 0.45);
@@ -1295,6 +1306,7 @@ async function bootstrap(): Promise<void> {
     let hits = 0;
     for (const [ox, oy] of offsets) {
       fanDir.copy(fanForward).addScaledVector(fanRight, ox).addScaledVector(fanUp, oy).normalize();
+      sceneRay.camera = renderer.camera;
       sceneRay.set(cam, fanDir);
       sceneRay.near = 0.15;
       sceneRay.far = oy < -0.15 ? 18 : 12;
@@ -1592,6 +1604,7 @@ async function bootstrap(): Promise<void> {
         return true;
       },
       previewScene: (who: string) => {
+        shotKind = who;
         const north = mines.find((mine) => mine.id === 'mine_north');
         const hideHero = who === 'blast' || who === 'cavein';
         character.group.visible = !hideHero;
@@ -1687,14 +1700,17 @@ async function bootstrap(): Promise<void> {
           hideViewTrees = true;
           holdView = shedView(6.4);
         } else if (who === 'street') {
+          worldTime = worldTimeForSkyHour(9.5);
           dialogue = null;
           arcBanner = null;
           holdView = streetView();
         } else if (who === 'vista') {
+          worldTime = worldTimeForSkyHour(9.5);
           dialogue = null;
           arcBanner = null;
           holdView = vistaView();
         } else if (who === 'overview') {
+          worldTime = worldTimeForSkyHour(9.5);
           scriptEvent('rush');
           const dressed = worldDress.snap('rush');
           waterRise = dressed.rise;
@@ -1714,8 +1730,18 @@ async function bootstrap(): Promise<void> {
           for (const cover of grassCovers) cover.setDry(dressed.dry);
           waterStageKey = `${dressed.rise.toFixed(3)}|${dressed.spread.toFixed(3)}`;
           arcBanner = who;
-          if (who === 'rush') holdView = rushView();
-          else holdView = creekView();
+          if (who === 'rush') {
+            worldTime = worldTimeForSkyHour(9.5);
+            holdView = rushView();
+            const stand = holdView;
+            character.placeAt(
+              stand.lx,
+              terrain.getHeightAt(stand.lx, stand.lz),
+              stand.lz,
+            );
+            character.setYaw(0);
+            character.group.visible = true;
+          } else holdView = creekView();
         } else {
           return false;
         }
@@ -1867,6 +1893,8 @@ async function bootstrap(): Promise<void> {
         }
         return { overlaps: overlaps.slice(0, 16), intruders: intruders.slice(0, 16) };
       },
+      bareMeshes: () => bareMeshes(renderer.scene),
+      hatFit: () => floatingHats(renderer.scene),
     };
     if (previous) previous.frameLuma = frameLuma;
   }
@@ -2394,6 +2422,10 @@ async function bootstrap(): Promise<void> {
                 new THREE.Vector3(townArc.firePos.x, townArc.firePos.y + 3.4, townArc.firePos.z),
               );
             }
+            if (shotKind === 'rush') {
+              const stood = character.getPosition();
+              sceneSubjects.push(new THREE.Vector3(stood.x, stood.y + 1.5, stood.z));
+            }
           } else if (dialogue) {
             const who =
               dialogue.treeId === 'silas'
@@ -2424,7 +2456,8 @@ async function bootstrap(): Promise<void> {
               }
             }
           }
-          const composed = holdView !== null && !dialogue && arcBanner !== 'fire';
+          const composed =
+            holdView !== null && !dialogue && arcBanner !== 'fire' && shotKind !== 'rush';
           if (sceneSubjects.length > 0 && !composed) {
             const mill = townArc.millPos;
             const fire = townArc.firePos;
@@ -2434,7 +2467,9 @@ async function bootstrap(): Promise<void> {
                 : arcBanner === 'fire'
                   ? (pos: THREE.Vector3) =>
                       pos.x > fire.x + 4 && pos.z > fire.z + 3.2 && pos.y > fire.y + 5.4
-                  : undefined;
+                  : shotKind === 'rush'
+                    ? (pos: THREE.Vector3) => pos.x > 8
+                    : undefined;
             clearSceneCamera(renderer.camera.position, sceneLook, sceneSubjects, keepFront);
             renderer.camera.lookAt(sceneLook);
             foliageLook = sceneLook.clone();

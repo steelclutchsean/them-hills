@@ -1,70 +1,340 @@
 import * as THREE from 'three';
 import type { Aabb } from '@/game/clearance';
-import { innTimber } from '@/render/painterly';
-import { PALETTE } from '@/render/palette';
 
-// A false-front main street, instanced so the extra buildings share a
-// handful of draw calls. The working store, assay office, and inn stay
-// where the player already finds them, on the east side of this row.
+// Distinct false fronts along the west side of the street. Widths, parapets,
+// and stains differ so the row does not collapse into one wall. Signs face
+// east, toward a camera standing in the street.
+
+type Parapet = 'step' | 'square' | 'arch';
 
 interface Lot {
   name: string;
-  accent: number;
+  width: number;
   height: number;
+  parapet: Parapet;
+  paint: string;
+  awning: number;
+  board: string;
   forge?: boolean;
 }
 
 const LOTS: readonly Lot[] = [
-  { name: 'SALOON', accent: 0x8c3030, height: 4.8 },
-  { name: 'BANK', accent: 0xc6a24a, height: 5.5 },
-  { name: 'LIVERY', accent: 0x6a5030, height: 4.15 },
-  { name: 'SMITHY', accent: 0xb85a28, height: 4.05, forge: true },
-  { name: 'CABIN', accent: 0x8a6238, height: 3.55 },
-  { name: 'BOARDING', accent: 0x4a6a78, height: 4.7 },
-  { name: 'FREIGHT', accent: 0x5c4030, height: 4.2 },
-  { name: 'BARBER', accent: 0xd7c7a2, height: 3.85 },
-  { name: 'CABIN', accent: 0x7a5340, height: 3.45 },
-  { name: 'ASSAY', accent: 0xd4a647, height: 4.45 },
-  { name: 'DRY GOODS', accent: 0x4a8c2a, height: 4.35 },
-  { name: 'CABIN', accent: 0x6e4a32, height: 3.7 },
+  { name: 'SALOON', width: 8.4, height: 6.6, parapet: 'step', awning: 0x6e2430, paint: '#c45a48', board: '#6e1c18' },
+  { name: 'SMITHY', width: 6.4, height: 5.1, parapet: 'arch', awning: 0x2c241c, forge: true, paint: '#8a6a4e', board: '#241810' },
+  { name: 'BANK', width: 7.6, height: 7.4, parapet: 'square', awning: 0x3e5a48, paint: '#e4d2a4', board: '#1c3830' },
+  { name: 'LIVERY', width: 9.0, height: 5.0, parapet: 'square', awning: 0x4a3424, paint: '#a67c48', board: '#3e2814' },
+  { name: 'CABIN', width: 5.2, height: 4.1, parapet: 'square', awning: 0x6a4028, paint: '#c49262', board: '#3a2414' },
+  { name: 'INN', width: 7.8, height: 6.5, parapet: 'step', awning: 0xe6d2a8, paint: '#7ea4aa', board: '#163038' },
+  { name: 'FREIGHT', width: 8.6, height: 5.5, parapet: 'square', awning: 0x3a3028, paint: '#8d7050', board: '#2a2018' },
+  { name: 'BARBER', width: 5.6, height: 5.2, parapet: 'arch', awning: 0x8c3030, paint: '#f0e2c0', board: '#6e2428' },
+  { name: 'BUNK', width: 5.0, height: 3.9, parapet: 'square', awning: 0x5c4030, paint: '#c49868', board: '#3e2a18' },
+  { name: 'ASSAY', width: 6.8, height: 6.0, parapet: 'step', awning: 0x243038, paint: '#e0bc58', board: '#3a3010' },
+  { name: 'STORE', width: 7.2, height: 5.7, parapet: 'square', awning: 0xe6d2a8, paint: '#9aaa62', board: '#243018' },
+  { name: 'SHACK', width: 5.4, height: 4.3, parapet: 'arch', awning: 0x4a3428, paint: '#b07848', board: '#4a2c18' },
 ];
 
-const ROW_X = -27.6;
-const Z0 = -16;
-const STEP = 3.55;
+const FRONT_X = -25.2;
 
-function signTexture(label: string, accent: number): THREE.CanvasTexture {
+function canvasTex(
+  paint: (ctx: CanvasRenderingContext2D, w: number, h: number) => void,
+  w: number,
+  h: number,
+): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
-  canvas.width = 256;
-  canvas.height = 96;
+  canvas.width = w;
+  canvas.height = h;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('[town-street] no 2d');
-  ctx.fillStyle = '#1c140e';
-  ctx.fillRect(0, 0, 256, 96);
-  ctx.fillStyle = `#${accent.toString(16).padStart(6, '0')}`;
-  ctx.fillRect(6, 6, 244, 84);
-  ctx.fillStyle = '#1a120c';
-  ctx.font = '700 36px Georgia, serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(label, 128, 50);
+  paint(ctx, w, h);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 4;
   tex.needsUpdate = true;
   return tex;
 }
 
-function instanced(
-  geom: THREE.BufferGeometry,
+function signTexture(label: string, board: string): THREE.CanvasTexture {
+  return canvasTex((ctx, w, h) => {
+    ctx.fillStyle = '#140e0a';
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = board;
+    ctx.fillRect(14, 14, w - 28, h - 28);
+    ctx.strokeStyle = '#f4efe2';
+    ctx.lineWidth = 10;
+    ctx.strokeRect(28, 28, w - 56, h - 56);
+    ctx.fillStyle = '#f6f0e2';
+    ctx.strokeStyle = '#140e0a';
+    ctx.lineWidth = 12;
+    const size = label.length > 6 ? 92 : 108;
+    ctx.font = `700 ${size}px "Liberation Serif", "Noto Serif", serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    ctx.strokeText(label, w / 2, h / 2 + 8);
+    ctx.fillText(label, w / 2, h / 2 + 8);
+  }, 768, 220);
+}
+
+function clothTexture(hex: string): THREE.CanvasTexture {
+  return canvasTex((ctx, w, h) => {
+    ctx.fillStyle = hex;
+    ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = 'rgba(40, 24, 12, 0.35)';
+    ctx.lineWidth = 2;
+    for (let x = 8; x < w; x += 14) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.bezierCurveTo(x + 6, h * 0.3, x - 6, h * 0.7, x + 2, h);
+      ctx.stroke();
+    }
+    ctx.fillStyle = 'rgba(255, 244, 220, 0.18)';
+    ctx.fillRect(0, 0, w, 18);
+  }, 128, 128);
+}
+
+function dirtTexture(): THREE.CanvasTexture {
+  return canvasTex((ctx, w, h) => {
+    ctx.fillStyle = '#c17a45';
+    ctx.fillRect(0, 0, w, h);
+    for (let i = 0; i < 420; i++) {
+      const x = (i * 53) % w;
+      const y = (i * 97) % h;
+      ctx.fillStyle = i % 3 === 0 ? '#8a4e2c' : i % 3 === 1 ? '#e6d2a8' : '#5c3824';
+      ctx.fillRect(x, y, 4 + (i % 5) * 2, 3 + (i % 4));
+    }
+    ctx.fillStyle = 'rgba(48, 26, 12, 0.72)';
+    ctx.fillRect(w * 0.3, 0, w * 0.07, h);
+    ctx.fillRect(w * 0.66, 0, w * 0.06, h);
+    ctx.fillStyle = 'rgba(90, 52, 28, 0.4)';
+    ctx.fillRect(w * 0.32, 0, w * 0.03, h);
+  }, 512, 512);
+}
+
+function glassTexture(): THREE.CanvasTexture {
+  return canvasTex((ctx, w, h) => {
+    const g = ctx.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, '#1c3a44');
+    g.addColorStop(1, '#0e2428');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = 'rgba(244, 239, 226, 0.35)';
+    ctx.fillRect(6, 6, w * 0.28, h * 0.45);
+  }, 64, 80);
+}
+
+let shared: { dirt: THREE.CanvasTexture; glass: THREE.CanvasTexture } | null = null;
+
+function maps(): { dirt: THREE.CanvasTexture; glass: THREE.CanvasTexture } {
+  shared ??= { dirt: dirtTexture(), glass: glassTexture() };
+  return shared;
+}
+
+function stainedBoards(paint: string): THREE.MeshStandardMaterial {
+  const tex = canvasTex((ctx, w, h) => {
+    ctx.fillStyle = paint;
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = 'rgba(42, 24, 12, 0.38)';
+    for (let y = 0; y < h; y += 22) ctx.fillRect(0, y, w, 3);
+    ctx.fillStyle = 'rgba(255, 236, 200, 0.14)';
+    for (let y = 4; y < h; y += 22) ctx.fillRect(0, y, w, 8);
+    ctx.fillStyle = 'rgba(28, 16, 8, 0.32)';
+    ctx.fillRect(0, h * 0.78, w, h * 0.22);
+    ctx.fillStyle = 'rgba(20, 12, 8, 0.55)';
+    for (let i = 0; i < 16; i++) ctx.fillRect((i * 41) % (w - 4), 10 + (i % 6) * 22, 3, 3);
+  }, 128, 256);
+  return new THREE.MeshStandardMaterial({
+    map: tex,
+    color: 0xffffff,
+    roughness: 0.9,
+    metalness: 0,
+    flatShading: true,
+  });
+}
+
+function frontShape(width: number, height: number, kind: Parapet): THREE.Shape {
+  const s = new THREE.Shape();
+  const hw = width / 2;
+  const shoulder = height * 0.7;
+  s.moveTo(-hw, 0);
+  s.lineTo(hw, 0);
+  s.lineTo(hw, shoulder);
+  if (kind === 'square') {
+    s.lineTo(hw, height);
+    s.lineTo(-hw, height);
+  } else if (kind === 'step') {
+    s.lineTo(hw, shoulder + 0.35);
+    s.lineTo(hw * 0.62, shoulder + 0.35);
+    s.lineTo(hw * 0.62, height * 0.9);
+    s.lineTo(hw * 0.28, height * 0.9);
+    s.lineTo(hw * 0.28, height);
+    s.lineTo(-hw * 0.28, height);
+    s.lineTo(-hw * 0.28, height * 0.9);
+    s.lineTo(-hw * 0.62, height * 0.9);
+    s.lineTo(-hw * 0.62, shoulder + 0.35);
+    s.lineTo(-hw, shoulder + 0.35);
+  } else {
+    s.lineTo(hw, shoulder);
+    s.quadraticCurveTo(0, height * 1.08, -hw, shoulder);
+  }
+  s.lineTo(-hw, 0);
+  return s;
+}
+
+function addWindow(
+  parent: THREE.Object3D,
+  woodMat: THREE.Material,
+  glassMat: THREE.Material,
+  x: number,
+  y: number,
+  z: number,
+  wide: boolean,
+): void {
+  const ww = wide ? 1.15 : 0.72;
+  const wh = wide ? 1.35 : 1.05;
+  const hole = new THREE.Mesh(new THREE.PlaneGeometry(ww, wh), glassMat);
+  hole.position.set(x, y, z);
+  hole.rotation.y = Math.PI / 2;
+  parent.add(hole);
+  const thick = 0.08;
+  const bars: [number, number, number, number, number, number][] = [
+    [x, y + wh / 2, z, thick, 0.1, ww + 0.16],
+    [x, y - wh / 2, z, thick, 0.1, ww + 0.16],
+    [x, y, z - ww / 2, thick, wh, 0.1],
+    [x, y, z + ww / 2, thick, wh, 0.1],
+  ];
+  for (const [px, py, pz, sx, sy, sz] of bars) {
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), woodMat);
+    bar.position.set(px, py, pz);
+    parent.add(bar);
+  }
+}
+
+function makeBuilding(lot: Lot, index: number): THREE.Group {
+  const group = new THREE.Group();
+  const boards = stainedBoards(lot.paint);
+  const trim = stainedBoards('#4a301c');
+  const glassMat = new THREE.MeshStandardMaterial({
+    map: maps().glass,
+    roughness: 0.25,
+    metalness: 0.15,
+    flatShading: true,
+  });
+  const shape = frontShape(lot.width, lot.height, lot.parapet);
+  const frontGeom = new THREE.ExtrudeGeometry(shape, { depth: 0.22, bevelEnabled: false });
+  frontGeom.rotateY(Math.PI / 2);
+  frontGeom.translate(0.22, 0, 0);
+  const front = new THREE.Mesh(frontGeom, boards);
+  front.castShadow = true;
+  front.receiveShadow = false;
+  group.add(front);
+
+  const bodyH = lot.height * 0.62;
+  const body = new THREE.Mesh(new THREE.BoxGeometry(4.4, bodyH, lot.width * 0.86), boards);
+  body.position.set(-2.3, bodyH / 2, 0);
+  body.castShadow = true;
+  body.receiveShadow = true;
+  group.add(body);
+
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(4.8, 0.16, lot.width * 0.9), trim);
+  roof.position.set(-2.2, bodyH + 0.15, 0);
+  roof.rotation.z = 0.08;
+  roof.castShadow = true;
+  group.add(roof);
+
+  const door = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2.15, 1.05), trim);
+  door.position.set(0.28, 1.08, lot.parapet === 'arch' ? 0 : lot.width * 0.12);
+  group.add(door);
+
+  const winZ = lot.width * 0.28;
+  addWindow(group, trim, glassMat, 0.3, lot.height * 0.42, -winZ, index % 2 === 0);
+  if (lot.width > 6) addWindow(group, trim, glassMat, 0.3, lot.height * 0.46, winZ * 0.15, false);
+
+  const awningMat = new THREE.MeshStandardMaterial({
+    map: clothTexture(`#${lot.awning.toString(16).padStart(6, '0')}`),
+    roughness: 0.9,
+    flatShading: true,
+    side: THREE.DoubleSide,
+  });
+  const awning = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.06, lot.width * 0.72), awningMat);
+  awning.position.set(0.85, 2.55, 0);
+  awning.rotation.z = -0.22;
+  group.add(awning);
+  for (const z of [-lot.width * 0.32, lot.width * 0.32]) {
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.08, 2.35, 6), trim);
+    post.position.set(1.25, 1.15, z);
+    post.castShadow = true;
+    group.add(post);
+  }
+
+  const signMat = new THREE.MeshBasicMaterial({ map: signTexture(lot.name, lot.board) });
+  signMat.polygonOffset = true;
+  signMat.polygonOffsetFactor = -1;
+  const sign = new THREE.Mesh(
+    new THREE.PlaneGeometry(Math.min(lot.width * 0.84, 6.4), 1.85),
+    signMat,
+  );
+  sign.position.set(0.78, Math.max(3.35, lot.height * 0.56), 0);
+  sign.rotation.y = Math.PI / 2;
+  sign.name = `street-sign-${index}`;
+  sign.userData.noBatch = true;
+  group.add(sign);
+
+  if (lot.forge) {
+    const forge = new THREE.Mesh(
+      new THREE.BoxGeometry(0.9, 0.7, 0.7),
+      new THREE.MeshStandardMaterial({
+        map: maps().dirt,
+        color: 0x3a2418,
+        emissive: 0xff6a2a,
+        emissiveIntensity: 1.6,
+        roughness: 0.55,
+        flatShading: true,
+      }),
+    );
+    forge.position.set(0.7, 0.7, 0);
+    forge.name = 'smithy-forge';
+    forge.userData.noBatch = true;
+    const glow = new THREE.PointLight(0xff7a3a, 8, 11, 2);
+    glow.position.set(1.1, 1.2, 0);
+    group.add(forge, glow);
+  }
+  return group;
+}
+
+function ribbon(
+  groundY: (x: number, z: number) => number,
+  x: number,
+  z0: number,
+  z1: number,
+  width: number,
+  lift: number,
   mat: THREE.Material,
-  matrices: readonly THREE.Matrix4[],
-): THREE.InstancedMesh {
-  const mesh = new THREE.InstancedMesh(geom, mat, Math.max(1, matrices.length));
-  mesh.count = matrices.length;
-  matrices.forEach((m, i) => mesh.setMatrixAt(i, m));
-  mesh.instanceMatrix.needsUpdate = true;
-  mesh.castShadow = true;
+): THREE.Mesh {
+  const steps = Math.max(2, Math.ceil((z1 - z0) / 1.4));
+  const pos: number[] = [];
+  const uv: number[] = [];
+  const idx: number[] = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const z = z0 + (z1 - z0) * t;
+    const y = groundY(x, z) + lift;
+    pos.push(x - width / 2, y, z, x + width / 2, y, z);
+    uv.push(0, t * 18, 3, t * 18);
+    if (i < steps) {
+      const a = i * 2;
+      idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+  }
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geom.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geom.setIndex(idx);
+  geom.computeVertexNormals();
+  const mesh = new THREE.Mesh(geom, mat);
   mesh.receiveShadow = true;
+  mesh.castShadow = false;
   return mesh;
 }
 
@@ -74,210 +344,76 @@ export function buildTownStreet(
 ): void {
   const root = new THREE.Group();
   root.name = 'town-street';
-  const wall = innTimber(false);
-  const roofMat = innTimber(true);
-  const dark = new THREE.MeshStandardMaterial({ color: PALETTE.timberDark, roughness: 0.9 });
-  const dirt = new THREE.MeshStandardMaterial({ color: PALETTE.dirtDeep, roughness: 1 });
-  const dummy = new THREE.Object3D();
   const lots: Aabb[] = [];
-
-  const bodies: THREE.Matrix4[] = [];
-  const fronts: THREE.Matrix4[] = [];
-  const roofs: THREE.Matrix4[] = [];
-  const doors: THREE.Matrix4[] = [];
-  const walks: THREE.Matrix4[] = [];
-  const ruts: THREE.Matrix4[] = [];
-  const posts: THREE.Matrix4[] = [];
-  const rails: THREE.Matrix4[] = [];
-  const crates: THREE.Matrix4[] = [];
-  const stumps: THREE.Matrix4[] = [];
-  const fences: THREE.Matrix4[] = [];
-
-  const put = (list: THREE.Matrix4[], x: number, y: number, z: number, sx = 1, sy = 1, sz = 1, rotY = 0) => {
-    dummy.position.set(x, y, z);
-    dummy.rotation.set(0, rotY, 0);
-    dummy.scale.set(sx, sy, sz);
-    dummy.updateMatrix();
-    list.push(dummy.matrix.clone());
-  };
-
-  LOTS.forEach((lot, i) => {
-    const x = ROW_X;
-    const z = Z0 + i * STEP;
-    const y = groundY(x, z);
-    const h = lot.height;
-    put(bodies, x - 0.7, y + h * 0.42, z, 3.4, h * 0.84, 2.7);
-    put(fronts, x + 1.15, y + h * 0.55, z, 0.16, h, 3.15);
-    put(roofs, x - 0.55, y + h * 0.86, z, 3.7, 0.12, 3.05);
-    put(doors, x + 1.28, y + 1.05, z, 0.08, 1.9, 0.85);
-    const sign = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.7, 0.55),
-      new THREE.MeshStandardMaterial({ map: signTexture(lot.name, lot.accent), roughness: 0.7 }),
-    );
-    sign.position.set(x + 1.32, y + h * 0.72, z);
-    sign.name = `street-sign-${i}`;
-    root.add(sign);
+  let cursor = -18;
+  const built: { lot: Lot; z: number }[] = [];
+  LOTS.forEach((lot, index) => {
+    const z = cursor + lot.width / 2;
+    const y = groundY(FRONT_X, z);
+    const building = makeBuilding(lot, index);
+    building.position.set(FRONT_X, y, z);
+    root.add(building);
     lots.push({
-      minX: x - 2.5,
-      maxX: x + 1.35,
+      minX: FRONT_X - 4.8,
+      maxX: FRONT_X + 0.6,
       minY: y,
-      maxY: y + h + 0.4,
-      minZ: z - 1.6,
-      maxZ: z + 1.6,
+      maxY: y + lot.height + 0.4,
+      minZ: z - lot.width / 2,
+      maxZ: z + lot.width / 2,
     });
-    if (i % 2 === 0) {
-      put(posts, x + 2.15, y + 0.55, z - 1.15, 1, 1, 1);
-      put(posts, x + 2.15, y + 0.55, z + 1.15, 1, 1, 1);
-      put(rails, x + 2.15, y + 0.95, z, 1, 1, 1);
-    }
-    if (i % 3 === 1) {
-      put(crates, x + 1.7, y + 0.2, z + 1.15, 1, 0.8, 0.9);
-      put(crates, x + 1.85, y + 0.52, z + 1.2, 0.7, 0.55, 0.7);
-    }
-    if (lot.forge) {
-      const forge = new THREE.Mesh(
-        new THREE.BoxGeometry(0.7, 0.55, 0.55),
-        new THREE.MeshStandardMaterial({
-          color: 0x3a2418,
-          emissive: 0xff6a2a,
-          emissiveIntensity: 1.4,
-          roughness: 0.6,
-        }),
-      );
-      forge.position.set(x + 1.55, y + 0.7, z);
-      forge.name = 'smithy-forge';
-      const glow = new THREE.PointLight(0xff7a3a, 7, 9, 2);
-      glow.position.set(x + 1.7, y + 1.1, z);
-      root.add(forge, glow);
-    }
+    built.push({ lot, z });
+    cursor += lot.width + 3.4;
   });
+  const z0 = built[0] ? built[0].z - built[0].lot.width / 2 : -18;
+  const z1 = built.length
+    ? built[built.length - 1]!.z + built[built.length - 1]!.lot.width / 2
+    : 20;
 
-  for (let z = Z0 - 1; z <= Z0 + (LOTS.length - 1) * STEP + 1; z += 0.85) {
-    const yW = groundY(-24.3, z);
-    put(walks, -24.3, yW + 0.08, z, 1.15, 0.08, 0.78);
-    const yE = groundY(-17.7, z);
-    put(walks, -17.7, yE + 0.08, z, 1.05, 0.08, 0.78);
+  const deckMat = stainedBoards('#c49262');
+  const deck = ribbon(groundY, FRONT_X + 1.7, z0 - 0.4, z1 + 0.4, 1.7, 0.42, deckMat);
+  deck.name = 'boardwalk';
+  root.add(deck);
+  const postMat = stainedBoards('#5c3a22');
+  for (let z = z0; z <= z1; z += 2.4) {
+    const y = groundY(FRONT_X + 2.35, z);
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.48, 0.12), postMat);
+    post.position.set(FRONT_X + 2.35, y + 0.2, z);
+    root.add(post);
   }
-  for (let z = Z0 - 2; z <= Z0 + (LOTS.length - 1) * STEP + 2; z += 1.6) {
-    const y = groundY(-21.2, z);
-    put(ruts, -21.35, y + 0.02, z, 0.38, 0.05, 1.45);
-    put(ruts, -19.85, y + 0.02, z, 0.34, 0.05, 1.45);
+  for (const end of [z0 - 0.2, z1 + 0.2]) {
+    const side = end < 0 ? -1 : 1;
+    for (let step = 0; step < 3; step++) {
+      const z = end + side * (0.35 + step * 0.42);
+      const y = groundY(FRONT_X + 1.7, z);
+      const tread = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.08, 0.4), deckMat);
+      tread.position.set(FRONT_X + 1.7, y + 0.08 + (2 - step) * 0.12, z);
+      root.add(tread);
+    }
   }
-  for (let z = Z0; z <= Z0 + (LOTS.length - 1) * STEP; z += 2.4) {
-    const x = -31.2;
-    const y = groundY(x, z);
-    put(fences, x, y + 0.45, z, 0.08, 0.9, 2.2);
-    put(stumps, x + rngless(z) * 1.4 - 0.4, y + 0.16, z + 0.8, 0.7, 0.45, 0.7);
+
+  const streetMat = new THREE.MeshStandardMaterial({
+    map: maps().dirt,
+    roughness: 1,
+    metalness: 0,
+    flatShading: true,
+  });
+  const street = ribbon(groundY, -19.4, z0 - 2, z1 + 2, 6.2, 0.04, streetMat);
+  street.name = 'street-dirt';
+  root.add(street);
+
+  const railMat = stainedBoards('#6b4630');
+  for (const z of built.filter((_, i) => i % 2 === 0).map((b) => b.z)) {
+    const y = groundY(FRONT_X + 2.7, z);
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 2.4), railMat);
+    rail.position.set(FRONT_X + 2.7, y + 0.85, z);
+    root.add(rail);
+    for (const dz of [-1.1, 1.1]) {
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.9, 5), railMat);
+      post.position.set(FRONT_X + 2.7, y + 0.45, z + dz);
+      root.add(post);
+    }
   }
-
-  root.add(instanced(new THREE.BoxGeometry(1, 1, 1), wall, bodies));
-  root.add(instanced(new THREE.BoxGeometry(1, 1, 1), wall, fronts));
-  root.add(instanced(new THREE.BoxGeometry(1, 1, 1), roofMat, roofs));
-  root.add(instanced(new THREE.BoxGeometry(1, 1, 1), dark, doors));
-  root.add(instanced(new THREE.BoxGeometry(1, 1, 1), dark, walks));
-  root.add(instanced(new THREE.BoxGeometry(1, 1, 1), dirt, ruts));
-  root.add(instanced(new THREE.CylinderGeometry(0.06, 0.07, 1.1, 5), dark, posts));
-  root.add(instanced(new THREE.BoxGeometry(0.08, 0.08, 2.3), dark, rails));
-  root.add(instanced(new THREE.BoxGeometry(0.48, 0.36, 0.42), wall, crates));
-  root.add(instanced(new THREE.CylinderGeometry(0.28, 0.34, 0.4, 6), dark, stumps));
-  root.add(instanced(new THREE.BoxGeometry(1, 1, 1), dark, fences));
-
-  const wagon = wagonMesh(wall, dark);
-  wagon.position.set(-20.4, groundY(-20.4, -6), -6);
-  wagon.rotation.y = 0.15;
-  const wagon2 = wagonMesh(wall, dark);
-  wagon2.position.set(-20.1, groundY(-20.1, 8.5), 8.5);
-  wagon2.rotation.y = 2.6;
-  root.add(wagon, wagon2);
-
-  const well = new THREE.Group();
-  const stone = new THREE.MeshStandardMaterial({ color: PALETTE.rock, roughness: 0.95 });
-  const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.78, 0.7, 8), stone);
-  ring.position.y = 0.35;
-  const water = new THREE.Mesh(
-    new THREE.CircleGeometry(0.48, 10),
-    new THREE.MeshStandardMaterial({ color: 0x245e62, roughness: 0.15, metalness: 0.2 }),
-  );
-  water.rotation.x = -Math.PI / 2;
-  water.position.y = 0.62;
-  const arm = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.5, 0.08), dark);
-  arm.position.set(0.55, 1.1, 0);
-  well.add(ring, water, arm);
-  well.position.set(-30.4, groundY(-30.4, 2), 2);
-  well.name = 'town-well';
-  root.add(well);
-
-  const privy = new THREE.Group();
-  privy.add(new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.8, 1.05), wall));
-  const privyRoof = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.08, 1.25), roofMat);
-  privyRoof.position.y = 0.95;
-  privyRoof.rotation.z = 0.12;
-  privy.add(privyRoof);
-  privy.position.set(-31.4, groundY(-31.4, 14) + 0.9, 14);
-  privy.name = 'outhouse';
-  root.add(privy);
-
-  const line = laundry(dark);
-  line.position.set(-30.2, groundY(-30.2, -8), -8);
-  root.add(line);
-
-  const trough = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.38, 0.55), dark);
-  trough.position.set(-24.6, groundY(-24.6, 4) + 0.28, 4);
-  root.add(trough);
 
   root.userData.lots = lots;
   scene.add(root);
-}
-
-function rngless(z: number): number {
-  const s = Math.sin(z * 12.9898) * 43758.5453;
-  return s - Math.floor(s);
-}
-
-function wagonMesh(wood: THREE.Material, dark: THREE.Material): THREE.Group {
-  const wagon = new THREE.Group();
-  wagon.name = 'street-wagon';
-  const bed = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.36, 2.15), wood);
-  bed.position.y = 0.7;
-  wagon.add(bed);
-  const wheelGeom = new THREE.CylinderGeometry(0.32, 0.32, 0.08, 8);
-  wheelGeom.rotateZ(Math.PI / 2);
-  for (const [x, z] of [
-    [-0.55, 0.65],
-    [0.55, 0.65],
-    [-0.55, -0.65],
-    [0.55, -0.65],
-  ] as const) {
-    const wheel = new THREE.Mesh(wheelGeom, dark);
-    wheel.position.set(x, 0.32, z);
-    wagon.add(wheel);
-  }
-  return wagon;
-}
-
-function laundry(dark: THREE.Material): THREE.Group {
-  const line = new THREE.Group();
-  line.name = 'laundry-line';
-  const post = new THREE.CylinderGeometry(0.04, 0.05, 1.8, 5);
-  const a = new THREE.Mesh(post, dark);
-  a.position.y = 0.9;
-  const b = new THREE.Mesh(post, dark);
-  b.position.set(2.6, 0.9, -0.4);
-  const rope = new THREE.Mesh(new THREE.BoxGeometry(2.7, 0.02, 0.02), dark);
-  rope.position.set(1.3, 1.7, -0.2);
-  rope.rotation.y = -0.15;
-  line.add(a, b, rope);
-  const cloth = new THREE.MeshStandardMaterial({
-    color: PALETTE.canvas,
-    roughness: 0.85,
-    side: THREE.DoubleSide,
-  });
-  for (let i = 0; i < 3; i++) {
-    const shirt = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.5), cloth);
-    shirt.position.set(0.45 + i * 0.7, 1.35, -0.15);
-    shirt.rotation.y = -0.2;
-    shirt.rotation.z = (i - 1) * 0.08;
-    line.add(shirt);
-  }
-  return line;
 }
