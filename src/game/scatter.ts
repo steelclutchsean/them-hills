@@ -62,6 +62,7 @@ interface SwayNode {
   ordinal: number;
   budget: number;
   lodDistance: number;
+  kind: 'tree' | 'rock' | 'brush' | 'log';
 }
 
 const swayNodes: SwayNode[] = [];
@@ -309,6 +310,7 @@ export async function scatterAssets(
       ordinal: placed,
       budget: config.count,
       lodDistance,
+      kind: config.lod ?? 'brush',
     });
     root.add(wrap);
     if (exclusionRadius) {
@@ -372,6 +374,7 @@ export function scatterLogs(
       ordinal: placed,
       budget: count,
       lodDistance: 36,
+      kind: 'log',
     });
     root.add(wrap);
     positions.push({ x, z, radius: length * 0.35 });
@@ -381,4 +384,43 @@ export function scatterLogs(
   markReflective(root);
   registerObstacle(root);
   return { placed, skipped, positions };
+}
+
+const fadedFoliage: THREE.Mesh[] = [];
+
+/** Soften trees and brush the lens is sitting in. Shared materials stay on the far copies. */
+export function fadeFoliageNear(camera: THREE.Vector3 | null, radius = 2.5): void {
+  for (const mesh of fadedFoliage) {
+    const base = mesh.userData.baseMat as THREE.Material | undefined;
+    if (base) mesh.material = base;
+  }
+  fadedFoliage.length = 0;
+  if (!camera) return;
+  const radiusSq = radius * radius;
+  for (const node of swayNodes) {
+    if (node.kind !== 'tree' && node.kind !== 'brush') continue;
+    const dx = node.obj.position.x - camera.x;
+    const dy = node.obj.position.y + 1.6 - camera.y;
+    const dz = node.obj.position.z - camera.z;
+    if (dx * dx + dy * dy + dz * dz > radiusSq) continue;
+    const dist = Math.hypot(dx, dy, dz);
+    const fade = 1 - dist / radius;
+    node.obj.traverse((obj) => {
+      if (!(obj instanceof THREE.Mesh)) return;
+      const current = obj.material;
+      if (Array.isArray(current)) return;
+      if (!obj.userData.baseMat) obj.userData.baseMat = current;
+      const fadeMat =
+        (obj.userData.fadeMat as THREE.Material | undefined) ?? (current as THREE.Material).clone();
+      obj.userData.fadeMat = fadeMat;
+      if ('opacity' in fadeMat) {
+        fadeMat.transparent = true;
+        fadeMat.opacity = 1 - fade * 0.92;
+        fadeMat.depthWrite = fade < 0.35;
+        fadeMat.needsUpdate = true;
+      }
+      obj.material = fadeMat;
+      fadedFoliage.push(obj);
+    });
+  }
 }

@@ -306,7 +306,7 @@ function skinAlbedo(): THREE.CanvasTexture {
   return tex;
 }
 
-function createMatchedFace(): THREE.Group {
+function createMatchedFace(variant = 0): THREE.Group {
   const group = new THREE.Group();
   group.name = 'matched-face';
   const geom = new THREE.SphereGeometry(0.09, 32, 24);
@@ -448,6 +448,16 @@ function createMatchedFace(): THREE.Group {
   beard.scale.set(0.92, 0.42, 0.4);
   beard.position.set(0, -0.016, 0.02);
   beard.castShadow = true;
+  if (variant === 1) {
+    skull.scale.set(1.08, 0.98, 1.05);
+    beard.scale.set(1.08, 0.72, 0.58);
+    beard.position.y = -0.028;
+    skin.color.set(0xc48962);
+  } else if (variant === 2) {
+    skull.scale.set(0.94, 1.08, 0.92);
+    beard.visible = false;
+    skin.color.set(0xf0c8a4);
+  }
   group.add(skull, neck, beard);
   return group;
 }
@@ -477,7 +487,7 @@ function addRangerHand(hand: THREE.Object3D, side: 1 | -1): void {
 
 // Procedural prospector hat. Sits on top of the Head bone — local Y is upward
 // from the head bone's origin (which is roughly at the base of the skull).
-function createProspectorHat(color = 0x3e2a17): THREE.Group {
+function createProspectorHat(color = 0x3e2a17, variant = 0): THREE.Group {
   const matHat = new THREE.MeshStandardMaterial({
     color,
     flatShading: true,
@@ -498,8 +508,11 @@ function createProspectorHat(color = 0x3e2a17): THREE.Group {
   const hat = new THREE.Group();
   hat.name = 'prospector_hat';
 
-  const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.14, 0.11, 18), matHat);
-  crown.position.y = 0.21;
+  const crownH = variant === 1 ? 0.26 : variant === 2 ? 0.055 : 0.11;
+  const crownTop = variant === 1 ? 0.09 : variant === 2 ? 0.16 : 0.13;
+  const crownBot = variant === 1 ? 0.11 : variant === 2 ? 0.155 : 0.14;
+  const crown = new THREE.Mesh(new THREE.CylinderGeometry(crownTop, crownBot, crownH, 18), matHat);
+  crown.position.y = 0.16 + crownH * 0.5;
   hat.add(crown);
 
   const band = new THREE.Mesh(new THREE.CylinderGeometry(0.142, 0.142, 0.022, 18), matBand);
@@ -510,9 +523,12 @@ function createProspectorHat(color = 0x3e2a17): THREE.Group {
   buckle.position.set(0, 0.158, 0.14);
   hat.add(buckle);
 
-  const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.168, 0.182, 0.016, 24), matHat);
+  const brimR = variant === 1 ? 0.15 : variant === 2 ? 0.24 : 0.182;
+  const brim = new THREE.Mesh(new THREE.CylinderGeometry(brimR * 0.92, brimR, 0.016, 24), matHat);
   brim.position.y = 0.15;
   hat.add(brim);
+  if (variant === 2) hat.rotation.z = 0.22;
+  if (variant === 1) hat.rotation.x = -0.08;
 
   hat.traverse((o) => {
     if (o instanceof THREE.Mesh) o.castShadow = true;
@@ -541,8 +557,8 @@ function loadCrewHead(): Promise<THREE.Object3D | null> {
  * A hired hand or a claim jumper: the ranger body, the modeled head, and a
  * hat. `shirt` tints the atlas so a hand and a jumper do not match.
  */
-export async function createCrewVariant(shirt: number, hat: number): Promise<THREE.Group> {
-  const [source, head] = await Promise.all([loadCrewOutfit(), loadCrewHead()]);
+export async function createCrewVariant(shirt: number, hat: number, variant = 0): Promise<THREE.Group> {
+  const source = await loadCrewOutfit();
   const outfit = cloneSkinned(source);
   // The ranger's feet are the glTF origin, and the mesh faces +Z. Crew yaw
   // treats +Z as forward, so this clone stays unrotated and unshifted.
@@ -573,9 +589,9 @@ export async function createCrewVariant(shirt: number, hat: number): Promise<THR
   });
   const headBone = outfit.getObjectByName('Head');
   if (headBone) {
-    const face = head ? head.clone(true) : createProspectorHead();
+    const face = createMatchedFace(variant);
     headBone.add(face);
-    const cap = createProspectorHat(hat);
+    const cap = createProspectorHat(hat, variant);
     cap.position.y = 0.14;
     cap.rotation.x = -0.32;
     headBone.add(cap);

@@ -82,6 +82,7 @@ import {
   prepareImpostors,
   scatterAssets,
   scatterLogs,
+  fadeFoliageNear,
   setScatterDensity,
   updateScatterWind,
 } from '@/game/scatter';
@@ -953,6 +954,7 @@ async function bootstrap(): Promise<void> {
   let blackRatio = 1;
   let wantBlack = false;
   let interiorShot = params.get('shot') === 'lode';
+  let driftLit = false;
   let waterRise = 0;
   let holdView: { x: number; y: number; z: number; lx: number; ly: number; lz: number } | null = null;
   const viewFrustum = new THREE.Frustum();
@@ -1027,10 +1029,10 @@ async function bootstrap(): Promise<void> {
     const p = townArc.firePos;
     return {
       x: p.x + distance,
-      y: p.y + 1.85,
+      y: p.y + 2.6,
       z: p.z + distance * 0.85,
       lx: p.x,
-      ly: p.y + 1.45,
+      ly: p.y + 3.1,
       lz: p.z,
     };
   }
@@ -1051,6 +1053,88 @@ async function bootstrap(): Promise<void> {
   function creekView(): { x: number; y: number; z: number; lx: number; ly: number; lz: number } {
     const y = terrain.getHeightAt(24, 8);
     return { x: 32, y: y + 7.5, z: 18, lx: 24, ly: y + 0.25, lz: 6 };
+  }
+
+  function townWideView(): { x: number; y: number; z: number; lx: number; ly: number; lz: number } {
+    const x = 42;
+    const z = 34;
+    const lx = -14;
+    const lz = 10;
+    return {
+      x,
+      y: terrain.getHeightAt(x, z) + 22,
+      z,
+      lx,
+      ly: terrain.getHeightAt(lx, lz) + 4,
+      lz,
+    };
+  }
+
+  const sceneRay = new THREE.Raycaster();
+  const occluderSkip = /atmosphere|water_|terrain|grass|drift-|shaft-|guide-|fire-smoke|fire-ember|fire-flame|gravel|sky|rush-tent|stamp-mill|fire-shed|company-wagon/i;
+  let occluderRoots: THREE.Object3D[] | null = null;
+
+  function solidOccluder(obj: THREE.Object3D): boolean {
+    if (!(obj instanceof THREE.Mesh) && !(obj instanceof THREE.InstancedMesh)) return false;
+    let node: THREE.Object3D | null = obj;
+    while (node) {
+      if (occluderSkip.test(node.name)) return false;
+      node = node.parent;
+    }
+    const mat = (obj as THREE.Mesh).material;
+    const list = Array.isArray(mat) ? mat : [mat];
+    if (list.some((entry) => entry?.transparent && (entry.opacity ?? 1) < 0.4)) return false;
+    return true;
+  }
+
+  function occluders(): THREE.Object3D[] {
+    if (occluderRoots && occluderRoots.length > 0) return occluderRoots;
+    const found: THREE.Object3D[] = [];
+    renderer.scene.traverse((obj) => {
+      if (obj.name.startsWith('scatter:') || obj.name === 'scatter-logs' || obj.name === 'boulders') found.push(obj);
+    });
+    occluderRoots = found;
+    return found;
+  }
+
+  function viewIsClear(cam: THREE.Vector3, subjects: readonly THREE.Vector3[]): boolean {
+    const dir = new THREE.Vector3();
+    const roots = occluders();
+    if (roots.length === 0) return true;
+    for (const subject of subjects) {
+      dir.copy(subject).sub(cam);
+      const dist = dir.length();
+      if (dist < 0.4) continue;
+      dir.multiplyScalar(1 / dist);
+      sceneRay.set(cam, dir);
+      sceneRay.near = 0.2;
+      sceneRay.far = Math.max(0.3, dist - 0.45);
+      const hits = sceneRay.intersectObjects(roots, true);
+      if (hits.some((hit) => solidOccluder(hit.object))) return false;
+    }
+    return true;
+  }
+
+  /** Orbit a scene camera until each subject has a clear ray. Foliage still fades if the lens is inside it. */
+  function clearSceneCamera(cam: THREE.Vector3, look: THREE.Vector3, subjects: readonly THREE.Vector3[]): void {
+    const base = cam.clone().sub(look);
+    const planar = Math.max(0.5, Math.hypot(base.x, base.z));
+    const yaw0 = Math.atan2(base.x, base.z);
+    const height = base.y;
+    for (let step = 0; step < 13; step++) {
+      const side = step === 0 ? 0 : (step % 2 === 0 ? 1 : -1) * Math.ceil(step / 2);
+      const yaw = yaw0 + side * 0.18;
+      const pos = new THREE.Vector3(
+        look.x + Math.sin(yaw) * planar,
+        look.y + height + Math.abs(side) * 0.7,
+        look.z + Math.cos(yaw) * planar,
+      );
+      pos.y = Math.max(pos.y, terrain.getHeightAt(pos.x, pos.z) + 1.5);
+      if (viewIsClear(pos, subjects)) {
+        cam.copy(pos);
+        return;
+      }
+    }
   }
   let arcBanner: string | null = null;
   let arcStatusLine: string | null = null;
@@ -1340,7 +1424,8 @@ async function bootstrap(): Promise<void> {
           };
           gameStore.getState().hydrate(snap);
           townArc.quench();
-          holdView = shedView(3.6);
+          arcBanner = null;
+          holdView = shedView(6.4);
           return true;
         }
         const scriptEvent = (id: 'flood' | 'drought' | 'rush' | 'fire') => {
@@ -1359,9 +1444,9 @@ async function bootstrap(): Promise<void> {
           character.setYaw(Math.PI);
         } else if (who === 'silas') {
           dialogue = startDialogue('silas', SILAS_DIALOGUE);
-          const y = terrain.getHeightAt(townArc.millPos.x + 2.4, townArc.millPos.z + 0.2);
-          character.placeAt(townArc.millPos.x + 2.4, y + 0.2, townArc.millPos.z + 0.2);
-          character.setYaw(Math.PI * 0.85);
+          const y = terrain.getHeightAt(townArc.millPos.x + 2.2, townArc.millPos.z + 4.6);
+          character.placeAt(townArc.millPos.x + 2.2, y + 0.2, townArc.millPos.z + 4.6);
+          character.setYaw(Math.PI);
         } else if (who === 'ada') {
           const snap = gameStore.getState().serialize();
           snap.fieldwork = {
@@ -1378,7 +1463,19 @@ async function bootstrap(): Promise<void> {
         } else if (who === 'fire') {
           scriptEvent('fire');
           dialogue = null;
-          holdView = shedView(3.6);
+          arcBanner = 'fire';
+          holdView = shedView(6.4);
+        } else if (who === 'overview') {
+          scriptEvent('rush');
+          const dressed = worldDress.snap('rush');
+          waterRise = dressed.rise;
+          streams.setStage(dressed.rise, dressed.spread);
+          grass?.setDry(dressed.dry);
+          for (const cover of grassCovers) cover.setDry(dressed.dry);
+          waterStageKey = `${dressed.rise.toFixed(3)}|${dressed.spread.toFixed(3)}`;
+          arcBanner = 'rush';
+          dialogue = null;
+          holdView = townWideView();
         } else if (who === 'flood' || who === 'drought' || who === 'rush') {
           scriptEvent(who);
           const dressed = worldDress.snap(who);
@@ -1436,6 +1533,11 @@ async function bootstrap(): Promise<void> {
         return { black: blackRatio, present: hit.present, missing: hit.missing };
       },
       waterRise,
+      crewReady: () => {
+        const line = renderer.scene.getObjectByName('bucket-line');
+        if (!line || line.children.length === 0) return false;
+        return line.children.every((child) => child.userData.hero === true);
+      },
     };
     if (previous) previous.frameLuma = frameLuma;
   }
@@ -1949,6 +2051,45 @@ async function bootstrap(): Promise<void> {
             renderer.camera.position.set(holdView.x, holdView.y, holdView.z);
             renderer.camera.lookAt(holdView.lx, holdView.ly, holdView.lz);
           }
+          const sceneLook = new THREE.Vector3();
+          const sceneSubjects: THREE.Vector3[] = [];
+          if (holdView) {
+            sceneLook.set(holdView.lx, holdView.ly, holdView.lz);
+            sceneSubjects.push(sceneLook.clone());
+            if (arcBanner === 'fire') {
+              sceneSubjects.push(new THREE.Vector3(townArc.firePos.x, townArc.firePos.y + 3.4, townArc.firePos.z));
+            }
+          } else if (dialogue) {
+            const who =
+              dialogue.treeId === 'silas'
+                ? 'silas'
+                : dialogue.treeId === 'ada'
+                  ? 'ada'
+                  : dialogue.treeId === 'old_pete'
+                    ? 'pete'
+                    : dialogue.treeId === 'innkeeper'
+                      ? 'mae'
+                      : null;
+            const npc = who ? townArc.actor(who) : null;
+            if (npc) {
+              const player = character.getPosition();
+              sceneSubjects.push(player.clone().setY(player.y + 1.3), npc.clone().setY(npc.y + 1.4));
+              if (who === 'silas') {
+                sceneSubjects.push(
+                  new THREE.Vector3(townArc.millPos.x - 4.4, townArc.millPos.y + 2.8, townArc.millPos.z + 0.2),
+                );
+              }
+              sceneLook.copy(player).add(npc).multiplyScalar(0.5);
+              sceneLook.y += who === 'silas' ? 2.15 : 1.3;
+            }
+          }
+          if (sceneSubjects.length > 0) {
+            clearSceneCamera(renderer.camera.position, sceneLook, sceneSubjects);
+            renderer.camera.lookAt(sceneLook);
+            fadeFoliageNear(renderer.camera.position, 2.6);
+          } else {
+            fadeFoliageNear(null);
+          }
         }
       }
 
@@ -2214,13 +2355,34 @@ async function bootstrap(): Promise<void> {
           break;
         }
       }
-      if (inCave || interiorShot) {
+      const northMine = mines.find((m) => m.id === 'mine_north');
+      const inNorth = !!northMine && northMine.isPlayerInside(charPos);
+      const driftShowPhase = northMine ? driftPhase(northMine.group) : '';
+      const driftShowActive =
+        !holdView &&
+        !dialogue &&
+        (driftShowPhase === 'fuse' || driftShowPhase === 'blast' || driftShowPhase === 'cave');
+      driftLit = inNorth || interiorShot || driftShowActive;
+      const atmo = renderer.camera.getObjectByName('atmosphere');
+      if (inCave && !driftLit) {
         renderer.ambient.intensity = 0.04;
         renderer.hemi.intensity = 0.015;
       }
-      const northMine = mines.find((m) => m.id === 'mine_north');
-      const inNorth = !!northMine && northMine.isPlayerInside(charPos);
-      if (inNorth || interiorShot) renderer.sun.intensity = 0.02;
+      if (driftLit) {
+        renderer.sun.intensity = 0;
+        renderer.hemi.intensity = 0;
+        renderer.ambient.color.setRGB(8 / 255, 8 / 255, 10 / 255);
+        renderer.ambient.intensity = 1;
+        renderer.renderer.toneMappingExposure = 0.66;
+        if (renderer.scene.fog instanceof THREE.FogExp2) {
+          renderer.scene.fog.color.set(0x050508);
+          renderer.scene.fog.density = 0.055;
+        }
+        renderer.renderer.setClearColor(0x050508);
+        if (atmo) atmo.visible = false;
+      } else if (atmo) {
+        atmo.visible = true;
+      }
       if (northMine) {
         if (inNorth) {
           const local = charPos.clone().sub(northMine.position);
@@ -2267,7 +2429,7 @@ async function bootstrap(): Promise<void> {
       updateTownLights(sunDirWorld.y);
       setFoliageWindTime(worldTime);
       pulseGold(worldTime);
-      shafts.update(sunDirWorld, charPos, true, renderer.camera);
+      shafts.update(sunDirWorld, charPos, !driftLit, renderer.camera);
       motes.update(worldTime, charPos, sunDirWorld.y);
 
       headlamp.update({
@@ -2854,7 +3016,7 @@ async function bootstrap(): Promise<void> {
         }
       }
       const insideNorth = mines.some((m) => m.id === 'mine_north' && m.isPlayerInside(charPos));
-      const promptInfo = inSession
+      const promptInfo = inSession || holdView
         ? null
         : nearestVendor
           ? { text: `Sell at ${nearestVendor.vendor.name}`, glyph: interactGlyph }
@@ -2890,7 +3052,7 @@ async function bootstrap(): Promise<void> {
                                       : 'Aim the monitor',
                               glyph: interactGlyph,
                             }
-                          : insideNorth &&
+                          : driftLit &&
                               mines.some(
                                 (m) =>
                                   m.id === 'mine_north' &&
@@ -2898,8 +3060,10 @@ async function bootstrap(): Promise<void> {
                                   driftNearFall(m.position.z, charPos.z),
                               )
                             ? { text: 'Dig through the fall', glyph: interactGlyph }
-                            : insideNorth && !nearestSite
-                            ? { text: 'Lag a timber set ($40)', glyph: interactGlyph }
+                            : driftLit
+                            ? insideNorth
+                              ? { text: 'Lag a timber set ($40)', glyph: interactGlyph }
+                              : null
                             : nearestSite
                             ? {
                                 text: `Prospect the ${groundHere.label}`,
@@ -3476,11 +3640,12 @@ function frameDialogue(
     side.x += 0.65;
     side.normalize();
   }
-  const dist = id === 'silas' ? 9.2 : id === 'ada' ? 7.2 : 4.8;
-  const eye = id === 'silas' ? 4.8 : 2.4;
+  const dist = id === 'silas' ? 12.5 : id === 'ada' ? 7.2 : 4.8;
+  const eye = id === 'silas' ? 4.4 : 2.4;
+  const lookLift = id === 'silas' ? 2.15 : 1.25;
   camera.position.set(mid.x + side.x * dist, mid.y + eye, mid.z + side.z * dist);
-  camera.lookAt(mid.x, mid.y + 1.25, mid.z);
-  camera.fov = 42;
+  camera.lookAt(mid.x, mid.y + lookLift, mid.z);
+  camera.fov = id === 'silas' ? 40 : 42;
   camera.updateProjectionMatrix();
 }
 

@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { poseNpc, spawnNpc } from '@/game/crew';
 
 // Stamp mill, the company wagon, and the shed that burns. Silas, Mae,
@@ -37,49 +36,10 @@ export function createTownArc(
   const mill = new THREE.Group();
   mill.name = 'stamp-mill';
   mill.position.copy(millPos);
-  const shell = new THREE.Mesh(millShell(), plank);
-  shell.castShadow = true;
-  shell.receiveShadow = true;
-  const roof = new THREE.Mesh(new THREE.BoxGeometry(4.4, 0.16, 3.2), roofMat);
-  roof.position.set(0, 2.7, 0);
-  roof.rotation.z = 0.08;
-  roof.castShadow = true;
-  mill.add(shell, roof);
-
-  const wheel = new THREE.Group();
-  wheel.name = 'mill-wheel';
-  wheel.position.set(-2.15, 1.15, 0.2);
-  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.95, 0.06, 6, 16), timber);
-  wheel.add(rim);
-  for (let i = 0; i < 8; i++) {
-    const paddle = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.7, 0.28), timber);
-    const a = (i / 8) * Math.PI * 2;
-    paddle.position.set(Math.cos(a) * 0.72, Math.sin(a) * 0.72, 0);
-    paddle.rotation.z = a;
-    wheel.add(paddle);
-  }
-  const cams = new THREE.Group();
-  cams.name = 'mill-cams';
-  cams.position.set(0, 2.15, 0);
-  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.8, 8), iron);
-  shaft.rotation.z = Math.PI / 2;
-  cams.add(shaft);
-  const stamps: THREE.Object3D[] = [];
-  for (let i = 0; i < 3; i++) {
-    const lobe = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.14, 0.14), iron);
-    lobe.position.set(-0.45 + i * 0.45, 0.1, 0);
-    cams.add(lobe);
-    const stamp = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, 1.15, 6), iron);
-    stamp.position.set(-0.45 + i * 0.45, 1.2, 0.15);
-    stamp.name = `stamp-${i}`;
-    stamps.push(stamp);
-    mill.add(stamp);
-  }
-  const mortar = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.32, 0.8), iron);
-  mortar.position.set(0, 0.2, 0.15);
-  const flume = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.16, 2.2), timber);
-  flume.position.set(-1.5, 1.7, 0);
-  mill.add(wheel, cams, mortar, flume);
+  const built = buildMill(mill, timber, iron, plank, roofMat);
+  const wheel = built.wheel;
+  const cams = built.cams;
+  const stamps = built.stamps;
   scene.add(mill);
 
   const company = new THREE.Group();
@@ -133,29 +93,19 @@ export function createTownArc(
   door.position.set(0, 0.65, 1.06);
   shed.add(walls, shedRoof, door);
 
-  const flameMat = new THREE.MeshBasicMaterial({
-    color: 0xff6a1a,
-    transparent: true,
-    opacity: 0.9,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-  });
-  const flames: THREE.Mesh[] = [];
-  for (let i = 0; i < 7; i++) {
-    const flame = new THREE.Mesh(new THREE.ConeGeometry(0.22 + (i % 3) * 0.08, 1.05 + (i % 4) * 0.28, 6), flameMat);
-    flame.name = i === 0 ? 'fire-flame' : `fire-flame-${i}`;
-    flame.position.set((i - 3) * 0.28, 1.7 + (i % 2) * 0.4, (i % 3) * 0.2 - 0.2);
-    flame.visible = false;
-    flames.push(flame);
-    shed.add(flame);
-  }
-  const fireLight = new THREE.PointLight(0xff6a2a, 0, 12, 2);
-  fireLight.position.set(0, 1.8, 0);
+  const flames = makeSoftPoints('fire-flame', 48, 0xff9a32, 2.15, THREE.AdditiveBlending);
+  const flameMat = flames.material as THREE.PointsMaterial;
+  flameMat.toneMapped = false;
+  flameMat.opacity = 1;
+  flames.visible = false;
+  const fireLight = new THREE.PointLight(0xff6a2a, 0, 14, 2);
+  fireLight.position.set(0, 3.1, 0.2);
   fireLight.castShadow = false;
-  shed.add(fireLight);
+  shed.add(flames, fireLight);
 
-  const smoke = makePoints(48, 0x6a645c, 0.35);
-  const embers = makePoints(32, 0xff8a3a, 0.08);
+  const smoke = makeSoftPoints('fire-smoke', 36, 0x8d8880, 3.2, THREE.NormalBlending);
+  (smoke.material as THREE.PointsMaterial).opacity = 0.45;
+  const embers = makeSoftPoints('fire-embers', 24, 0xff8a3a, 0.28, THREE.AdditiveBlending);
   smoke.name = 'fire-smoke';
   embers.name = 'fire-embers';
   shed.add(smoke, embers);
@@ -165,8 +115,14 @@ export function createTownArc(
   bucketLine.name = 'bucket-line';
   bucketLine.position.copy(firePos);
   bucketLine.visible = false;
+  const bucketLooks: [number, number, number][] = [
+    [0x8a3030, 0x24160e, 0],
+    [0x314238, 0x6a5432, 1],
+    [0x243044, 0xd2c29a, 2],
+  ];
   for (let i = 0; i < 3; i++) {
-    const figure = spawnNpc(i === 1 ? 0x6a3a34 : 0x4a4038, 0x2a2218);
+    const look = bucketLooks[i] ?? bucketLooks[0]!;
+    const figure = spawnNpc(look[0], look[1], look[2]);
     figure.position.set(1.8 + i * 0.7, 0, 1.4);
     figure.rotation.y = Math.PI;
     const bucket = new THREE.Mesh(
@@ -188,8 +144,8 @@ export function createTownArc(
   mae.rotation.y = -0.6;
   scene.add(mae);
   const silas = spawnNpc(0x3e4a52, 0x2a241c);
-  silas.position.set(millPos.x + 1.35, millPos.y, millPos.z + 0.4);
-  silas.rotation.y = Math.PI * 0.85;
+  silas.position.set(millPos.x + 0.35, millPos.y + 0.22, millPos.z + 1.75);
+  silas.rotation.y = Math.PI;
   scene.add(silas);
   const ada = spawnNpc(0x1c2a24, 0x111410);
   ada.position.set(companyPos.x + 1.5, companyPos.y, companyPos.z);
@@ -209,9 +165,7 @@ export function createTownArc(
     shedMats.roof.color.set(0x1c1614);
     shedRoof.rotation.x = 0.42;
     shedRoof.position.y = 1.7;
-    flames.forEach((flame) => {
-      flame.visible = false;
-    });
+    flames.visible = false;
     fireLight.intensity = 0;
     smoke.visible = false;
     embers.visible = false;
@@ -231,7 +185,7 @@ export function createTownArc(
     millPos,
     companyPos,
     firePos,
-    nearMill: (pos) => near(pos, millPos, 3.2),
+    nearMill: (pos) => near(pos, millPos, 6.2),
     nearCompany: (pos) => company.visible && near(pos, companyPos, 3.2),
     nearFire: (pos) => burningNow && near(pos, firePos, 3.6),
     actor(id) {
@@ -259,7 +213,7 @@ export function createTownArc(
       cams.rotation.x = time * 2.4;
       stamps.forEach((stamp, i) => {
         const lift = Math.max(0, Math.sin(time * 2.4 + i * 2.1));
-        stamp.position.y = 0.85 + lift * 0.7;
+        stamp.position.y = 2.35 + lift * 0.85;
       });
       poseNpc(silas, time, 'shovel', 1);
       poseNpc(pete, time, 'idle', 0);
@@ -274,22 +228,17 @@ export function createTownArc(
       if (burning) {
         wasBurning = true;
         if (charred) applyRebuild();
-        flames.forEach((flame, i) => {
-          flame.visible = true;
-          flame.scale.y = 0.75 + Math.sin(time * 16 + i) * 0.28;
-          flame.position.y = 1.35 + Math.abs(Math.sin(time * 9 + i)) * 0.45;
-        });
-        fireLight.intensity = 22 + Math.sin(time * 17) * 8;
+        flames.visible = true;
+        fireLight.intensity = 36 + Math.sin(time * 17) * 10;
         smoke.visible = true;
         embers.visible = true;
-        driftPoints(smoke, time, 0.55, 2.4);
-        driftPoints(embers, time * 1.6, 1.1, 1.6);
+        driftPoints(flames, time * 1.4, 1.6, 0.72, 2.55, 2.35);
+        driftPoints(smoke, time, 0.42, 1.35, 3.55, 3.4);
+        driftPoints(embers, time * 1.6, 1.3, 0.7, 2.4, 2.2);
         const maeTarget = firePos.clone().add(new THREE.Vector3(2.4, 0, 1.6));
         mae.position.lerp(new THREE.Vector3(maeTarget.x, maeHome.y, maeTarget.z), Math.min(1, dt * 0.8));
       } else {
-        flames.forEach((flame) => {
-          flame.visible = false;
-        });
+        flames.visible = false;
         if (!charred) fireLight.intensity = 0;
         if (wasBurning && !charred) applyChar();
         if (!burning && !charred) {
@@ -303,48 +252,136 @@ export function createTownArc(
   };
 }
 
-function millShell(): THREE.BufferGeometry {
-  const parts: THREE.BufferGeometry[] = [];
-  const floor = new THREE.BoxGeometry(3.6, 0.2, 2.6);
-  floor.translate(0, 0.1, 0);
-  parts.push(floor);
-  for (const [x, z] of [
-    [-1.6, -1.1],
-    [1.6, -1.1],
-    [-1.6, 1.1],
-    [1.6, 1.1],
-  ] as const) {
-    const post = new THREE.BoxGeometry(0.18, 2.5, 0.18);
-    post.translate(x, 1.35, z);
-    parts.push(post);
+function buildMill(
+  mill: THREE.Group,
+  timber: THREE.Material,
+  iron: THREE.Material,
+  plank: THREE.Material,
+  roofMat: THREE.Material,
+): { wheel: THREE.Group; cams: THREE.Group; stamps: THREE.Object3D[] } {
+  const box = (w: number, h: number, d: number, mat: THREE.Material, x: number, y: number, z: number) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    mesh.position.set(x, y, z);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mill.add(mesh);
+    return mesh;
+  };
+  box(7.4, 0.22, 5.6, plank, 0, 0.11, 0.2);
+  const posts: [number, number][] = [
+    [-3.4, -2.5],
+    [3.4, -2.5],
+    [-3.4, 2.4],
+    [3.4, 2.4],
+    [0, -2.5],
+    [0, 2.4],
+  ];
+  for (const [x, z] of posts) box(0.28, 5.8, 0.28, timber, x, 3.0, z);
+  box(7.2, 0.28, 0.28, timber, 0, 5.85, -2.5);
+  box(7.2, 0.28, 0.28, timber, 0, 5.85, 2.4);
+  box(0.28, 0.28, 5.2, timber, -3.4, 5.85, 0);
+  box(0.28, 0.28, 5.2, timber, 3.4, 5.85, 0);
+  box(6.8, 3.6, 0.16, plank, 0, 2.4, -2.55);
+  box(0.16, 3.2, 4.6, plank, -3.45, 2.2, -0.1);
+  const roofL = box(4.2, 0.16, 6.2, roofMat, -1.7, 6.7, 0);
+  roofL.rotation.z = 0.42;
+  const roofR = box(4.2, 0.16, 6.2, roofMat, 1.7, 6.7, 0);
+  roofR.rotation.z = -0.42;
+
+  const wheel = new THREE.Group();
+  wheel.name = 'mill-wheel';
+  wheel.position.set(-4.55, 2.7, 0.3);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(1.65, 0.08, 6, 20), timber);
+  wheel.add(rim);
+  for (let i = 0; i < 10; i++) {
+    const paddle = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.15, 0.36), timber);
+    const a = (i / 10) * Math.PI * 2;
+    paddle.position.set(Math.cos(a) * 1.2, Math.sin(a) * 1.2, 0);
+    paddle.rotation.z = a;
+    wheel.add(paddle);
   }
-  const back = new THREE.BoxGeometry(3.4, 1.8, 0.12);
-  back.translate(0, 1.2, -1.15);
-  parts.push(back);
-  return mergeBox(parts);
+  const cams = new THREE.Group();
+  cams.name = 'mill-cams';
+  cams.position.set(0, 4.7, 0.15);
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 2.6, 8), iron);
+  shaft.rotation.z = Math.PI / 2;
+  cams.add(shaft);
+  const stamps: THREE.Object3D[] = [];
+  for (let i = 0; i < 3; i++) {
+    const lobe = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.18, 0.16), iron);
+    lobe.position.set(-0.7 + i * 0.7, 0.12, 0);
+    cams.add(lobe);
+    const stamp = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.14, 2.5, 6), iron);
+    stamp.position.set(-0.7 + i * 0.7, 2.35, 0.2);
+    stamp.name = `stamp-${i}`;
+    stamps.push(stamp);
+    mill.add(stamp);
+  }
+  box(2.4, 0.7, 1.15, iron, 0, 0.55, 0.25);
+  const flume = box(0.42, 0.22, 3.4, timber, -2.6, 4.55, -0.4);
+  flume.rotation.z = -0.18;
+  flume.rotation.y = 0.4;
+  mill.add(wheel, cams);
+  return { wheel, cams, stamps };
 }
 
-function mergeBox(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
-  return mergeGeometries(parts) ?? parts[0]!;
+function softDisc(): THREE.Texture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('[fire] no 2d context');
+  const grd = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grd.addColorStop(0, 'rgba(255,255,255,1)');
+  grd.addColorStop(0.35, 'rgba(255,255,255,0.65)');
+  grd.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, 64, 64);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
 }
 
-function makePoints(count: number, color: number, size: number): THREE.Points {
+let discTex: THREE.Texture | null = null;
+
+function makeSoftPoints(
+  name: string,
+  count: number,
+  color: number,
+  size: number,
+  blending: THREE.Blending,
+): THREE.Points {
+  discTex ??= softDisc();
   const positions = new Float32Array(count * 3);
   const geom = new THREE.BufferGeometry();
   geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  return new THREE.Points(
+  const pts = new THREE.Points(
     geom,
     new THREE.PointsMaterial({
       color,
       size,
+      map: discTex,
       transparent: true,
-      opacity: 0.75,
+      opacity: 0.9,
       depthWrite: false,
+      blending,
+      sizeAttenuation: true,
+      alphaTest: 0.015,
     }),
   );
+  pts.name = name;
+  pts.frustumCulled = false;
+  return pts;
 }
 
-function driftPoints(points: THREE.Points, time: number, rise: number, spread: number): void {
+function driftPoints(
+  points: THREE.Points,
+  time: number,
+  rise: number,
+  spread: number,
+  y0 = 0,
+  ySpan = 3.2,
+): void {
   const attr = points.geometry.getAttribute('position') as THREE.BufferAttribute;
   const n = attr.count;
   for (let i = 0; i < n; i++) {
@@ -353,8 +390,8 @@ function driftPoints(points: THREE.Points, time: number, rise: number, spread: n
     attr.setXYZ(
       i,
       Math.sin(seed * 4) * spread * life,
-      life * 3.2,
-      Math.cos(seed * 3) * spread * 0.4,
+      y0 + life * ySpan,
+      Math.cos(seed * 3) * spread * 0.45,
     );
   }
   attr.needsUpdate = true;

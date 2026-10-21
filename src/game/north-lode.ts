@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 // Enclosed north drift. One carved tube, triplanar rock, timber sets,
 // lanterns, dust in the beams, drips, and quartz grown in the wall.
@@ -52,28 +51,38 @@ function rockMaps(): { albedo: THREE.CanvasTexture; normal: THREE.CanvasTexture 
   canvas.height = size;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('[drift] no 2d context');
-  ctx.fillStyle = '#6a6258';
+  ctx.fillStyle = '#5c5852';
   ctx.fillRect(0, 0, size, size);
   for (let i = 0; i < 420; i++) {
     const x = (i * 47) % size;
     const y = (i * 29) % size;
     const r = 2 + (i % 7);
-    const tone = 28 + (i % 11) * 8;
-    ctx.fillStyle = `rgb(${tone + 18}, ${tone + 12}, ${tone + 8})`;
-    ctx.globalAlpha = 0.35 + (i % 5) * 0.08;
+    const tone = 48 + (i % 9) * 7;
+    ctx.fillStyle = `rgb(${tone}, ${tone - 2}, ${tone - 6})`;
+    ctx.globalAlpha = 0.28 + (i % 5) * 0.06;
     ctx.beginPath();
     ctx.ellipse(x, y, r, r * 0.62, (i % 6) * 0.4, 0, Math.PI * 2);
     ctx.fill();
   }
   ctx.globalAlpha = 1;
   for (let i = 0; i < 18; i++) {
-    ctx.strokeStyle = `rgba(18, 14, 10, ${0.25 + (i % 4) * 0.1})`;
+    ctx.strokeStyle = `rgba(22, 20, 18, ${0.28 + (i % 4) * 0.1})`;
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo((i * 19) % size, 0);
     ctx.bezierCurveTo(40, 30 + i * 4, 80, 70 - i * 3, size, (i * 23) % size);
     ctx.stroke();
   }
+  // Quartz lives in the stone, not as a row of glowing boxes.
+  const veins = ['rgba(214, 210, 200, 0.72)', 'rgba(168, 164, 156, 0.8)', 'rgba(186, 142, 64, 0.62)'];
+  veins.forEach((stroke, i) => {
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = i === 2 ? 3 : 2;
+    ctx.beginPath();
+    ctx.moveTo(8 + i * 18, 0);
+    ctx.bezierCurveTo(30 + i * 12, 40, 70 - i * 8, 78, 20 + i * 30, size);
+    ctx.stroke();
+  });
   const albedo = new THREE.CanvasTexture(canvas);
   albedo.wrapS = THREE.RepeatWrapping;
   albedo.wrapT = THREE.RepeatWrapping;
@@ -116,9 +125,9 @@ function rockMaps(): { albedo: THREE.CanvasTexture; normal: THREE.CanvasTexture 
 function rockMaterial(): THREE.MeshStandardMaterial {
   const maps = rockMaps();
   const mat = new THREE.MeshStandardMaterial({
-    color: 0x8a8176,
-    roughness: 0.9,
-    metalness: 0.02,
+    color: 0x6a645c,
+    roughness: 0.34,
+    metalness: 0.16,
     side: THREE.DoubleSide,
   });
   mat.onBeforeCompile = (shader) => {
@@ -229,55 +238,37 @@ function carveTunnel(): THREE.BufferGeometry {
   return geom;
 }
 
-function quartzVeins(): THREE.BufferGeometry {
-  const parts: THREE.BufferGeometry[] = [];
-  const veins: { z: number; side: number; color: THREE.Color; h: number }[] = [
-    { z: -3.1, side: -1, color: new THREE.Color(0xf4f1ea), h: 0.7 },
-    { z: -4.3, side: 1, color: new THREE.Color(0x8d8a84), h: 0.55 },
-    { z: -5.6, side: -1, color: new THREE.Color(0xe2b15a), h: 0.9 },
-    { z: -6.8, side: 1, color: new THREE.Color(0xf7f4ee), h: 0.5 },
-    { z: -7.7, side: -1, color: new THREE.Color(0xd7a441), h: 1.05 },
-    { z: -8.7, side: 0.2, color: new THREE.Color(0xc9842a), h: 0.8 },
+function quartzCrystals(): THREE.Group {
+  const group = new THREE.Group();
+  const spots: { z: number; side: number; color: number; honey: boolean }[] = [
+    { z: -3.2, side: -1, color: 0xc8c4ba, honey: false },
+    { z: -4.4, side: 1, color: 0x8e8b86, honey: false },
+    { z: -5.7, side: -1, color: 0xc4a15a, honey: true },
+    { z: -6.9, side: 1, color: 0xd8d4cc, honey: false },
+    { z: -7.8, side: -1, color: 0xb8883a, honey: true },
+    { z: -8.6, side: 1, color: 0xa89878, honey: true },
   ];
-  for (const vein of veins) {
-    const boxes: THREE.BufferGeometry[] = [];
-    const steps = 5;
-    for (let i = 0; i < steps; i++) {
-      const along = (i - (steps - 1) / 2) * 0.22;
-      const box = new THREE.BoxGeometry(0.16, vein.h * (0.45 + (i % 3) * 0.18), 0.34);
-      const y = 0.85 + (i % 2) * 0.28 + vein.h * 0.15;
-      const x = vein.side * (1.42 - i * 0.02) + Math.sin(vein.z + i) * 0.05;
-      box.translate(x, y, vein.z + along);
-      const colors = new Float32Array(box.getAttribute('position').count * 3);
-      for (let v = 0; v < colors.length; v += 3) {
-        colors[v] = vein.color.r;
-        colors[v + 1] = vein.color.g;
-        colors[v + 2] = vein.color.b;
-      }
-      box.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-      boxes.push(box);
+  for (const spot of spots) {
+    const mat = new THREE.MeshStandardMaterial({
+      color: spot.color,
+      roughness: 0.22,
+      metalness: 0.08,
+      emissive: spot.honey ? 0x6a4a16 : 0x000000,
+      emissiveIntensity: spot.honey ? 0.12 : 0,
+    });
+    for (let i = 0; i < 3; i++) {
+      const shard = new THREE.Mesh(new THREE.OctahedronGeometry(0.045 + (i % 2) * 0.02, 0), mat);
+      shard.position.set(
+        spot.side * 1.84,
+        0.95 + i * 0.22,
+        spot.z + (i - 1) * 0.12,
+      );
+      shard.rotation.set(i * 0.4, spot.side, 0.6);
+      shard.castShadow = true;
+      group.add(shard);
     }
-    const merged = mergeGeometries(boxes);
-    if (merged) parts.push(merged);
   }
-  return mergeGeometries(parts) ?? new THREE.BufferGeometry();
-}
-
-function beamTexture(): THREE.CanvasTexture {
-  const canvas = document.createElement('canvas');
-  canvas.width = 64;
-  canvas.height = 128;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('[drift] no beam context');
-  const grd = ctx.createLinearGradient(0, 0, 0, 128);
-  grd.addColorStop(0, 'rgba(255, 214, 150, 0.0)');
-  grd.addColorStop(0.35, 'rgba(255, 196, 120, 0.55)');
-  grd.addColorStop(1, 'rgba(255, 170, 80, 0.0)');
-  ctx.fillStyle = grd;
-  ctx.fillRect(0, 0, 64, 128);
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
+  return group;
 }
 
 function layTimber(rig: { posts: THREE.InstancedMesh; caps: THREE.InstancedMesh; postHome: THREE.Matrix4[]; capHome: THREE.Matrix4[] }): void {
@@ -314,25 +305,8 @@ export function dressNorthLode(group: THREE.Group): void {
   shell.receiveShadow = true;
   group.add(shell);
 
-  const quartz = new THREE.Mesh(
-    quartzVeins(),
-    new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      roughness: 0.42,
-      metalness: 0.05,
-      emissive: 0xffd7a2,
-      emissiveIntensity: 0.45,
-    }),
-  );
+  const quartz = quartzCrystals();
   quartz.name = 'drift-quartz';
-  const quartzMat = quartz.material as THREE.MeshStandardMaterial;
-  quartzMat.onBeforeCompile = (shader) => {
-    shader.fragmentShader = shader.fragmentShader.replace(
-      '#include <emissivemap_fragment>',
-      `#include <emissivemap_fragment>
-      totalEmissiveRadiance *= vec3(clamp(vColor.r - vColor.b, 0.0, 1.0));`,
-    );
-  };
   group.add(quartz);
 
   const wood = new THREE.MeshStandardMaterial({ color: 0x6b4a28, roughness: 0.9 });
@@ -351,7 +325,7 @@ export function dressNorthLode(group: THREE.Group): void {
   const lampMat = new THREE.MeshStandardMaterial({
     color: 0xffe1a8,
     emissive: 0xffb45a,
-    emissiveIntensity: 1.1,
+    emissiveIntensity: 0.55,
     roughness: 0.4,
   });
   const lights: THREE.PointLight[] = [];
@@ -361,28 +335,13 @@ export function dressNorthLode(group: THREE.Group): void {
     const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), lampMat);
     lamp.name = i === 2 ? 'drift-lantern' : `drift-lantern-${i}`;
     lamp.position.set(0, 1.92, z);
-    const light = new THREE.PointLight(0xffc27a, 36, 12, 2);
+    const light = new THREE.PointLight(0xffb46a, 6.5, 6.2, 2);
     light.position.set(0, 1.78, z);
     light.castShadow = false;
     lamps.push(lamp);
     lights.push(light);
     group.add(lamp, light);
   }
-  const beamMat = new THREE.MeshBasicMaterial({
-    map: beamTexture(),
-    transparent: true,
-    opacity: 0.28,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-  });
-  for (const light of lights) {
-    const cone = new THREE.Mesh(new THREE.ConeGeometry(0.55, 2.1, 8, 1, true), beamMat);
-    cone.position.set(light.position.x, light.position.y - 1.05, light.position.z);
-    cone.rotation.x = 0.15;
-    group.add(cone);
-  }
-
   const dripCount = 18;
   const drip0 = new Float32Array(dripCount * 3);
   for (let i = 0; i < dripCount; i++) {
@@ -435,7 +394,7 @@ export function dressNorthLode(group: THREE.Group): void {
   cart.position.set(0, 0.08, -3.4);
   group.add(cart);
 
-  const bearer = new THREE.PointLight(0xffd2a0, 0, 6.5, 2);
+  const bearer = new THREE.PointLight(0xffd2a0, 0, 5.2, 2);
   bearer.name = 'bearer-lantern';
   group.add(bearer);
 
@@ -725,7 +684,7 @@ export function setDriftBearer(group: THREE.Group, local: THREE.Vector3 | null):
     return;
   }
   rig.bearer.position.copy(local);
-  rig.bearer.intensity = 9;
+  rig.bearer.intensity = 3.2;
 }
 
 /** Eye height inside the air of the drift, looking deeper in. */
@@ -789,7 +748,7 @@ export function updateNorthLode(group: THREE.Group, time: number, creak: number,
   if (!rig) return;
   const flicker = 0.82 + Math.sin(time * 9.5) * 0.08 + Math.sin(time * 23) * 0.04;
   rig.lights.forEach((light, i) => {
-    light.intensity = (34 + flicker * 8 + Math.sin(time * 7 + i) * 2) * (rig.phase === 'blast' && rig.t < 0.2 ? 0.45 : 1);
+    light.intensity = (6.2 + flicker * 1.4 + Math.sin(time * 7 + i) * 0.35) * (rig.phase === 'blast' && rig.t < 0.2 ? 0.35 : 1);
   });
   rig.lamps.forEach((lamp) => {
     const mat = lamp.material as THREE.MeshStandardMaterial;

@@ -443,9 +443,23 @@ const STYLE = `
     top: auto;
     transform: translateX(-50%);
     width: min(680px, 90vw);
-    background: rgba(18, 12, 8, 0.62);
+    background: #f4ead6;
+    color: #1a120c;
+    border: 1px solid #6b4e2e;
+    opacity: 1;
     z-index: 24;
   }
+  .hud-dialogue.is-cinema .dlg-speaker { color: #6b3e12; }
+  .hud-dialogue.is-cinema .dlg-body,
+  .hud-dialogue.is-cinema .dlg-option { color: #1a120c; }
+  .hud-dialogue.is-cinema .dlg-option.selected {
+    background: rgba(138, 90, 18, 0.16);
+    color: #1a120c;
+  }
+  .hud-dialogue.is-cinema .dlg-footer,
+  .hud-dialogue.is-cinema .dlg-hint { color: #4a3424; }
+  body[data-capture='1'] .hud-compass,
+  body[data-capture='1'] .hud-minimap { display: none !important; }
   .hud-dialogue .dlg-layout { display: flex; gap: 12px; align-items: flex-start; }
   .hud-dialogue .dlg-portrait {
     width: 84px;

@@ -304,15 +304,15 @@ function pose(mesh: THREE.Group, time: number, work: Work, seed: number): void {
   }
 }
 
-export function spawnNpc(shirt: number, hat: number): THREE.Group {
-  return person(shirt, hat);
+export function spawnNpc(shirt: number, hat: number, variant = 0): THREE.Group {
+  return person(shirt, hat, variant);
 }
 
 export function poseNpc(mesh: THREE.Group, time: number, work: 'idle' | 'walk' | 'shovel', seed = 0): void {
   pose(mesh, time, work, seed);
 }
 
-function person(shirt: number, hat: number): THREE.Group {
+function person(shirt: number, hat: number, variant = 0): THREE.Group {
   const g = new THREE.Group();
   const cloth = new THREE.MeshStandardMaterial({
     color: shirt,
@@ -379,15 +379,15 @@ function person(shirt: number, hat: number): THREE.Group {
   armR.add(hose);
   g.add(armL, armR);
   for (const child of g.children) child.userData.proxy = true;
-  queueHero(g, shirt, hat);
+  queueHero(g, shirt, hat, variant);
   return g;
 }
 
-const heroQueue: { mesh: THREE.Group; shirt: number; hat: number }[] = [];
+const heroQueue: { mesh: THREE.Group; shirt: number; hat: number; variant: number }[] = [];
 let heroDrain: Promise<void> | null = null;
 
-function queueHero(mesh: THREE.Group, shirt: number, hat: number): void {
-  heroQueue.push({ mesh, shirt, hat });
+function queueHero(mesh: THREE.Group, shirt: number, hat: number, variant = 0): void {
+  heroQueue.push({ mesh, shirt, hat, variant });
   heroDrain ??= drainHeroes();
 }
 
@@ -398,7 +398,7 @@ async function drainHeroes(): Promise<void> {
       for (const item of batch) {
         if (item.mesh.userData.hero === true) continue;
         try {
-          const hero = await createCrewVariant(item.shirt, item.hat);
+          const hero = await createCrewVariant(item.shirt, item.hat, item.variant);
           const extras = item.mesh.children.filter((child) => child.userData.proxy !== true);
           item.mesh.clear();
           item.mesh.add(hero);
