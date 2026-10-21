@@ -53,6 +53,8 @@ export interface Character {
   /** Teleport the kinematic body. Used by the playtest pilot to reach a site. */
   placeAt(x: number, y: number, z: number): void;
   getYaw(): number;
+  /** World point the dig or pan camera and the wrist aim share. */
+  getToolFocus(): THREE.Vector3;
   getState(): CharacterState;
   getStamina(): number;
   /** Used by camera ray-casts to exclude the character's own collider. */
@@ -81,6 +83,25 @@ const LANDED_DURATION = 0.18;
 
 const CAPSULE_HALF_HEIGHT = 0.5;
 const CAPSULE_RADIUS = 0.4;
+
+const gripUp = new THREE.Vector3(0, 1, 0);
+const gripDir = new THREE.Vector3();
+const gripQuat = new THREE.Quaternion();
+const gripInv = new THREE.Matrix4();
+
+/** Point the hand's local +Y (the grip socket axis) at a world target. */
+function aimGrip(hand: THREE.Object3D | undefined, target: THREE.Vector3): void {
+  if (!hand?.parent) return;
+  hand.updateWorldMatrix(true, false);
+  const origin = new THREE.Vector3().setFromMatrixPosition(hand.matrixWorld);
+  gripDir.copy(target).sub(origin);
+  if (gripDir.lengthSq() < 1e-5) return;
+  gripDir.normalize();
+  gripInv.copy(hand.parent.matrixWorld).invert();
+  gripDir.transformDirection(gripInv);
+  gripQuat.setFromUnitVectors(gripUp, gripDir);
+  hand.quaternion.copy(gripQuat);
+}
 
 export async function createCharacter(opts: CharacterOpts): Promise<Character> {
   // ---- Rapier body + collider ----
@@ -202,6 +223,17 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
     state = next;
   }
 
+  let toolStep: 'dig' | 'pan' | 'other' = 'other';
+
+  function focusAt(step: 'dig' | 'pan' | 'other'): THREE.Vector3 {
+    const t = body.translation();
+    const forwardX = -Math.sin(yaw);
+    const forwardZ = -Math.cos(yaw);
+    const reach = step === 'pan' ? 0.42 : 0.55;
+    const lift = step === 'pan' ? 1.05 : 0.72;
+    return new THREE.Vector3(t.x + forwardX * reach, t.y + lift, t.z + forwardZ * reach);
+  }
+
   function postStep(_dt: number, time: number, activity: ProspectingActivity | null): void {
     const t = body.translation();
     group.position.set(t.x, t.y, t.z);
@@ -210,9 +242,11 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
     const reviewPose = getReviewPose();
     const posed: ProspectingActivity | null =
       reviewPose === 'dig' || reviewPose === 'pan' ? { step: reviewPose, progress: 0.5 } : activity;
+    const livePan = activity?.step === 'pan';
+    toolStep = posed?.step === 'dig' || posed?.step === 'pan' ? posed.step : 'other';
 
     if (posed?.step === 'dig') rig.showTool('shovel');
-    else if (posed?.step === 'pan') rig.showTool('pan');
+    else if (posed?.step === 'pan' && !livePan) rig.showTool('pan');
     else rig.showTool('none');
 
     // Animation dispatch — task overlay wins over movement state.
@@ -231,6 +265,10 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
         case 'collect':
           applyCollect(rig, time, activity.progress);
           break;
+      }
+      if (posed.step === 'dig' || posed.step === 'pan') {
+        group.updateWorldMatrix(true, true);
+        aimGrip(rig.handR.bones[0], focusAt(posed.step));
       }
       return;
     }
@@ -276,6 +314,7 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
       grounded = false;
     },
     getYaw: () => yaw,
+    getToolFocus: () => focusAt(toolStep),
     getState: () => state,
     getStamina: () => stamina,
     getColliderHandle: () => collider.handle,

@@ -43,12 +43,12 @@ const KEY_PALETTES: { hour: number; palette: SkyPalette }[] = [
   {
     hour: 0,
     palette: {
-      bg: 0x0a1024,
-      fog: 0x0a1024,
-      sunColor: 0x223044,
-      sunIntensity: 0.02,
-      ambientColor: 0x1a2238,
-      ambientIntensity: 0.18,
+      bg: 0x142033,
+      fog: 0x1c2c48,
+      sunColor: 0xb7c9e6,
+      sunIntensity: 0.16,
+      ambientColor: 0x9eb4d2,
+      ambientIntensity: 0.32,
     },
   },
   {
@@ -65,12 +65,12 @@ const KEY_PALETTES: { hour: number; palette: SkyPalette }[] = [
   {
     hour: 6.5,
     palette: {
-      bg: 0xff9966,
-      fog: 0xc06a44,
-      sunColor: 0xff8a55,
-      sunIntensity: 0.7,
-      ambientColor: 0x886677,
-      ambientIntensity: 0.4,
+      bg: 0xc9866a,
+      fog: 0x7e6a86,
+      sunColor: 0xffc18a,
+      sunIntensity: 0.72,
+      ambientColor: 0x7f8eae,
+      ambientIntensity: 0.42,
     },
   },
   {
@@ -109,34 +109,34 @@ const KEY_PALETTES: { hour: number; palette: SkyPalette }[] = [
   {
     hour: 18.5,
     palette: {
-      bg: 0xff7744,
-      fog: 0xc04422,
-      sunColor: 0xff5522,
-      sunIntensity: 0.75,
-      ambientColor: 0x885566,
-      ambientIntensity: 0.4,
+      bg: 0x6e4e6e,
+      fog: 0x8a625c,
+      sunColor: 0xffb07a,
+      sunIntensity: 0.85,
+      ambientColor: 0x6a7a98,
+      ambientIntensity: 0.42,
     },
   },
   {
     hour: 20,
     palette: {
-      bg: 0x3a2848,
-      fog: 0x3a2848,
-      sunColor: 0x553355,
-      sunIntensity: 0.1,
-      ambientColor: 0x282038,
-      ambientIntensity: 0.25,
+      bg: 0x1a2744,
+      fog: 0x243656,
+      sunColor: 0x9bb4d8,
+      sunIntensity: 0.22,
+      ambientColor: 0x8aa4c8,
+      ambientIntensity: 0.34,
     },
   },
   {
     hour: 22,
     palette: {
-      bg: 0x0a1024,
-      fog: 0x0a1024,
-      sunColor: 0x223044,
-      sunIntensity: 0.02,
-      ambientColor: 0x1a2238,
-      ambientIntensity: 0.18,
+      bg: 0x142033,
+      fog: 0x1c2c48,
+      sunColor: 0xb7c9e6,
+      sunIntensity: 0.16,
+      ambientColor: 0x9eb4d2,
+      ambientIntensity: 0.32,
     },
   },
 ];
@@ -281,7 +281,8 @@ export function createSkyController(opts: {
     // Warm dirt bounce so shade is not a flat grey. The fog still pulls
     // the fill toward the sky color at the horizon.
     _ground.set(0x8a5a32);
-    _ground.lerp(_fog, 0.28);
+    const coolShade = smooth01(0.25, -0.05, elev);
+    _ground.lerp(_fog, 0.28 + coolShade * 0.45);
     hemi.color.copy(_bg);
     hemi.groundColor.copy(_ground);
     hemi.intensity = ambientIntensity * 1.05;

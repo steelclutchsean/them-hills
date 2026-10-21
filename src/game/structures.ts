@@ -24,13 +24,18 @@ function paintSign(label: string, accent: number): THREE.CanvasTexture {
   ctx.strokeStyle = `#${accent.toString(16).padStart(6, '0')}`;
   ctx.lineWidth = 10;
   ctx.strokeRect(10, 10, canvas.width - 20, canvas.height - 20);
+  ctx.fillStyle = 'rgba(62, 36, 18, 0.28)';
+  for (let y = 18; y < canvas.height; y += 9) ctx.fillRect(16, y, canvas.width - 32, 2);
   ctx.fillStyle = '#f6e7c1';
-  ctx.font = 'bold 58px Georgia, "Times New Roman", serif';
+  ctx.font = 'bold 54px Georgia, "Times New Roman", serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   const lines = label.split('\n');
   lines.forEach((line, i) => {
-    const y = canvas.height / 2 + (i - (lines.length - 1) / 2) * 64;
+    const y = canvas.height / 2 + (i - (lines.length - 1) / 2) * 62;
+    ctx.fillStyle = 'rgba(40, 22, 10, 0.45)';
+    ctx.fillText(line, canvas.width / 2 + 3, y + 3);
+    ctx.fillStyle = '#f6e7c1';
     ctx.fillText(line, canvas.width / 2, y);
   });
   const tex = new THREE.CanvasTexture(canvas);
@@ -88,6 +93,10 @@ function addBarrel(parent: THREE.Object3D, x: number, z: number): void {
   parent.add(hoop);
 }
 
+const townLights: THREE.PointLight[] = [];
+const windowPanes: THREE.MeshStandardMaterial[] = [];
+const smokeCards: { mesh: THREE.Mesh; base: number; phase: number }[] = [];
+
 function addLantern(
   parent: THREE.Object3D,
   x: number,
@@ -105,7 +114,157 @@ function addLantern(
   parent.add(globe);
   const cap = mesh(new THREE.ConeGeometry(0.07, 0.08, 6), timberDarkMaterial(), x, y + 0.1, z);
   parent.add(cap);
+  const light = new THREE.PointLight(PALETTE.lantern, 0, 14, 2);
+  light.position.set(x, y, z);
+  light.castShadow = false;
+  parent.add(light);
+  townLights.push(light);
   return mat;
+}
+
+let endGrainTex: THREE.CanvasTexture | null = null;
+function endGrain(): THREE.CanvasTexture {
+  if (endGrainTex) return endGrainTex;
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('[structures] canvas 2d unavailable');
+  ctx.fillStyle = '#6b4328';
+  ctx.beginPath();
+  ctx.arc(32, 32, 32, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#3a2414';
+  ctx.lineWidth = 2;
+  for (let r = 6; r <= 28; r += 5) {
+    ctx.beginPath();
+    ctx.arc(32, 32, r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  endGrainTex = new THREE.CanvasTexture(canvas);
+  endGrainTex.colorSpace = THREE.SRGBColorSpace;
+  return endGrainTex;
+}
+
+const endGrainMat = (): THREE.MeshStandardMaterial =>
+  new THREE.MeshStandardMaterial({ map: endGrain(), roughness: 0.8 });
+
+function addLog(
+  parent: THREE.Object3D,
+  x: number,
+  y: number,
+  z: number,
+  length: number,
+  axis: 'x' | 'z',
+  caps: boolean,
+): void {
+  const geom = new THREE.CylinderGeometry(0.105, 0.098, length, 8);
+  if (axis === 'x') geom.rotateZ(Math.PI / 2);
+  else geom.rotateX(Math.PI / 2);
+  parent.add(mesh(geom, timberMaterial(), x, y, z));
+  if (!caps) return;
+  const capGeom = new THREE.CircleGeometry(0.09, 8);
+  const mat = endGrainMat();
+  const left = new THREE.Mesh(capGeom, mat);
+  const right = new THREE.Mesh(capGeom, mat);
+  if (axis === 'x') {
+    left.position.set(x - length / 2, y, z);
+    left.rotation.y = -Math.PI / 2;
+    right.position.set(x + length / 2, y, z);
+    right.rotation.y = Math.PI / 2;
+  } else {
+    left.position.set(x, y, z - length / 2);
+    right.position.set(x, y, z + length / 2);
+    right.rotation.y = Math.PI;
+  }
+  left.castShadow = true;
+  right.castShadow = true;
+  parent.add(left, right);
+}
+
+function addWindow(parent: THREE.Object3D, x: number, y: number, z: number, yaw: number): void {
+  const frame = mesh(new THREE.BoxGeometry(0.62, 0.5, 0.08), timberDarkMaterial(), x, y, z);
+  frame.rotation.y = yaw;
+  parent.add(frame);
+  const paneMat = new THREE.MeshStandardMaterial({
+    color: 0xffe2b0,
+    roughness: 0.18,
+    metalness: 0.02,
+    emissive: 0xffb15a,
+    emissiveIntensity: 0.35,
+    transparent: true,
+    opacity: 0.92,
+  });
+  windowPanes.push(paneMat);
+  const pane = mesh(new THREE.PlaneGeometry(0.42, 0.3), paneMat, x, y, z);
+  pane.rotation.y = yaw;
+  pane.position.z += Math.cos(yaw) * 0.05;
+  pane.position.x += Math.sin(yaw) * 0.05;
+  pane.castShadow = false;
+  parent.add(pane);
+  const mullionV = mesh(new THREE.BoxGeometry(0.03, 0.3, 0.03), timberMaterial(), x, y, z);
+  const mullionH = mesh(new THREE.BoxGeometry(0.42, 0.03, 0.03), timberMaterial(), x, y, z);
+  mullionV.rotation.y = yaw;
+  mullionH.rotation.y = yaw;
+  parent.add(mullionV, mullionH);
+  const sill = mesh(new THREE.BoxGeometry(0.7, 0.05, 0.14), timberMaterial(), x, y - 0.28, z);
+  sill.rotation.y = yaw;
+  parent.add(sill);
+}
+
+function addShakeRoof(parent: THREE.Object3D, width: number, depth: number, peakY: number): void {
+  const dark = timberDarkMaterial();
+  const rows = 8;
+  for (const side of [-1, 1]) {
+    for (let r = 0; r < rows; r++) {
+      const t = r / (rows - 1);
+      const z = side * (0.18 + t * (depth * 0.55 + 0.55));
+      const sag = Math.sin(t * Math.PI) * 0.07;
+      const y = peakY - t * 1.05 - sag + ((r * 3) % 4) * 0.01;
+      const shake = mesh(new THREE.BoxGeometry(width + 0.95, 0.04, 0.32), dark, 0, y, z);
+      shake.rotation.x = -side * 0.4;
+      parent.add(shake);
+    }
+  }
+}
+
+function addStoneCourse(parent: THREE.Object3D, width: number, depth: number): void {
+  const stone = stoneMaterial();
+  const sides: { x: number; z: number; len: number; axis: 'x' | 'z' }[] = [
+    { x: 0, z: depth / 2, len: width, axis: 'x' },
+    { x: 0, z: -depth / 2, len: width, axis: 'x' },
+    { x: width / 2, z: 0, len: depth, axis: 'z' },
+    { x: -width / 2, z: 0, len: depth, axis: 'z' },
+  ];
+  for (const side of sides) {
+    const count = Math.max(3, Math.round(side.len / 0.7));
+    for (let i = 0; i < count; i++) {
+      const u = (i + 0.5) / count - 0.5;
+      const jitter = ((i * 17) % 5) * 0.02;
+      const sx = side.axis === 'x' ? side.x + u * side.len : side.x;
+      const sz = side.axis === 'z' ? side.z + u * side.len : side.z;
+      const block = mesh(new THREE.BoxGeometry(0.62, 0.22, 0.36), stone, sx, 0.16, sz + jitter);
+      block.rotation.y = ((i % 3) - 1) * 0.08;
+      parent.add(block);
+    }
+  }
+}
+
+function addChimneySmoke(parent: THREE.Object3D, x: number, y: number, z: number): void {
+  const mat = new THREE.MeshBasicMaterial({
+    color: 0xd9d4cc,
+    transparent: true,
+    opacity: 0.28,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  for (let i = 0; i < 4; i++) {
+    const card = new THREE.Mesh(new THREE.PlaneGeometry(0.38 + i * 0.08, 0.42), mat.clone());
+    card.position.set(x, y + i * 0.32, z);
+    card.castShadow = false;
+    parent.add(card);
+    smokeCards.push({ mesh: card, base: y, phase: i * 0.4 });
+  }
 }
 
 /** Log cabin with a porch, chimney, sign, barrels, and a door lantern. */
@@ -122,106 +281,99 @@ export function buildCabin(opts: {
   const dark = timberDarkMaterial();
   const stone = stoneMaterial();
 
-  const foundation = mesh(new THREE.BoxGeometry(width + 0.4, 0.28, depth + 0.5), stone, 0, 0.14, 0);
-  root.add(foundation);
+  addStoneCourse(root, width + 0.3, depth + 0.35);
 
-  const hx = width / 2 - 0.15;
-  const hz = depth / 2 - 0.15;
-  const post = new THREE.CylinderGeometry(0.12, 0.14, 2.5, 6);
+  const hx = width / 2 - 0.12;
+  const hz = depth / 2 - 0.12;
+  const corner = new THREE.CylinderGeometry(0.11, 0.13, 2.55, 8);
   for (const [x, z] of [
     [-hx, -hz],
     [hx, -hz],
     [-hx, hz],
     [hx, hz],
   ] as const) {
-    root.add(mesh(post, dark, x, 1.45, z));
+    root.add(mesh(corner, dark, x, 1.5, z));
   }
 
-  const log = new THREE.CylinderGeometry(0.09, 0.09, width - 0.2, 6);
-  log.rotateZ(Math.PI / 2);
-  for (let i = 0; i < 5; i++) {
-    const y = 0.45 + i * 0.38;
-    root.add(mesh(log, wood, 0, y, -hz));
-    root.add(mesh(log, wood, 0, y, hz));
-  }
-  const side = new THREE.CylinderGeometry(0.09, 0.09, depth - 0.3, 6);
-  side.rotateX(Math.PI / 2);
-  for (let i = 0; i < 5; i++) {
-    const y = 0.45 + i * 0.38;
-    root.add(mesh(side, wood, -hx, y, 0));
-    root.add(mesh(side, wood, hx, y, 0));
+  for (let i = 0; i < 7; i++) {
+    const y = 0.42 + i * 0.28;
+    const doorCourse = y < 1.75;
+    if (doorCourse) {
+      const seg = width * 0.32;
+      addLog(root, -width * 0.27, y, hz, seg, 'x', true);
+      addLog(root, width * 0.27, y, hz, seg, 'x', true);
+    } else {
+      addLog(root, 0, y, hz, width - 0.05, 'x', true);
+    }
+    addLog(root, 0, y, -hz, width - 0.05, 'x', true);
+    addLog(root, -hx, y, 0, depth - 0.2, 'z', false);
+    addLog(root, hx, y, 0, depth - 0.2, 'z', false);
   }
 
-  const door = mesh(new THREE.BoxGeometry(0.7, 1.35, 0.08), dark, 0, 0.85, hz + 0.06);
+  const door = mesh(new THREE.BoxGeometry(0.72, 1.45, 0.08), dark, 0, 0.95, hz + 0.08);
   root.add(door);
-  const frame = mesh(new THREE.BoxGeometry(0.52, 0.42, 0.1), dark, 0.95, 1.25, hz + 0.04);
-  root.add(frame);
-  const pane = mesh(
-    new THREE.PlaneGeometry(0.34, 0.24),
-    new THREE.MeshStandardMaterial({
-      color: 0xc9ddd6,
-      roughness: 0.18,
-      metalness: 0.04,
-      emissive: 0x1d3330,
-      emissiveIntensity: 0.35,
-    }),
-    0.95,
-    1.25,
-    hz + 0.1,
-  );
-  root.add(pane);
-  const sill = mesh(new THREE.BoxGeometry(0.62, 0.05, 0.16), wood, 0.95, 1.02, hz + 0.08);
-  root.add(sill);
+  const jambL = mesh(new THREE.BoxGeometry(0.08, 1.55, 0.12), wood, -0.4, 0.95, hz + 0.06);
+  const jambR = mesh(new THREE.BoxGeometry(0.08, 1.55, 0.12), wood, 0.4, 0.95, hz + 0.06);
+  const header = mesh(new THREE.BoxGeometry(0.9, 0.1, 0.12), wood, 0, 1.7, hz + 0.06);
+  root.add(jambL, jambR, header);
+  addWindow(root, width * 0.28, 1.35, hz + 0.02, 0);
+  addWindow(root, hx + 0.02, 1.4, 0.15, Math.PI / 2);
 
-  // Porch deck and two posts.
-  root.add(mesh(new THREE.BoxGeometry(width * 0.7, 0.08, 1.1), wood, 0, 0.32, hz + 0.7));
-  const porchPost = new THREE.CylinderGeometry(0.07, 0.08, 2.1, 6);
-  root.add(mesh(porchPost, dark, -width * 0.28, 1.4, hz + 1.15));
-  root.add(mesh(porchPost, dark, width * 0.28, 1.4, hz + 1.15));
-
-  const roofMat = timberDarkMaterial();
-  const roofL = mesh(new THREE.BoxGeometry(width + 0.8, 0.1, 2.1), roofMat, 0, 2.85, -0.7);
-  roofL.rotation.x = 0.42;
-  root.add(roofL);
-  const roofR = mesh(new THREE.BoxGeometry(width + 0.8, 0.1, 2.1), roofMat, 0, 2.85, 0.7);
-  roofR.rotation.x = -0.42;
-  root.add(roofR);
-  const ridge = mesh(new THREE.CylinderGeometry(0.07, 0.07, width + 1.05, 6), dark, 0, 3.28, 0);
-  ridge.rotation.z = Math.PI / 2;
-  root.add(ridge);
-  const step = mesh(new THREE.BoxGeometry(1.1, 0.1, 0.38), wood, 0, 0.16, hz + 1.35);
+  root.add(mesh(new THREE.BoxGeometry(width * 0.78, 0.08, 1.25), wood, 0, 0.36, hz + 0.72));
+  const porchPost = new THREE.CylinderGeometry(0.07, 0.085, 2.15, 8);
+  const postL = -width * 0.32;
+  const postR = width * 0.32;
+  const postZ = hz + 1.2;
+  root.add(mesh(porchPost, dark, postL, 1.42, postZ));
+  root.add(mesh(porchPost, dark, postR, 1.42, postZ));
+  for (const railY of [0.72, 1.15]) {
+    const rail = mesh(
+      new THREE.CylinderGeometry(0.025, 0.025, postR - postL, 6),
+      dark,
+      0,
+      railY,
+      postZ,
+    );
+    rail.rotation.z = Math.PI / 2;
+    root.add(rail);
+  }
+  const step = mesh(new THREE.BoxGeometry(1.15, 0.1, 0.4), wood, 0, 0.18, hz + 1.45);
   root.add(step);
 
-  // Stone chimney on the left eave.
-  for (let i = 0; i < 5; i++) {
+  addShakeRoof(root, width, depth, 3.05);
+  const ridge = mesh(new THREE.CylinderGeometry(0.06, 0.06, width + 1.1, 6), dark, 0, 3.12, 0);
+  ridge.rotation.z = Math.PI / 2;
+  root.add(ridge);
+
+  for (let i = 0; i < 6; i++) {
     const block = mesh(
-      new THREE.BoxGeometry(0.46, 0.32, 0.46),
+      new THREE.BoxGeometry(0.42, 0.28, 0.42),
       stone,
-      -hx + 0.1,
-      2.2 + i * 0.3,
-      -0.2,
+      -hx + 0.15,
+      2.15 + i * 0.26,
+      -0.15,
     );
-    block.rotation.y = i * 0.15;
+    block.rotation.y = (i % 2) * 0.2;
     root.add(block);
   }
+  addChimneySmoke(root, -hx + 0.15, 3.7, -0.15);
 
   const sign = new THREE.Mesh(
-    new THREE.PlaneGeometry(1.5, 0.62),
-    new THREE.MeshStandardMaterial({
-      map: paintSign(opts.sign, opts.accent),
-      roughness: 0.7,
-    }),
+    new THREE.PlaneGeometry(1.55, 0.64),
+    new THREE.MeshStandardMaterial({ map: paintSign(opts.sign, opts.accent), roughness: 0.72 }),
   );
-  sign.position.set(0, 2.15, hz + 1.2);
+  sign.position.set(0, 2.2, hz + 1.22);
   sign.castShadow = true;
   root.add(sign);
 
-  addBarrel(root, hx + 0.15, hz - 0.2);
-  addBarrel(root, -hx - 0.1, hz + 0.4);
-  const lantern = addLantern(root, width * 0.22, 1.7, hz + 0.2);
+  addBarrel(root, hx + 0.2, hz - 0.15);
+  addBarrel(root, -hx - 0.15, hz + 0.35);
+  const crate = mesh(new THREE.BoxGeometry(0.42, 0.32, 0.38), wood, hx + 0.05, 0.5, hz + 0.85);
+  root.add(crate);
+  const lantern = addLantern(root, width * 0.22, 1.75, hz + 0.25);
 
   const ring = markerRing();
-  ring.position.z = hz + 1.7;
+  ring.position.z = hz + 1.85;
   root.add(ring);
   return { root, lantern, marker: ring };
 }
@@ -231,40 +383,47 @@ export function buildShop(opts: { sign: string; accent: number }): BuiltPlace {
   const root = new THREE.Group();
   const wood = timberMaterial();
   const dark = timberDarkMaterial();
-  root.add(mesh(new THREE.BoxGeometry(2.6, 0.16, 1.8), stoneMaterial(), 0, 0.08, 0));
-  root.add(mesh(new THREE.BoxGeometry(2.2, 0.9, 0.7), wood, 0, 0.6, -0.3));
-  for (let i = 0; i < 6; i++) {
-    const plank = mesh(new THREE.BoxGeometry(0.1, 1.55, 0.22), dark, -1.05 + i * 0.42, 0.9, -0.72);
+  addStoneCourse(root, 2.8, 2.0);
+  root.add(mesh(new THREE.BoxGeometry(2.2, 0.9, 0.7), wood, 0, 0.7, -0.3));
+  for (let i = 0; i < 8; i++) {
+    const plank = mesh(new THREE.BoxGeometry(0.08, 1.7, 0.18), dark, -1.15 + i * 0.32, 1.05, -0.78);
+    plank.position.x += (i % 2) * 0.015;
     root.add(plank);
   }
-  root.add(mesh(new THREE.BoxGeometry(2.4, 0.08, 0.28), wood, 0, 1.7, -0.72));
-  // Awning.
-  const awning = mesh(new THREE.BoxGeometry(2.5, 0.06, 1.3), canvasMaterial(), 0, 1.85, 0.15);
-  awning.rotation.x = -0.18;
+  root.add(mesh(new THREE.BoxGeometry(2.5, 0.08, 0.16), wood, 0, 1.95, -0.78));
+  root.add(mesh(new THREE.BoxGeometry(2.5, 0.06, 0.1), wood, 0, 0.32, -0.78));
+  const awning = mesh(new THREE.BoxGeometry(2.7, 0.05, 1.45), canvasMaterial(), 0, 2.05, 0.1);
+  awning.rotation.x = -0.16;
+  awning.position.y -= 0.04;
   root.add(awning);
-  const post = new THREE.CylinderGeometry(0.07, 0.08, 1.7, 6);
-  root.add(mesh(post, dark, -1.05, 0.95, 0.7));
-  root.add(mesh(post, dark, 1.05, 0.95, 0.7));
+  const post = new THREE.CylinderGeometry(0.065, 0.08, 1.85, 8);
+  root.add(mesh(post, dark, -1.15, 1.05, 0.75));
+  root.add(mesh(post, dark, 1.15, 1.05, 0.75));
+  const rail = mesh(new THREE.CylinderGeometry(0.02, 0.02, 2.3, 5), dark, 0, 0.85, 0.75);
+  rail.rotation.z = Math.PI / 2;
+  root.add(rail);
+  addWindow(root, 0, 1.35, -0.9, 0);
   const sign = new THREE.Mesh(
     new THREE.PlaneGeometry(1.7, 0.55),
     new THREE.MeshStandardMaterial({ map: paintSign(opts.sign, opts.accent), roughness: 0.65 }),
   );
-  sign.position.set(0, 2.15, 0.2);
+  sign.position.set(0, 2.35, 0.15);
   root.add(sign);
-  // Scale / strongbox on the counter so the stall reads as a business.
-  root.add(mesh(new THREE.BoxGeometry(0.28, 0.16, 0.2), dark, -0.45, 1.12, -0.2));
+  root.add(mesh(new THREE.BoxGeometry(0.28, 0.16, 0.2), dark, -0.45, 1.22, -0.2));
   const pan = mesh(
     new THREE.CylinderGeometry(0.16, 0.12, 0.05, 10),
     stoneMaterial(),
     0.4,
-    1.1,
+    1.2,
     -0.15,
   );
   root.add(pan);
-  addBarrel(root, 1.35, 0.2);
-  const lantern = addLantern(root, -1.05, 1.55, 0.7);
+  addBarrel(root, 1.45, 0.25);
+  const crate = mesh(new THREE.BoxGeometry(0.36, 0.28, 0.32), wood, -1.4, 0.4, 0.2);
+  root.add(crate);
+  const lantern = addLantern(root, -1.15, 1.65, 0.75);
   const ring = markerRing();
-  ring.position.set(0, 0.05, 1.35);
+  ring.position.set(0, 0.05, 1.45);
   root.add(ring);
   return { root, lantern, marker: ring };
 }
@@ -295,6 +454,7 @@ export function addCampWorks(group: THREE.Group): void {
   group.add(mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.5, 5), dark, 1.15, 0.25, 0.85));
   group.add(mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.7, 5), dark, 1.55, 0.35, -0.45));
   addBarrel(group, 1.9, -0.7);
+  addLantern(group, 0.15, 1.15, 0.35);
 }
 
 /** Timber headframe, rails, and an ore cart in front of a mine mouth. */
@@ -355,4 +515,96 @@ export function addMineWorks(group: THREE.Group, sign: string): THREE.MeshStanda
   board.position.set(0, 2.55, 0.95);
   group.add(board);
   return addLantern(group, 1.15, 2.15, 0.35);
+}
+
+function smooth01(edge0: number, edge1: number, x: number): number {
+  const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+}
+
+/** Crates, a hitching rail, a wagon, and a laundry line so the street is occupied. */
+export function dressTown(scene: THREE.Scene, ground: (x: number, z: number) => number): void {
+  const root = new THREE.Group();
+  root.name = 'town-dressing';
+  const wood = timberMaterial();
+  const dark = timberDarkMaterial();
+  const canvas = canvasMaterial();
+
+  const place = (obj: THREE.Object3D, x: number, z: number): void => {
+    obj.position.x += x;
+    obj.position.z += z;
+    obj.position.y += ground(x, z);
+    root.add(obj);
+  };
+
+  const hitch = new THREE.Group();
+  hitch.add(mesh(new THREE.CylinderGeometry(0.06, 0.07, 1.15, 6), dark, -0.7, 0.55, 0));
+  hitch.add(mesh(new THREE.CylinderGeometry(0.06, 0.07, 1.15, 6), dark, 0.7, 0.55, 0));
+  const hitchRail = mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.5, 6), dark, 0, 0.95, 0);
+  hitchRail.rotation.z = Math.PI / 2;
+  hitch.add(hitchRail);
+  place(hitch, -13, 13.1);
+
+  const wagon = new THREE.Group();
+  wagon.add(mesh(new THREE.BoxGeometry(1.3, 0.38, 2.1), wood, 0, 0.72, 0));
+  wagon.add(mesh(new THREE.BoxGeometry(1.35, 0.28, 0.08), dark, 0, 0.95, 1.0));
+  wagon.add(mesh(new THREE.BoxGeometry(1.35, 0.28, 0.08), dark, 0, 0.95, -0.85));
+  const tongue = mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.3, 5), dark, 0, 0.55, 1.55);
+  tongue.rotation.x = Math.PI / 2;
+  wagon.add(tongue);
+  for (const [wx, wz] of [
+    [-0.55, 0.6],
+    [0.55, 0.6],
+    [-0.55, -0.6],
+    [0.55, -0.6],
+  ] as const) {
+    const wheel = mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.08, 10), dark, wx, 0.32, wz);
+    wheel.rotation.z = Math.PI / 2;
+    wagon.add(wheel);
+  }
+  wagon.rotation.y = 0.4;
+  place(wagon, -17.2, 2.4);
+
+  const crates = new THREE.Group();
+  crates.add(mesh(new THREE.BoxGeometry(0.48, 0.36, 0.42), wood, 0, 0.18, 0));
+  crates.add(mesh(new THREE.BoxGeometry(0.4, 0.3, 0.36), dark, 0.1, 0.5, 0.05));
+  crates.add(mesh(new THREE.BoxGeometry(0.34, 0.28, 0.3), wood, -0.45, 0.14, 0.2));
+  place(crates, -8.4, -4.4);
+
+  const line = new THREE.Group();
+  line.add(mesh(new THREE.CylinderGeometry(0.04, 0.05, 1.7, 5), dark, 0, 0.85, 0));
+  line.add(mesh(new THREE.CylinderGeometry(0.04, 0.05, 1.7, 5), dark, 2.4, 0.85, -1.1));
+  const rope = mesh(new THREE.BoxGeometry(2.6, 0.02, 0.02), dark, 1.2, 1.55, -0.55);
+  rope.rotation.y = -0.42;
+  line.add(rope);
+  for (let i = 0; i < 3; i++) {
+    const shirt = mesh(
+      new THREE.PlaneGeometry(0.38, 0.48),
+      canvas,
+      0.45 + i * 0.7,
+      1.25,
+      -0.2 - i * 0.32,
+    );
+    shirt.rotation.y = -0.4;
+    line.add(shirt);
+  }
+  place(line, -12.2, 8.2);
+
+  scene.add(root);
+}
+
+export function updateTownDressing(time: number, camera: THREE.Camera): void {
+  for (const card of smokeCards) {
+    const cycle = ((time * 0.28 + card.phase) % 1.7) / 1.7;
+    card.mesh.position.y = card.base + cycle * 1.5;
+    card.mesh.quaternion.copy(camera.quaternion);
+    const mat = card.mesh.material as THREE.MeshBasicMaterial;
+    mat.opacity = 0.32 * (1 - cycle);
+  }
+}
+
+export function updateTownLights(sunY: number): void {
+  const night = 1 - smooth01(-0.02, 0.22, sunY);
+  for (const light of townLights) light.intensity = 7.5 * night;
+  for (const pane of windowPanes) pane.emissiveIntensity = 0.2 + 1.5 * night;
 }

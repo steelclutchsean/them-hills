@@ -37,6 +37,8 @@ export interface PanViewMeshes {
   group: THREE.Group;
   update(viz: PanViz): void;
   setVisible(v: boolean): void;
+  /** Camera HUD versus a prop sitting in the prospector's hands. */
+  setMount(mode: 'camera' | 'world'): void;
 }
 
 function makePanVariant(tier: 1 | 2 | 3): TierVariant {
@@ -126,6 +128,21 @@ function makePanVariant(tier: 1 | 2 | 3): TierVariant {
 
   // Mount: lower-center, tilted up slightly so the camera looks INTO it.
   variant.position.set(0, -0.34, -0.5);
+  for (let i = 0; i < 5; i++) {
+    const flake = new THREE.Mesh(
+      new THREE.SphereGeometry(0.012, 6, 5),
+      new THREE.MeshStandardMaterial({
+        color: 0xffd56a,
+        emissive: 0xaa7711,
+        emissiveIntensity: 0.7,
+        metalness: 0.7,
+        roughness: 0.25,
+      }),
+    );
+    const a = (i / 5) * Math.PI * 2;
+    flake.position.set(Math.cos(a) * panRadius * 0.38, -0.04, Math.sin(a) * panRadius * 0.28);
+    variant.add(flake);
+  }
   variant.rotation.set(0.45, 0, 0);
 
   variant.traverse((o) => {
@@ -212,7 +229,26 @@ export function createPanView(): PanViewMeshes {
     }
   }
 
+  function setMount(mode: 'camera' | 'world'): void {
+    const world = mode === 'world';
+    root.traverse((node) => {
+      node.renderOrder = world ? 2 : 999;
+      const mesh = node as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const mat of mats) {
+        if (!mat) continue;
+        mat.depthTest = world;
+        mat.depthWrite = world && !mat.transparent;
+        mat.needsUpdate = true;
+      }
+    });
+    for (const variant of Object.values(variants)) {
+      variant.group.position.set(0, world ? 0 : -0.34, world ? 0 : -0.5);
+    }
+  }
+
   setVisible(false);
   forceTopDraw(root);
-  return { group: root, update, setVisible };
+  return { group: root, update, setVisible, setMount };
 }

@@ -21,13 +21,13 @@ export interface ReviewOverride {
 
 const SHOTS: Record<string, Required<ReviewOverride>> = {
   spawn: { x: 0, z: 2, yaw: 0.55, pitch: 0.38, hour: 8.5, arm: 5, pose: 'idle' },
-  creek: { x: 15.5, z: 6, yaw: -1.15, pitch: 0.32, hour: 11, arm: 5, pose: 'idle' },
+  creek: { x: 18.5, z: 4, yaw: -1.2, pitch: 0.36, hour: 11, arm: 8, pose: 'idle' },
   camp: { x: -3.5, z: 9, yaw: 0.95, pitch: 0.42, hour: 17.2, arm: 6, pose: 'idle' },
   dusk: { x: 8, z: -14, yaw: 0.35, pitch: 0.24, hour: 18.7, arm: 5, pose: 'idle' },
-  night: { x: 1, z: 4, yaw: -0.4, pitch: 0.48, hour: 21.4, arm: 5, pose: 'idle' },
+  night: { x: -4, z: 7.2, yaw: 0.85, pitch: 0.4, hour: 21.4, arm: 6.5, pose: 'idle' },
   dawn: { x: -4, z: -8, yaw: 2.2, pitch: 0.3, hour: 6.35, arm: 5, pose: 'idle' },
   inn: { x: -10.5, z: 15.2, yaw: -0.55, pitch: 0.22, hour: 10, arm: 9.2, pose: 'idle' },
-  creekbank: { x: 17.4, z: 2, yaw: 1.15, pitch: 0.26, hour: 11.2, arm: 7.6, pose: 'idle' },
+  creekbank: { x: 20.6, z: 2.4, yaw: 1.15, pitch: 0.22, hour: 11.2, arm: 8.2, pose: 'idle' },
   prospector: { x: 2.2, z: 4.2, yaw: 3.14, pitch: 0.18, hour: 9, arm: 2.8, pose: 'dig' },
 };
 

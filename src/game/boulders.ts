@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { kitRockMaterial, stoneMaterial, timberDarkMaterial } from '@/render/painterly';
 import type { Terrain } from './terrain';
-import type { StreamConfig } from './stream';
+import type { Watercourse } from './watercourse';
 import { createRng } from './rng';
 
 // Procedural boulders, strategically placed near streams and the mine.
@@ -61,10 +61,16 @@ function createBoulderGeometry(seed: number): THREE.BufferGeometry {
   return geom;
 }
 
+export interface BoulderWake {
+  streamId: string;
+  /** Packed for the water shader: xy = world xz, z = radius. */
+  rock: THREE.Vector3;
+}
+
 interface PlaceBouldersOpts {
   scene: THREE.Scene;
   terrain: Terrain;
-  streams: readonly StreamConfig[];
+  courses: readonly Watercourse[];
   /** Mine mouths. Boulders are kept out of the approach so the door reads. */
   minePositions: readonly THREE.Vector3[];
   /** Seed for the placement RNG. Default 0xb0. */
@@ -81,10 +87,12 @@ export interface BoulderField {
   count: number;
   /** Collision proxies — one ball per boulder, sized to the visual silhouette. */
   colliders: readonly BoulderCollider[];
+  /** In-stream stones that break the surface. The water shader foams behind them. */
+  wakes: readonly BoulderWake[];
 }
 
 export function placeBoulders(opts: PlaceBouldersOpts): BoulderField {
-  const { scene, terrain, streams, minePositions, seed = 0xb0 } = opts;
+  const { scene, terrain, courses, minePositions, seed = 0xb0 } = opts;
   const rng = createRng(seed);
 
   const variantMaterials = ROCK_VARIANTS;
@@ -94,6 +102,7 @@ export function placeBoulders(opts: PlaceBouldersOpts): BoulderField {
   scene.add(root);
   let placed = 0;
   const colliders: BoulderCollider[] = [];
+  const wakes: BoulderWake[] = [];
 
   function blocksEntrance(x: number, z: number): boolean {
     for (const mine of minePositions) {
@@ -141,33 +150,48 @@ export function placeBoulders(opts: PlaceBouldersOpts): BoulderField {
     });
   }
 
-  for (const s of streams) {
-    const ALONG_LEN = s.halfLength * 2;
-
-    // Bank-line boulders — clustered just outside the water on each side,
-    // sitting on the rising bank and the transition zone.
+  for (const course of courses) {
+    const samples = course.samples;
     for (let side = -1; side <= 1; side += 2) {
-      const COUNT_PER_SIDE = 8;
-      for (let i = 0; i < COUNT_PER_SIDE; i++) {
-        const t = (i + 0.2 + rng.next() * 0.6) / COUNT_PER_SIDE;
-        const along = (t - 0.5) * ALONG_LEN;
-        const cross = side * (s.halfWidth + 0.4 + rng.next() * 1.6);
-        const x = s.orientation === 'NS' ? s.centerX + cross : s.centerX + along;
-        const z = s.orientation === 'NS' ? s.centerZ + along : s.centerZ + cross;
-        placeOne(x, z, [0.55, 1.35], 0);
+      const countPerSide = 10;
+      for (let i = 0; i < countPerSide; i++) {
+        const sample = samples[Math.floor(((i + 0.2) / countPerSide) * (samples.length - 1))]!;
+        const cross = side * (sample.halfWidth + 0.35 + rng.next() * 1.7);
+        const x = sample.x + -sample.tz * cross;
+        const z = sample.z + sample.tx * cross;
+        placeOne(x, z, [0.5, 1.3], 0);
       }
     }
 
-    // In-stream boulders — small to medium, slightly submerged so the
-    // water visibly flows around them.
-    const IN_COUNT = 6;
-    for (let i = 0; i < IN_COUNT; i++) {
-      const t = (i + 0.15 + rng.next() * 0.7) / IN_COUNT;
-      const along = (t - 0.5) * ALONG_LEN;
-      const cross = (rng.next() - 0.5) * s.halfWidth * 1.4;
-      const x = s.orientation === 'NS' ? s.centerX + cross : s.centerX + along;
-      const z = s.orientation === 'NS' ? s.centerZ + along : s.centerZ + cross;
-      placeOne(x, z, [0.35, 0.7], 0.25);
+    const inCount = course.id === 'coyote_creek' ? 10 : 6;
+    for (let i = 0; i < inCount; i++) {
+      const sample = samples[Math.floor(((i + 0.2) / inCount) * (samples.length - 1))]!;
+      const cross = (rng.next() - 0.5) * sample.halfWidth * 1.15;
+      const x = sample.x + -sample.tz * cross;
+      const z = sample.z + sample.tx * cross;
+      if (blocksEntrance(x, z)) continue;
+      const scale = 0.38 + rng.next() * 0.42;
+      const matIdx = rng.int(0, variantMaterials.length);
+      const material = variantMaterials[matIdx];
+      if (!material) continue;
+      const boulderGeom = createBoulderGeometry(Math.floor(rng.next() * 0xffffff));
+      const mesh = new THREE.Mesh(boulderGeom, material);
+      mesh.scale.setScalar(scale);
+      mesh.rotation.set(
+        rng.range(0, Math.PI * 2),
+        rng.range(0, Math.PI * 2),
+        rng.range(0, Math.PI * 2),
+      );
+      // Sit the crown through the water so the stone reads as a riffle rock.
+      mesh.position.set(x, sample.waterY - scale * 0.22, z);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      root.add(mesh);
+      placed++;
+      colliders.push({ pos: mesh.position.clone(), radius: scale * 0.7 });
+      if (wakes.filter((w) => w.streamId === course.id).length < 8) {
+        wakes.push({ streamId: course.id, rock: new THREE.Vector3(x, z, scale * 0.85) });
+      }
     }
   }
 
@@ -183,5 +207,5 @@ export function placeBoulders(opts: PlaceBouldersOpts): BoulderField {
     }
   }
 
-  return { group: root, count: placed, colliders };
+  return { group: root, count: placed, colliders, wakes };
 }

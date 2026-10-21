@@ -15,6 +15,8 @@ export interface MinimapStream {
   orientation: 'NS' | 'EW';
   /** CSS-style hex string used to draw the centerline. */
   color: string;
+  /** Meander samples. When present, the map strokes the spline instead of a box. */
+  points?: readonly { x: number; z: number }[];
 }
 
 export interface MinimapLandmark {
@@ -137,6 +139,19 @@ export function mountMinimap(staticData: MinimapStatic): MountedMinimap {
     // Streams as thick lines along their orientation. Drawn first so
     // landmarks render on top.
     for (const s of staticData.streams) {
+      if (s.points && s.points.length > 1) {
+        ctx.beginPath();
+        s.points.forEach((p, i) => {
+          const c = worldToCanvas(p.x, p.z);
+          if (i === 0) ctx.moveTo(c.cx, c.cy);
+          else ctx.lineTo(c.cx, c.cy);
+        });
+        ctx.strokeStyle = s.color;
+        ctx.lineWidth = 3;
+        ctx.lineJoin = 'round';
+        ctx.stroke();
+        continue;
+      }
       const halfX = s.orientation === 'NS' ? s.halfWidth : s.halfLength;
       const halfZ = s.orientation === 'NS' ? s.halfLength : s.halfWidth;
       const a = worldToCanvas(s.centerX - halfX, s.centerZ - halfZ);
