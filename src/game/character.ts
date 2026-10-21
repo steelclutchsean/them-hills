@@ -46,7 +46,10 @@ export interface Character {
     jumpDown: boolean,
     sprintDown: boolean,
     cameraYaw: number,
+    comfort?: { regenBonus: number; drainScale: number },
   ): void;
+  /** A dig swing spends a little stamina. Food and coffee lower the cost. */
+  spendStamina(amount: number): void;
   /** activity overrides movement animation when non-null (e.g. during prospecting). */
   postStep(dt: number, time: number, activity: ProspectingActivity | null): void;
   getPosition(): THREE.Vector3;
@@ -126,6 +129,7 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
     jumpDown: boolean,
     sprintDown: boolean,
     cameraYaw: number,
+    comfort?: { regenBonus: number; drainScale: number },
   ): void {
     const inputMag = Math.hypot(moveInput.x, moveInput.y);
     const moving = inputMag > 0.05;
@@ -177,11 +181,13 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
     else groundedGrace = Math.max(0, groundedGrace - dt);
     const supported = grounded || (groundedGrace > 0 && verticalVelocity > -2);
 
+    const drainScale = comfort?.drainScale ?? 1;
+    const regenBonus = comfort?.regenBonus ?? 0;
     if (sprinting) {
-      stamina = Math.max(0, stamina - STAMINA_DRAIN_PER_SEC * dt);
+      stamina = Math.max(0, stamina - STAMINA_DRAIN_PER_SEC * drainScale * dt);
       if (stamina < STAMINA_LOCKOUT_THRESHOLD) staminaLocked = true;
     } else {
-      stamina = Math.min(1, stamina + STAMINA_REGEN_PER_SEC * dt);
+      stamina = Math.min(1, stamina + (STAMINA_REGEN_PER_SEC + regenBonus) * dt);
       if (stamina >= STAMINA_MIN_FOR_SPRINT) staminaLocked = false;
     }
 
@@ -278,6 +284,9 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
     getYaw: () => yaw,
     getState: () => state,
     getStamina: () => stamina,
+    spendStamina(amount: number) {
+      stamina = Math.max(0, stamina - Math.max(0, amount));
+    },
     getColliderHandle: () => collider.handle,
     serialize() {
       const t = body.translation();

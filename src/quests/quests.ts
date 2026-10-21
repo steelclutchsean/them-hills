@@ -10,7 +10,7 @@ import type { ActiveQuest, GoldStash, ObjectiveState, SaveV1 } from '@/save/sche
 // objective; once all objectives are met the player can turn the quest in
 // at the giver NPC.
 
-export type ObjectiveType = 'collectGold' | 'sellDollars' | 'stakeClaim' | 'sampleColors';
+export type ObjectiveType = 'collectGold' | 'sellDollars' | 'stakeClaim' | 'sampleColors' | 'runMachine';
 
 export interface QuestObjective {
   id: string;
@@ -118,6 +118,38 @@ export const QUESTS: Record<string, QuestDef> = {
     ],
     reward: { dollars: 35 },
   },
+  pete_rocker: {
+    id: 'pete_rocker',
+    title: 'Rock the box',
+    giverNpc: 'old_pete',
+    description:
+      'Buy a rocker and set it on your claim. Tap at each end of the rock until the box runs clean.',
+    objectives: [
+      { id: 'run_rocker', description: 'Run the rocker', target: 1, type: 'runMachine', param: 'rocker' },
+    ],
+    reward: { dollars: 45 },
+  },
+  pete_sluice: {
+    id: 'pete_sluice',
+    title: 'Feed the sluice',
+    giverNpc: 'old_pete',
+    description:
+      'A full sluice wants three things: a shovel in the hopper, the water held in the riffles, and a cleanup.',
+    objectives: [
+      { id: 'run_sluice', description: 'Run the sluice', target: 1, type: 'runMachine', param: 'sluice' },
+    ],
+    reward: { dollars: 70 },
+  },
+  pete_tom: {
+    id: 'pete_tom',
+    title: 'Wash a yard',
+    giverNpc: 'old_pete',
+    description: 'The long tom has a grizzly on top and a box underneath. Shake the bars, then clean the lower riffles.',
+    objectives: [
+      { id: 'run_tom', description: 'Run the long tom', target: 1, type: 'runMachine', param: 'long_tom' },
+    ],
+    reward: { dollars: 90 },
+  },
   pete_monitor: {
     id: 'pete_monitor',
     title: 'A monitor for the bar',
@@ -134,6 +166,17 @@ export const QUESTS: Record<string, QuestDef> = {
       },
     ],
     reward: { dollars: 120 },
+  },
+  pete_hose: {
+    id: 'pete_hose',
+    title: 'Cut the streak',
+    giverNpc: 'old_pete',
+    description:
+      'Put a hand on the monitor hose and aim the nozzle at the dark band in the bank. Hold the spray on the pay, not the barren dirt.',
+    objectives: [
+      { id: 'run_monitor', description: 'Run the monitor', target: 1, type: 'runMachine', param: 'hydraulic' },
+    ],
+    reward: { dollars: 150 },
   },
 };
 
@@ -250,11 +293,13 @@ export function applyFlagToQuestObjectives(
   questDef: QuestDef,
   type: ObjectiveType,
   value: number,
+  param?: string,
 ): { updated: ActiveQuest; anyChanged: boolean } {
   let anyChanged = false;
   const newObjectives: Record<string, ObjectiveState> = { ...active.objectives };
   for (const obj of questDef.objectives) {
     if (obj.type !== type) continue;
+    if (param !== undefined && obj.param !== undefined && obj.param !== param) continue;
     const cur = newObjectives[obj.id] ?? { progress: 0, complete: false };
     if (cur.complete) continue;
     const next = Math.min(obj.target, Math.max(cur.progress, value));

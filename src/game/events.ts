@@ -29,6 +29,10 @@ export interface GameplayEvents {
   hire: { hands: number };
   'supply-bought': { id: string };
   'area-unlock': { streamId: string };
+  /** A beat inside a rocker, sluice, long tom, or monitor. */
+  'machine-beat': { kind: string; quality: number };
+  'machine-run': { kind: string };
+  'jumper-confront': { claimId: string; how: string };
 }
 
 type Handler<K extends keyof GameplayEvents> = (payload: GameplayEvents[K]) => void;

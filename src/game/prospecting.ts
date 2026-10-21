@@ -15,6 +15,12 @@ import {
   type MinigameViz,
   type StageOptions,
 } from './minigames';
+import {
+  createLongTomMinigame,
+  createMonitorMinigame,
+  createRockerMinigame,
+  createSluiceMinigame,
+} from './machines/games';
 import type { WorkMethod } from '@/save/schema';
 
 // Four-step prospecting loop. Each step is its own minigame module under
@@ -28,7 +34,17 @@ import type { WorkMethod } from '@/save/schema';
 // mechanics and return a flat 1.0 score. Real per-stage skill challenges
 // land in M3–M6.
 
-export type StepKind = 'dig' | 'classify' | 'pan' | 'collect' | 'strike' | 'extract';
+export type StepKind =
+  | 'dig'
+  | 'classify'
+  | 'pan'
+  | 'collect'
+  | 'strike'
+  | 'extract'
+  | 'rocker'
+  | 'sluice'
+  | 'tom'
+  | 'monitor';
 
 /** Stages played for a stream prospect — the classic 4-step panning flow. */
 const PANNING_STEPS: readonly StepKind[] = ['dig', 'classify', 'pan', 'collect'] as const;
@@ -40,6 +56,10 @@ const STAGE_FACTORY: Record<StepKind, () => Minigame> = {
   collect: createCollectMinigame,
   strike: createStrikeMinigame,
   extract: createExtractMinigame,
+  rocker: createRockerMinigame,
+  sluice: createSluiceMinigame,
+  tom: createLongTomMinigame,
+  monitor: createMonitorMinigame,
 };
 
 export interface ProspectPlan {
@@ -75,29 +95,29 @@ export function planStages(opts: {
   switch (opts.method) {
     case 'rocker':
       return {
-        steps: ['dig', 'classify'],
-        options: [{ asPick: opts.asPick }, { rocker: true }],
+        steps: ['rocker'],
+        options: [{}],
         yieldScale: 1.65,
         extraDigs: 0,
       };
     case 'sluice':
       return {
-        steps: ['dig', 'pan'],
-        options: [{ asPick: opts.asPick }, { wash: 'sluice' }],
+        steps: ['sluice'],
+        options: [{}],
         yieldScale: 2.2,
         extraDigs: 1,
       };
     case 'long_tom':
       return {
-        steps: ['dig', 'pan', 'collect'],
-        options: [{ asPick: opts.asPick }, { wash: 'long_tom' }, {}],
+        steps: ['tom'],
+        options: [{}],
         yieldScale: 2.75,
         extraDigs: 1,
       };
     case 'hydraulic':
       return {
-        steps: ['dig', 'pan'],
-        options: [{ asPick: true }, { wash: 'sluice' }],
+        steps: ['monitor'],
+        options: [{}],
         yieldScale: 3.9,
         extraDigs: 4,
       };
@@ -170,6 +190,7 @@ export interface ProspectingResult {
   skillBonus: number;
   /** Extra site digs this method consumes (a tom or a monitor strips more ground). */
   extraDigs: number;
+  method: WorkMethod;
 }
 
 export interface ProspectingControllerOpts {
@@ -233,6 +254,7 @@ interface Session {
   stageOptions: readonly StageOptions[];
   yieldScale: number;
   extraDigs: number;
+  method: WorkMethod;
   /** Latest progress snapshot from the active stage. Drives the HUD. */
   current: MinigameProgress;
   /** When non-null: this stage just finished and we're waiting for the
@@ -255,7 +277,9 @@ export function createProspectingController(
     // Confirmation prompts always use INTERACT; the collect minigame is
     // the only stage that swaps the in-game prompt to USE_TOOL.
     const primaryAction: 'INTERACT' | 'USE_TOOL' =
-      pending === null && reportedStep === 'collect' ? 'USE_TOOL' : 'INTERACT';
+      pending === null && (reportedStep === 'collect' || reportedStep === 'monitor')
+        ? 'USE_TOOL'
+        : 'INTERACT';
     return {
       active: true,
       siteId: session.siteId,
@@ -311,6 +335,7 @@ export function createProspectingController(
       stageScores: [...session.stageScores],
       skillBonus,
       extraDigs: session.extraDigs,
+      method: session.method,
     };
     session = null;
     wasInteractDown = false;
@@ -353,6 +378,14 @@ export function createProspectingController(
             return toolTiers.detector;
           case 'collect':
             return toolTiers.snuffer;
+          case 'rocker':
+            return Math.max(1, toolTiers.rocker);
+          case 'sluice':
+            return Math.max(1, toolTiers.sluice);
+          case 'tom':
+            return Math.max(1, toolTiers.longTom);
+          case 'monitor':
+            return 1;
         }
       };
       const stageTiers: readonly number[] = steps.map(tierFor);
@@ -379,6 +412,7 @@ export function createProspectingController(
         stageOptions: plan.options,
         yieldScale: plan.yieldScale,
         extraDigs: plan.extraDigs,
+        method: tutorial ? 'pan' : method,
         current: { progress: 0, message: '', panTapsRemaining: 0 },
         pendingConfirm: null,
       };

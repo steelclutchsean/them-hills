@@ -22,7 +22,10 @@ export type DialogueAction =
   | { kind: 'giveLesson' }
   | { kind: 'hearRumor' }
   | { kind: 'hireHand' }
-  | { kind: 'fileLode'; mineId: string; x: number; z: number };
+  | { kind: 'fileLode'; mineId: string; x: number; z: number }
+  | { kind: 'scareJumper' }
+  | { kind: 'chaseJumper' }
+  | { kind: 'payJumper' };
 
 export interface DialogueOption {
   text: string;
@@ -53,6 +56,8 @@ export interface DialogueSession {
   tipIndex: number;
   /** Body filled in when a rumor or lesson resolves at runtime. */
   pendingBody?: string;
+  /** Claim a jumper confrontation is about. */
+  targetId?: string;
 }
 
 const INNKEEPER_TIPS = [
@@ -229,6 +234,41 @@ export const OLD_PETE_DIALOGUE: DialogueTree = {
           isQuestActive(save, 'pete_color') && isQuestObjectivesMet(save, 'pete_color'),
       },
       {
+        text: 'Set me up with a rocker.',
+        action: { kind: 'goto', nodeId: 'rockerOffer' },
+        visible: (save) =>
+          save.fieldwork.claims.length > 0 && isQuestOfferable(save, 'pete_rocker'),
+      },
+      {
+        text: 'The rocker ran clean.',
+        action: { kind: 'turnInQuest', questId: 'pete_rocker', completeNode: 'rockerDone' },
+        visible: (save) =>
+          isQuestActive(save, 'pete_rocker') && isQuestObjectivesMet(save, 'pete_rocker'),
+      },
+      {
+        text: 'Tell me about a sluice.',
+        action: { kind: 'goto', nodeId: 'sluiceOffer' },
+        visible: (save) =>
+          save.fieldwork.machineRuns.rocker >= 1 && isQuestOfferable(save, 'pete_sluice'),
+      },
+      {
+        text: 'The sluice is cleaned out.',
+        action: { kind: 'turnInQuest', questId: 'pete_sluice', completeNode: 'sluiceDone' },
+        visible: (save) =>
+          isQuestActive(save, 'pete_sluice') && isQuestObjectivesMet(save, 'pete_sluice'),
+      },
+      {
+        text: 'I want a long tom.',
+        action: { kind: 'goto', nodeId: 'tomOffer' },
+        visible: (save) =>
+          save.fieldwork.machineRuns.sluice >= 1 && isQuestOfferable(save, 'pete_tom'),
+      },
+      {
+        text: 'The tom is washed.',
+        action: { kind: 'turnInQuest', questId: 'pete_tom', completeNode: 'tomDone' },
+        visible: (save) => isQuestActive(save, 'pete_tom') && isQuestObjectivesMet(save, 'pete_tom'),
+      },
+      {
         text: 'I want the monitor.',
         action: { kind: 'goto', nodeId: 'monitorOffer' },
         visible: (save) =>
@@ -239,6 +279,19 @@ export const OLD_PETE_DIALOGUE: DialogueTree = {
         action: { kind: 'turnInQuest', questId: 'pete_monitor', completeNode: 'monitorDone' },
         visible: (save) =>
           isQuestActive(save, 'pete_monitor') && isQuestObjectivesMet(save, 'pete_monitor'),
+      },
+      {
+        text: 'The hose is on the bank.',
+        action: { kind: 'goto', nodeId: 'hoseOffer' },
+        visible: (save) =>
+          isQuestCompleted(save, 'pete_monitor') &&
+          save.equipment.ownedTiers.hydraulic >= 1 &&
+          isQuestOfferable(save, 'pete_hose'),
+      },
+      {
+        text: 'I cut the streak.',
+        action: { kind: 'turnInQuest', questId: 'pete_hose', completeNode: 'hoseDone' },
+        visible: (save) => isQuestActive(save, 'pete_hose') && isQuestObjectivesMet(save, 'pete_hose'),
       },
       { text: 'What are folks saying?', action: { kind: 'hearRumor' } },
       {
@@ -394,9 +447,81 @@ export const OLD_PETE_DIALOGUE: DialogueTree = {
     body: 'North ridge is on the book as yours. Take a pick inside. The rock pays better on your own ground.',
     options: [{ text: 'Then I will.', action: { kind: 'leave' } }],
   },
+  rockerOffer: {
+    speaker: 'Old Pete',
+    body: 'Buy the rocker at the store and it will sit on your claim. Rock it. Tap at each end of the swing, when the water is thrown. A tap in the middle just slops.',
+    options: [
+      { text: "I'll rock it.", action: { kind: 'acceptQuest', questId: 'pete_rocker', acceptedNode: 'rockerAccepted' } },
+      { text: 'Not yet.', action: { kind: 'goto', nodeId: 'root' } },
+    ],
+  },
+  rockerAccepted: {
+    speaker: 'Old Pete',
+    body: 'Ends of the rock. You will feel it. Come back when the box runs clean.',
+    options: [{ text: 'Right.', action: { kind: 'leave' } }],
+  },
+  rockerDone: {
+    speaker: 'Old Pete',
+    body: "That's the beat. A sluice is the next machine, when you want water doing the rocking for you.",
+    options: [{ text: 'Thanks.', action: { kind: 'leave' } }],
+  },
+  sluiceOffer: {
+    speaker: 'Old Pete',
+    body: 'A full sluice is three jobs in one. Shovel gravel into the hopper when the load is over it. Set the gate so the riffles stay wet and do not flood. Then pick the gold that caught.',
+    options: [
+      { text: "I'll feed it.", action: { kind: 'acceptQuest', questId: 'pete_sluice', acceptedNode: 'sluiceAccepted' } },
+      { text: 'Later.', action: { kind: 'goto', nodeId: 'root' } },
+    ],
+  },
+  sluiceAccepted: {
+    speaker: 'Old Pete',
+    body: 'Hopper, gate, cleanup. The gold hides in the riffles, not in the pan.',
+    options: [{ text: 'I see it.', action: { kind: 'leave' } }],
+  },
+  sluiceDone: {
+    speaker: 'Old Pete',
+    body: 'Clean riffles. A long tom is the same idea stretched out, with a grizzly to throw the cobbles.',
+    options: [{ text: 'Then that is next.', action: { kind: 'leave' } }],
+  },
+  tomOffer: {
+    speaker: 'Old Pete',
+    body: 'The tom wants a yard of gravel. Shake the grizzly when it rises so the rocks dance off. The color falls into the lower box. Clean that box.',
+    options: [
+      { text: "I'll wash a yard.", action: { kind: 'acceptQuest', questId: 'pete_tom', acceptedNode: 'tomAccepted' } },
+      { text: 'Later.', action: { kind: 'goto', nodeId: 'root' } },
+    ],
+  },
+  tomAccepted: {
+    speaker: 'Old Pete',
+    body: 'Grizzly first. Lower box second. Do not rush the shake.',
+    options: [{ text: 'Understood.', action: { kind: 'leave' } }],
+  },
+  tomDone: {
+    speaker: 'Old Pete',
+    body: 'A yard is a start. Hire a hand before you think about a monitor. Someone has to hold the hose.',
+    options: [{ text: 'I will.', action: { kind: 'leave' } }],
+  },
+  hoseOffer: {
+    speaker: 'Old Pete',
+    body: 'The bank has a dark band. That is the pay. Aim the nozzle there and hold. Spray the barren dirt and you only move mud. Your hand keeps the hose from whipping.',
+    options: [
+      { text: "I'll cut it.", action: { kind: 'acceptQuest', questId: 'pete_hose', acceptedNode: 'hoseAccepted' } },
+      { text: 'Not today.', action: { kind: 'goto', nodeId: 'root' } },
+    ],
+  },
+  hoseAccepted: {
+    speaker: 'Old Pete',
+    body: 'Dark streak. Hold the spray. Walk the cut along the band.',
+    options: [{ text: 'Right.', action: { kind: 'leave' } }],
+  },
+  hoseDone: {
+    speaker: 'Old Pete',
+    body: 'That bar will not look the same. File a lode on the ridge when you want rock instead of gravel.',
+    options: [{ text: 'Much obliged.', action: { kind: 'leave' } }],
+  },
   lesson: {
     speaker: 'Old Pete',
-    body: 'Gold is heavy, so it falls where the water slows. Inside of a bend. Downstream of a boulder. A gravel bar. Anywhere the creek has cut to bedrock. Press F and count the colors — six is a streak. Rain walks that streak downstream, so count again after a storm. Stake what pays. The journal will remember this. Press J.',
+    body: 'Look before you count. Black sand on the inside shore is the streak. Gray rock standing in the creek is bedrock. A pile of gravel is the bar. White quartz on the bank means the color is close. Downstream of a boulder, a dark pocket. Press F and a hole remembers the number. Six is pay. Rain walks the black sand, so look again after a storm. J keeps the page.',
     options: [{ text: "I'll go look.", action: { kind: 'leave' } }],
   },
   bio: {
@@ -411,6 +536,38 @@ export const OLD_PETE_DIALOGUE: DialogueTree = {
     speaker: 'Old Pete',
     body: 'Long enough that the trees are taller than they used to be. Leave it at that, partner.',
     options: [{ text: 'All right.', action: { kind: 'goto', nodeId: 'root' } }],
+  },
+};
+
+export const JUMPER_DIALOGUE: DialogueTree = {
+  root: {
+    speaker: 'Claim jumper',
+    body: 'This bar was sitting empty. You want it, you can say so.',
+    options: [
+      { text: 'Get off my ground.', action: { kind: 'scareJumper' } },
+      { text: "I'll run you down.", action: { kind: 'chaseJumper' } },
+      { text: 'Forty dollars. Leave.', action: { kind: 'payJumper' } },
+      { text: 'Walk away.', action: { kind: 'leave' } },
+    ],
+  },
+  scared: {
+    speaker: 'Claim jumper',
+    body: 'All right. The shovel stays. The bar is yours.',
+    options: [{ text: 'Go.', action: { kind: 'leave' } }],
+  },
+  paid: {
+    speaker: 'Claim jumper',
+    body: 'Pleasure doing business. I will be in town.',
+    options: [{ text: 'Go.', action: { kind: 'leave' } }],
+  },
+  broke: {
+    speaker: 'Claim jumper',
+    body: 'Forty. You do not have it. Shout, or come and take the bar.',
+    options: [
+      { text: 'Get off my ground.', action: { kind: 'scareJumper' } },
+      { text: "I'll run you down.", action: { kind: 'chaseJumper' } },
+      { text: 'Walk away.', action: { kind: 'leave' } },
+    ],
   },
 };
 

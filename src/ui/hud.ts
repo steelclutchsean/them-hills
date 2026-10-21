@@ -18,6 +18,8 @@ export interface HudUpdate {
   thirst: number;
   /** True while the player is standing in stream water (passive thirst regen). */
   inStreamWater: boolean;
+  /** Food, coffee, or camp warmth. Empty when nothing is helping. */
+  comfort: string;
   /** "HH:MM" clock string from the day-night cycle. */
   clockText: string;
   /** Current weather state + intensity. */
@@ -576,6 +578,7 @@ export function mountHud(root: HTMLElement): MountedHud {
   makeMeterRow(info, 'stamina', '⚡ Stamina');
   makeMeterRow(info, 'hunger', '🍞 Hunger');
   makeMeterRow(info, 'thirst', '💧 Thirst');
+  makeRow(info, 'comfort', '🔥 Comfort');
   makeDebugRow(info, 'position');
   makeDebugRow(info, 'state');
   makeDebugRow(info, 'device');
@@ -669,6 +672,8 @@ export function mountHud(root: HTMLElement): MountedHud {
       setMeter(meters.hunger!, s.hunger);
       const thirstSuffix = s.inStreamWater ? '  (drinking)' : '';
       setMeter(meters.thirst!, s.thirst, thirstSuffix);
+      lines.comfort!.textContent = s.comfort.length > 0 ? s.comfort : '—';
+      lines.comfort!.style.color = s.comfort.length > 0 ? '#e7c27a' : 'rgba(255,255,255,0.4)';
 
       const padInfo = s.gamepadGlyph === 'unknown' ? 'no pad' : `pad: ${s.gamepadGlyph}`;
       lines.device!.textContent = `Input: ${s.device} (${padInfo})  •  State: ${s.characterState}`;

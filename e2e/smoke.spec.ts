@@ -11,9 +11,13 @@ interface Probe {
   frameLuma: number;
   peakCarryGrams: number;
   graphics?: string;
-  saveVersion?: number;
-  panTier?: number;
-  claimCount?: number;
+      saveVersion?: number;
+      panTier?: number;
+      claimCount?: number;
+      geologyMarks?: number;
+      sampleHoles?: number;
+      machineCount?: number;
+      activeViz?: string | null;
   applyShot?: (name: string) => boolean;
 }
 
@@ -25,6 +29,11 @@ declare global {
       exportLegacyV4?: () => unknown;
       buyUpgrade?: (category: string) => boolean;
       stakeClaim?: () => { ok: boolean; reason: string };
+      prepareShowcase?: () => { x: number; z: number };
+      startMachine?: (kind: string) => boolean;
+      cancelProspect?: () => void;
+      lookAt?: (x: number, z: number) => void;
+      spawnJumper?: () => boolean;
     };
   }
 }
@@ -272,12 +281,14 @@ test('migrates a v4 save, buys a tool, and stakes a claim', async ({ page }) => 
       claimCount: probe.claimCount,
     };
   });
-  expect(migrated.saveVersion).toBe(5);
+  expect(migrated.saveVersion).toBe(6);
   expect(migrated.wallet).toBeGreaterThan(499);
   expect(migrated.carryGrams).toBeGreaterThan(1.4);
   expect(Math.hypot(migrated.x - 4, migrated.z - -3)).toBeLessThan(8);
   expect(migrated.panTier).toBe(1);
   expect(migrated.claimCount).toBe(0);
+  const marks = await page.evaluate(() => window.__themHills?.geologyMarks ?? 0);
+  expect(marks).toBeGreaterThan(8);
 
   const bought = await page.evaluate(() => window.__themHills?.buyUpgrade('pan') ?? false);
   expect(bought).toBe(true);
@@ -302,11 +313,32 @@ test('migrates a v4 save, buys a tool, and stakes a claim', async ({ page }) => 
       carryGrams: probe.carryGrams,
     };
   });
-  expect(kept.saveVersion).toBe(5);
+  expect(kept.saveVersion).toBe(6);
   expect(kept.panTier).toBe(2);
   expect(kept.claimCount).toBe(1);
   expect(kept.wallet).toBeGreaterThan(290);
   expect(kept.wallet).toBeLessThan(310);
   expect(kept.carryGrams).toBeGreaterThan(1.4);
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+test('places machines on a claim and starts each one', async ({ page }) => {
+  test.setTimeout(180_000);
+  const errors = trackErrors(page);
+  await page.goto('/');
+  await page.waitForSelector('#boot-start', { timeout: 120_000 });
+  await page.locator('#boot-start').click();
+  await waitReady(page);
+  const spot = await page.evaluate(() => window.__themHills?.prepareShowcase?.() ?? { x: 0, z: 0 });
+  await page.waitForFunction(() => (window.__themHills?.machineCount ?? 0) >= 4, undefined, {
+    timeout: 10_000,
+  });
+  for (const kind of ['rocker', 'sluice', 'longtom', 'monitor'] as const) {
+    const started = await page.evaluate((name) => window.__themHills?.startMachine?.(name) ?? false, kind);
+    expect(started, kind).toBe(true);
+    await page.waitForFunction((name) => window.__themHills?.activeViz === name, kind, { timeout: 10_000 });
+    await page.evaluate(() => window.__themHills?.cancelProspect?.());
+  }
+  expect(spot.x + spot.z).not.toBeNaN();
   expect(errors, errors.join('\n')).toEqual([]);
 });

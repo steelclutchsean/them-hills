@@ -49,7 +49,7 @@ function tierMult(tier: number): number {
  *  Panning + mining share collect (snuffer) and the dig/strike stages
  *  share shovel — Pickaxe is just Shovel T3. */
 export function getStageTierMultiplier(
-  stage: 'dig' | 'classify' | 'pan' | 'collect' | 'strike' | 'extract',
+  stage: 'dig' | 'classify' | 'pan' | 'collect' | 'strike' | 'extract' | 'rocker' | 'sluice' | 'tom' | 'monitor',
   owned: EquipmentState['ownedTiers'],
 ): number {
   switch (stage) {
@@ -64,6 +64,14 @@ export function getStageTierMultiplier(
       return tierMult(owned.detector);
     case 'collect':
       return tierMult(owned.snuffer);
+    case 'rocker':
+      return owned.rocker >= 2 ? 1.45 : owned.rocker >= 1 ? 1.25 : 1;
+    case 'sluice':
+      return tierMult(owned.sluice);
+    case 'tom':
+      return owned.longTom >= 1 ? 1.55 : 1;
+    case 'monitor':
+      return owned.hydraulic >= 1 ? 1.7 : 1;
   }
 }
 

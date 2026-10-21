@@ -1,4 +1,10 @@
-import { CURRENT_SAVE_VERSION, defaultFieldwork, defaultSettings, type SaveV1 } from './schema';
+import {
+  CURRENT_SAVE_VERSION,
+  defaultFieldwork,
+  defaultSettings,
+  emptyImprovements,
+  type SaveV1,
+} from './schema';
 
 // Migrators run in sequence from saved-version up to CURRENT_SAVE_VERSION.
 // Each one returns the same blob with `version` bumped and any new fields
@@ -77,6 +83,42 @@ const migrators: Record<number, MigratorFn> = {
         },
       },
       fieldwork,
+    };
+  },
+  // v5 → v6: monitor slot, coffee warmth, and machine-run counts.
+  // Claims, position, carry gold, and wallet are copied through.
+  5: (v5) => {
+    const fieldwork = (v5.fieldwork as Record<string, unknown> | undefined) ?? {};
+    const base = defaultFieldwork();
+    const rawClaims = Array.isArray(fieldwork.claims) ? fieldwork.claims : [];
+    const claims = rawClaims.map((entry) => {
+      const claim = entry as Record<string, unknown>;
+      const improvements = (claim.improvements as Record<string, unknown> | undefined) ?? {};
+      return {
+        ...claim,
+        improvements: {
+          ...emptyImprovements(),
+          ...improvements,
+          hydraulic: improvements.hydraulic === true,
+        },
+      };
+    });
+    const runs = (fieldwork.machineRuns as Record<string, unknown> | undefined) ?? {};
+    return {
+      ...v5,
+      version: 6,
+      fieldwork: {
+        ...base,
+        ...fieldwork,
+        claims,
+        coffeeUntil: typeof fieldwork.coffeeUntil === 'number' ? fieldwork.coffeeUntil : 0,
+        machineRuns: {
+          rocker: typeof runs.rocker === 'number' ? runs.rocker : 0,
+          sluice: typeof runs.sluice === 'number' ? runs.sluice : 0,
+          long_tom: typeof runs.long_tom === 'number' ? runs.long_tom : 0,
+          hydraulic: typeof runs.hydraulic === 'number' ? runs.hydraulic : 0,
+        },
+      },
     };
   },
 };

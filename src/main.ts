@@ -14,6 +14,7 @@ import { createCamp } from '@/game/camp';
 import { createCharacter } from '@/game/character';
 import {
   INNKEEPER_DIALOGUE,
+  JUMPER_DIALOGUE,
   OLD_PETE_DIALOGUE,
   getCurrentNode,
   resolveBody,
@@ -27,7 +28,7 @@ import { createHeadlamp } from '@/game/headlamp';
 import { createInn } from '@/game/inn';
 import { createMineEntrance, type MineConfig, type MineInfo } from '@/game/mine';
 import { createOldPete } from '@/game/old-pete';
-import { createProspectingController } from '@/game/prospecting';
+import { createProspectingController, type StepKind } from '@/game/prospecting';
 import { createClassifyMeterView } from '@/game/minigames/classify-meter';
 import { createCollectView } from '@/game/minigames/collect-view';
 import { createDigMeterView } from '@/game/minigames/dig-meter';
@@ -49,8 +50,11 @@ import { createMotes } from '@/game/motes';
 import { createLightShafts } from '@/game/shafts';
 import { emitGameplay, bindGameplayAudio } from '@/game/events';
 import { createClaimMarkers } from '@/game/claim-markers';
+import { createCrew } from '@/game/crew';
+import { createGeologyMarks } from '@/game/geology-marks';
 import { readGround, richestPlacer, stakeable, type BoulderPoint } from '@/game/geology';
 import {
+  bestCamp,
   buildListings,
   claimYieldFactor,
   creekYieldFactor,
@@ -60,6 +64,13 @@ import {
   openingGuide,
   townQuote,
 } from '@/game/fieldwork';
+import { createPlacedMachines, type MachineKind } from '@/game/machines/placed';
+import {
+  createLongTomView,
+  createMonitorView,
+  createRockerView,
+  createSluiceView,
+} from '@/game/machines/views';
 import { SKY_SECONDS_PER_DAY, createSkyController, formatClock, getSkyHour } from '@/game/sky';
 import {
   createStream,
@@ -67,7 +78,7 @@ import {
   type PanningSite,
   type StreamConfig,
 } from '@/game/stream';
-import { CAMP_REST_TIME_ADVANCE, computeSurvivalYieldFactor } from '@/game/survival';
+import { CAMP_REST_TIME_ADVANCE, comfortFor } from '@/game/survival';
 import { createTerrain, type ChannelConfig } from '@/game/terrain';
 import { createWeatherController } from '@/game/weather';
 import { createVendors, type Vendor } from '@/game/vendor';
@@ -309,6 +320,11 @@ async function bootstrap(): Promise<void> {
     r: c.radius,
   }));
   const claimMarkers = createClaimMarkers(renderer.scene);
+  const geologyMarks = createGeologyMarks(renderer.scene, STREAM_CONFIGS, boulderPoints, (x, z) =>
+    terrain.getHeightAt(x, z),
+  );
+  const placedMachines = createPlacedMachines(renderer.scene);
+  const crew = createCrew(renderer.scene);
   // Static ball colliders for each boulder so the player can't walk through
   // them. Bank-side, in-stream, and mine-ring boulders all block — in-stream
   // ones become wadeable obstacles you path around.
@@ -522,6 +538,15 @@ async function bootstrap(): Promise<void> {
   renderer.camera.add(strikeMeter.group);
   const extractMeter = createExtractMeterView();
   renderer.camera.add(extractMeter.group);
+  const rockerView = createRockerView();
+  const sluiceView = createSluiceView();
+  const longTomView = createLongTomView();
+  const monitorView = createMonitorView();
+  renderer.camera.add(rockerView.group, sluiceView.group, longTomView.group, monitorView.group);
+  rockerView.setVisible(false);
+  sluiceView.setVisible(false);
+  longTomView.setVisible(false);
+  monitorView.setVisible(false);
   // Shared particle pool + camera-shake for all minigame stages.
   // Parent the particle group to the camera so bursts render in
   // viewmodel space; the shake offset is applied to the camera each
@@ -740,6 +765,10 @@ async function bootstrap(): Promise<void> {
       saveVersion: save.version,
       panTier: save.equipment.ownedTiers.pan,
       claimCount: save.fieldwork.claims.length,
+      geologyMarks: geologyMarks.counts().marks,
+      sampleHoles: geologyMarks.counts().holes,
+      machineCount: placedMachines.list().length,
+      activeViz: prospect.getSnapshot()?.viz?.kind ?? null,
       exportLegacyV4: () => {
         const snap = gameStore.getState().serialize();
         const owned = { ...snap.equipment.ownedTiers };
@@ -789,6 +818,68 @@ async function bootstrap(): Promise<void> {
           });
         }
         return { ok: result.ok, reason: result.reason };
+      },
+      prepareShowcase: () => {
+        const snap = gameStore.getState().serialize();
+        snap.wallet = { ...snap.wallet, balance: Math.max(snap.wallet.balance, 4000) };
+        snap.equipment = {
+          ...snap.equipment,
+          ownedTiers: {
+            ...snap.equipment.ownedTiers,
+            rocker: 1,
+            sluice: 2,
+            longTom: 1,
+            hydraulic: 1,
+          },
+        };
+        snap.fieldwork = { ...snap.fieldwork, hands: Math.max(1, snap.fieldwork.hands) };
+        gameStore.getState().hydrate(snap);
+        if (!gameStore.getState().save.fieldwork.claims.some((c) => c.kind === 'placer')) {
+          const spot = richestPlacer(STREAM_CONFIGS, snap.fieldwork.payShift, boulderPoints);
+          gameStore.getState().stakePlacer(spot.x, spot.z, spot.read, worldTime);
+        }
+        const claim = gameStore.getState().save.fieldwork.claims.find((c) => c.kind === 'placer');
+        return { x: claim?.x ?? 0, z: claim?.z ?? 0 };
+      },
+      startMachine: (kind: string) => {
+        const allowed: MachineKind[] = ['rocker', 'sluice', 'longtom', 'monitor'];
+        if (!allowed.includes(kind as MachineKind)) return false;
+        const machineKind = kind as MachineKind;
+        const saveNow = gameStore.getState().save;
+        const claim = saveNow.fieldwork.claims.find((c) => c.kind === 'placer');
+        if (!claim) return false;
+        if (prospect.isActive()) prospect.cancel();
+        const method =
+          machineKind === 'longtom' ? 'long_tom' : machineKind === 'monitor' ? 'hydraulic' : machineKind;
+        return prospect.start({
+          siteId: `machine:${machineKind}:${claim.id}`,
+          context: 'panning',
+          digsRemaining: 8,
+          maxDigs: 8,
+          actionCount: saveNow.progression.stats.totalPansPerformed + 1,
+          firstEver: false,
+          yieldMultiplier: 1,
+          toolTiers: saveNow.equipment.ownedTiers,
+          method,
+          tutorial: false,
+          asPick: false,
+        });
+      },
+      cancelProspect: () => {
+        prospect.cancel();
+      },
+      lookAt: (x: number, z: number) => {
+        const y = terrain.getHeightAt(x + 5, z + 3) + 1.7;
+        character.placeAt(x + 5, y, z + 3);
+        cameraRig.setYawPitch(Math.atan2(-5, -3), -0.35);
+      },
+      spawnJumper: () => {
+        const saveNow = gameStore.getState().serialize();
+        const claim = saveNow.fieldwork.claims.find((c) => c.kind === 'placer');
+        if (!claim) return false;
+        claim.jumperSince = worldTime;
+        gameStore.getState().hydrate(saveNow);
+        return true;
       },
       applyShot: (name: string) => {
         const shot = reviewShot(name);
@@ -940,7 +1031,22 @@ async function bootstrap(): Promise<void> {
       toolPrevWasDown = toolPrevDown;
 
       // 3. Character intent
-      character.preStep(dt, moveInput, jumpDown, sprintDown, cameraRig.getYaw());
+      const comfortPos = character.getPosition();
+      const comfortSave = gameStore.getState().save;
+      const comfortHour = getSkyHour(worldTime);
+      const comfort = comfortFor({
+        hunger: comfortSave.player.meters.hunger,
+        thirst: comfortSave.player.meters.thirst,
+        fed: worldTime < comfortSave.fieldwork.fedUntil,
+        coffee: worldTime < comfortSave.fieldwork.coffeeUntil,
+        nearCamp: camp.isPlayerNear(comfortPos),
+        campTier: bestCamp(comfortSave.fieldwork.claims),
+        night: comfortHour < 6 || comfortHour >= 20,
+      });
+      character.preStep(dt, moveInput, jumpDown, sprintDown, cameraRig.getYaw(), {
+        regenBonus: comfort.staminaRegen,
+        drainScale: comfort.staminaDrainScale,
+      });
 
       // 4. Physics
       physics.step();
@@ -948,7 +1054,7 @@ async function bootstrap(): Promise<void> {
       // 5. Character visuals — pass prospecting activity so animations match the active step
       const prospectSnap = prospect.getSnapshot();
       const activity = prospectSnap
-        ? { step: prospectSnap.step, progress: prospectSnap.progress }
+        ? { step: poseStep(prospectSnap.step), progress: prospectSnap.progress }
         : null;
       character.postStep(dt, worldTime, activity);
 
@@ -975,6 +1081,10 @@ async function bootstrap(): Promise<void> {
         collectView.setVisible(false);
         strikeMeter.setVisible(false);
         extractMeter.setVisible(false);
+        rockerView.setVisible(false);
+        sluiceView.setVisible(false);
+        longTomView.setVisible(false);
+        monitorView.setVisible(false);
       }
 
       // Tick the FX system every frame (particle motion + shake decay)
@@ -1009,6 +1119,7 @@ async function bootstrap(): Promise<void> {
             if (v.lastSwingFlashSec < lastDigSwingFlash) {
               triggerToolSwing(usePickaxe ? pickaxeMesh : shovelMesh);
               presentToolImpact(fx, charPosForCamera, 0x8a6240, 12, 'dirt');
+              character.spendStamina(0.05 * comfort.digCost);
             }
             lastDigSwingFlash = v.lastSwingFlashSec;
           } else if (v?.kind === 'classify') {
@@ -1049,6 +1160,18 @@ async function bootstrap(): Promise<void> {
             pickaxeMesh.visible = true;
             extractMeter.update(v);
             extractMeter.setVisible(true);
+          } else if (v?.kind === 'rocker') {
+            rockerView.update(v);
+            rockerView.setVisible(true);
+          } else if (v?.kind === 'sluice') {
+            sluiceView.update(v);
+            sluiceView.setVisible(true);
+          } else if (v?.kind === 'longtom') {
+            longTomView.update(v);
+            longTomView.setVisible(true);
+          } else if (v?.kind === 'monitor') {
+            monitorView.update(v);
+            monitorView.setVisible(true);
           }
         }
       } else {
@@ -1087,6 +1210,16 @@ async function bootstrap(): Promise<void> {
         !nearPete &&
         !nearMine &&
         camp.isPlayerNear(charPos);
+      placedMachines.sync(
+        gameStore.getState().save,
+        (x, z) => terrain.getHeightAt(x, z),
+        prospect.getSnapshot()?.viz ?? null,
+        worldTime,
+      );
+      const nearJumperInfo = !inSession ? crew.nearestJumper(charPos.x, charPos.z) : null;
+      const nearJumper = nearJumperInfo !== null && nearJumperInfo.distance < 3.2;
+      const nearMachineInfo =
+        !inSession && !nearJumper ? placedMachines.nearest(charPos.x, charPos.z, 2.5) : null;
       // Closest panning site across both streams and the cave (if unlocked).
       const candidateStreamSite =
         !inSession &&
@@ -1095,7 +1228,9 @@ async function bootstrap(): Promise<void> {
         !nearInn &&
         !nearPete &&
         !nearMine &&
-        !nearCamp
+        !nearCamp &&
+        !nearJumper &&
+        nearMachineInfo === null
           ? streams.findNearestSite(charPos)
           : null;
       // Cave site lookup: pick the nearest of all mines' cave sites. Each
@@ -1132,6 +1267,28 @@ async function bootstrap(): Promise<void> {
       for (const m of mines) m.update(worldTime, m === nearestMine);
       camp.update(worldTime, nearCamp);
       claimMarkers.sync(gameStore.getState().save.fieldwork.claims, (x, z) => terrain.getHeightAt(x, z));
+      const liveSave = gameStore.getState().save;
+      geologyMarks.sync(liveSave.fieldwork.payShift, liveSave.fieldwork.samples);
+      const crewEvent = crew.update(dt, {
+        claims: liveSave.fieldwork.claims,
+        hands: liveSave.fieldwork.hands,
+        playerX: charPos.x,
+        playerZ: charPos.z,
+        groundY: (x, z) => terrain.getHeightAt(x, z),
+        machines: placedMachines.list(),
+        time: worldTime,
+      });
+      if (crewEvent.caughtClaimId) {
+        const caught = gameStore.getState().resolveJumper(crewEvent.caughtClaimId, 'caught', worldTime);
+        if (caught.ok) emitGameplay('jumper-confront', { claimId: crewEvent.caughtClaimId, how: 'caught' });
+        hintText = 'You caught them. The sack stayed.';
+        hintUntil = worldTime + 5;
+      } else if (crewEvent.escapedClaimId) {
+        const escaped = gameStore.getState().resolveJumper(crewEvent.escapedClaimId, 'escaped', worldTime);
+        if (escaped.ok) emitGameplay('jumper-confront', { claimId: crewEvent.escapedClaimId, how: 'escaped' });
+        hintText = 'They slipped off with a little color.';
+        hintUntil = worldTime + 5;
+      }
 
       const raining = weather.getView().state === 'rain';
       if (raining && !sawRain) {
@@ -1361,6 +1518,29 @@ async function bootstrap(): Promise<void> {
                   dialogue!.currentNodeId = 'rumor';
                   dialogue!.selectionIdx = 0;
                 }
+              } else if (action.kind === 'scareJumper' || action.kind === 'payJumper' || action.kind === 'chaseJumper') {
+                const claimId = dialogue!.targetId;
+                if (!claimId) {
+                  dialogue = null;
+                } else if (action.kind === 'chaseJumper') {
+                  crew.startChase(claimId);
+                  emitGameplay('jumper-confront', { claimId, how: 'chase' });
+                  hintText = 'Run them down. Stay on them.';
+                  hintUntil = worldTime + 6;
+                  dialogue = null;
+                } else {
+                  const how = action.kind === 'payJumper' ? 'pay' : 'scare';
+                  const resolved = gameStore.getState().resolveJumper(claimId, how, worldTime);
+                  if (!resolved.ok && how === 'pay') {
+                    dialogue!.currentNodeId = 'broke';
+                    dialogue!.selectionIdx = 0;
+                  } else if (resolved.ok) {
+                    emitGameplay('jumper-confront', { claimId, how });
+                    dialogue!.currentNodeId = how === 'pay' ? 'paid' : 'scared';
+                    dialogue!.selectionIdx = 0;
+                    audio.playConfirm();
+                  }
+                }
               }
             }
           }
@@ -1477,6 +1657,17 @@ async function bootstrap(): Promise<void> {
               grams: totalG,
             });
             gameStore.getState().markTutorialComplete();
+            if (
+              result.method === 'rocker' ||
+              result.method === 'sluice' ||
+              result.method === 'long_tom' ||
+              result.method === 'hydraulic'
+            ) {
+              const runKind =
+                result.method === 'long_tom' ? 'long_tom' : result.method === 'hydraulic' ? 'hydraulic' : result.method;
+              gameStore.getState().noteMachineRun(runKind, worldTime);
+              emitGameplay('machine-run', { kind: result.method });
+            }
             const scoreFmt = result.stageScores.map((s) => s.toFixed(2)).join(' / ');
             console.log(
               `[prospect] reward at ${result.siteId}: ${totalG.toFixed(3)}g ` +
@@ -1506,6 +1697,41 @@ async function bootstrap(): Promise<void> {
         } else {
           console.log(`[mine] ${nearestMine.id} sealed — needs a pickaxe (Shovel T3)`);
         }
+      } else if (nearJumper && nearJumperInfo && interactJustPressed) {
+        dialogue = startDialogue('jumper', JUMPER_DIALOGUE);
+        dialogue.targetId = nearJumperInfo.claimId;
+        console.log(`[jumper] confront ${nearJumperInfo.claimId}`);
+      } else if (nearMachineInfo && interactJustPressed) {
+        const ownedNow = gameStore.getState().save.equipment.ownedTiers;
+        const fieldNow = gameStore.getState().save.fieldwork;
+        const method =
+          nearMachineInfo.kind === 'longtom'
+            ? 'long_tom'
+            : nearMachineInfo.kind === 'monitor'
+              ? 'hydraulic'
+              : nearMachineInfo.kind;
+        if (method === 'hydraulic' && fieldNow.hands < 1) {
+          hintText = 'The monitor needs a hired hand on the hose.';
+          hintUntil = worldTime + 4;
+        } else {
+          const actionCount = gameStore.getState().incrementPanCount();
+          const globalMult = getGlobalYieldMultiplier(ownedNow);
+          prospect.start({
+            siteId: `machine:${nearMachineInfo.kind}:${nearMachineInfo.claimId}`,
+            context: 'panning',
+            digsRemaining: 8,
+            maxDigs: 8,
+            actionCount,
+            firstEver: actionCount === 1,
+            yieldMultiplier: globalMult * comfort.yield,
+            toolTiers: ownedNow,
+            method,
+            tutorial: false,
+            asPick: ownedNow.pick >= 1,
+          });
+          emitGameplay('prospect-start', { siteId: `machine:${nearMachineInfo.kind}` });
+          console.log(`[machine] start ${nearMachineInfo.kind}`);
+        }
       } else if (nearCamp && interactJustPressed) {
         gameStore.getState().restAtCamp(worldTime);
         worldTime += CAMP_REST_TIME_ADVANCE;
@@ -1533,7 +1759,7 @@ async function bootstrap(): Promise<void> {
           const ownedNow = gameStore.getState().save.equipment.ownedTiers;
           const fieldNow = gameStore.getState().save.fieldwork;
           const globalMult = getGlobalYieldMultiplier(ownedNow);
-          const survivalMult = computeSurvivalYieldFactor(gameStore.getState().save.player.meters);
+          const survivalMult = comfort.yield;
           const siteBonus = nearestSite.site.bonusYield ?? 1.0;
           const siteRead = readGround(
             STREAM_CONFIGS,
@@ -1640,7 +1866,21 @@ async function bootstrap(): Promise<void> {
                   ? { text: minePromptText, glyph: interactGlyph }
                   : nearCamp
                     ? { text: 'Rest at Camp (4h)', glyph: interactGlyph }
-                    : nearestSite
+                    : nearJumper
+                      ? { text: 'Confront the jumper', glyph: interactGlyph }
+                      : nearMachineInfo
+                        ? {
+                            text:
+                              nearMachineInfo.kind === 'rocker'
+                                ? 'Work the rocker'
+                                : nearMachineInfo.kind === 'sluice'
+                                  ? 'Feed the sluice'
+                                  : nearMachineInfo.kind === 'longtom'
+                                    ? 'Run the long tom'
+                                    : 'Aim the monitor',
+                            glyph: interactGlyph,
+                          }
+                        : nearestSite
                       ? {
                           text: `Prospect the ${groundHere.label}`,
                           glyph: interactGlyph,
@@ -1804,6 +2044,7 @@ async function bootstrap(): Promise<void> {
         hunger: save.player.meters.hunger,
         thirst: save.player.meters.thirst,
         inStreamWater,
+        comfort: comfort.label,
         clockText: formatClock(getSkyHour(worldTime)),
         weather: weather.getView(),
         headlampOn: headlamp.isOn(),
@@ -1946,6 +2187,13 @@ function buildExclusionGrid(
 
 // Snapshot of the dialogue UI for the HUD: speaker, body line, and the list
 // of options with enabled state + optional disabled hints.
+function poseStep(step: StepKind): 'dig' | 'classify' | 'pan' | 'collect' | 'strike' | 'extract' {
+  if (step === 'rocker') return 'classify';
+  if (step === 'sluice' || step === 'tom') return 'dig';
+  if (step === 'monitor') return 'pan';
+  return step;
+}
+
 function samplePresentedLuma(renderer: THREE.WebGLRenderer): number {
   const gl = renderer.getContext();
   const w = gl.drawingBufferWidth;

@@ -206,6 +206,55 @@ export function richestPlacer(
   return best ?? { x: cfg.centerX, z: cfg.centerZ, read: readGround([cfg], cfg.centerX, cfg.centerZ, payShift, boulders) };
 }
 
+export interface PayMark {
+  x: number;
+  z: number;
+  habitat: Habitat;
+  pay: number;
+  /** Yaw that follows the creek, so a streak lies downstream. */
+  flowYaw: number;
+}
+
+/** Shore and in-creek points a player can learn to read. Rain moves them. */
+export function payMarks(
+  streams: readonly StreamConfig[],
+  payShift: Record<string, number>,
+  boulders: readonly BoulderPoint[],
+): PayMark[] {
+  const out: PayMark[] = [];
+  for (const cfg of streams) {
+    const flowYaw = cfg.orientation === 'NS' ? 0 : Math.PI / 2;
+    const shift = payShift[cfg.id] ?? 0;
+    for (let i = 0; i <= 22; i++) {
+      const along = 0.06 + (i / 22) * 0.88;
+      const bend = Math.sin((along * 3 + shift) * Math.PI);
+      const sign = bend >= 0 ? -1 : 1;
+      const laterals = [
+        sign * (cfg.halfWidth + 0.45),
+        sign * cfg.halfWidth * 0.35,
+        -sign * (cfg.halfWidth + 0.2),
+      ];
+      for (const lateral of laterals) {
+        const p = pointOn(cfg, along, lateral);
+        const read = readGround([cfg], p.x, p.z, payShift, boulders);
+        if (read.habitat === 'barren') continue;
+        out.push({ x: p.x, z: p.z, habitat: read.habitat, pay: read.pay, flowYaw });
+      }
+    }
+    for (const b of boulders) {
+      const f = frame(cfg, b.x, b.z);
+      if (f.dist > 6) continue;
+      const flowX = cfg.orientation === 'NS' ? 0 : 1;
+      const flowZ = cfg.orientation === 'NS' ? 1 : 0;
+      const x = b.x + flowX * (b.r + 1.2);
+      const z = b.z + flowZ * (b.r + 1.2);
+      const read = readGround([cfg], x, z, payShift, boulders);
+      out.push({ x, z, habitat: read.habitat === 'barren' ? 'boulder_lee' : read.habitat, pay: Math.max(read.pay, 0.7), flowYaw });
+    }
+  }
+  return out;
+}
+
 export function stakeable(habitat: Habitat): boolean {
   return habitat === 'inside_bend' || habitat === 'gravel_bar' || habitat === 'bedrock' || habitat === 'boulder_lee';
 }

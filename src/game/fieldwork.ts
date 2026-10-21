@@ -83,7 +83,7 @@ export const RUMORS: readonly RumorDef[] = [
 ];
 
 export const CREEK_LESSON =
-  'Gold drops where the water slows: the inside of a bend, the lee of a boulder, a gravel bar, and bedrock. Press F in the creek to count colors. Six or more is a pay streak. Rain walks that streak downstream. Stake the ground before someone else does. J opens this journal.';
+  'Read the ground before you count it. Black sand on the inside shore is the streak. Gray rock standing in the water is bedrock. A pile of gravel is the bar. White quartz on the bank means color is close. The dark pocket downstream of a boulder is a trap. Press F and the hole keeps the count. Six or more is pay. Rain walks the black sand downstream. Stake what you can see. J opens this journal.';
 
 export interface StoreListing {
   kind: 'upgrade' | 'supply' | 'sell' | 'improve' | 'hire';
@@ -345,31 +345,104 @@ export function openingGuide(save: SaveV1): { title: string; detail: string; bea
       beam: 'assayer',
     };
   }
+  const jumped = save.fieldwork.claims.find((c) => c.jumperSince !== null);
+  if (jumped) {
+    return {
+      title: 'Someone on your claim',
+      detail: `A jumper is working ${jumped.name}. Walk up and confront them — shout, chase, or pay them off.`,
+      beam: 'creek',
+    };
+  }
   if (!save.fieldwork.rumorsHeard.includes('lesson')) {
     return {
       title: 'Ask Old Pete',
-      detail: 'He is camped just west of the fire. Ask how to read a creek. J opens your journal.',
+      detail: 'He will name the tells: black sand, gray bedrock, white quartz, gravel, and the lee of a boulder.',
       beam: 'pete',
     };
   }
   if (save.fieldwork.samples.length === 0) {
     return {
-      title: 'Count the colors',
-      detail: 'Stand in the creek and press F. Inside bends, bedrock, and the lee of a boulder throw more color.',
+      title: 'Read the creek',
+      detail: 'Follow the black sand on the inside shore. Gray rock and white quartz confirm it. Press F and the hole keeps the count.',
       beam: 'creek',
     };
   }
   if (save.fieldwork.claims.length === 0) {
     return {
       title: 'Stake a stretch',
-      detail: 'When a sample shows six colors or better, stand on that ground and press E. The first filing is free.',
+      detail: 'When the tells line up, stand on that ground and press E. The first filing is free.',
       beam: 'creek',
     };
   }
-  if (save.equipment.ownedTiers.pan === 1 && save.wallet.balance >= 200) {
+  const owned = save.equipment.ownedTiers;
+  const runs = save.fieldwork.machineRuns;
+  if (owned.rocker < 1) {
     return {
-      title: 'A pan that changes the wash',
-      detail: 'The general store sells a wider steel pan. Brackets swap to a rocker, sluice, or long tom once you own one.',
+      title: 'A rocker box',
+      detail: 'Ask Pete, then buy a rocker at the store ($320). It sits on your claim. Tap at each end of the rock.',
+      beam: 'store',
+    };
+  }
+  if (runs.rocker < 1) {
+    return {
+      title: 'Rock the box',
+      detail: 'Stand at the rocker on your claim and press E. Tap when the box reaches either end.',
+      beam: 'creek',
+    };
+  }
+  if (owned.sluice < 2) {
+    return {
+      title: 'A sluice',
+      detail: 'Next is a full sluice. Shovel the hopper, hold the water in the riffles, then pick the gold out.',
+      beam: 'store',
+    };
+  }
+  if (runs.sluice < 1) {
+    return {
+      title: 'Run the sluice',
+      detail: 'Work the sluice on your claim. Feed, set the flow, clean the riffles.',
+      beam: 'creek',
+    };
+  }
+  if (owned.longTom < 1) {
+    return {
+      title: 'A long tom',
+      detail: 'The tom is a longer box with a grizzly on top. Ask Pete, then buy it. Shake the bars, then clean the lower box.',
+      beam: 'pete',
+    };
+  }
+  if (runs.long_tom < 1) {
+    return {
+      title: 'Wash a yard',
+      detail: 'Stand at the long tom and press E. Shake the grizzly when it rises, then clean the riffles.',
+      beam: 'creek',
+    };
+  }
+  if (save.fieldwork.hands < 1) {
+    return {
+      title: 'Hire a hand',
+      detail: 'Pete knows a hand. They walk the machines and watch the claim. One of them can hold a monitor hose. $120.',
+      beam: 'pete',
+    };
+  }
+  if (owned.hydraulic < 1) {
+    return {
+      title: 'Earn the monitor',
+      detail: 'Bring Pete eight grams and he will sign for the hose. Aim it at the dark streak in the bank.',
+      beam: 'pete',
+    };
+  }
+  if (runs.hydraulic < 1) {
+    return {
+      title: 'Cut the streak',
+      detail: 'A hand is on the hose. Aim the monitor at the dark band and hold the spray there.',
+      beam: 'creek',
+    };
+  }
+  if (owned.pick < 1) {
+    return {
+      title: 'A pick for the ridge',
+      detail: 'The north mine opens with a pick. File a lode with Pete once you own one.',
       beam: 'store',
     };
   }

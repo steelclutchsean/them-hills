@@ -20,14 +20,18 @@
 //     wallet are untouched.
 //   - Equipment gains pick, rocker, longTom, and hydraulic. Missing keys
 //     migrate as unowned (0).
+// v6 changes:
+//   - Claims can hold a monitor. Coffee leaves a warmth timer. Machine
+//     runs are counted so Pete's tool jobs can complete. Position, carry
+//     gold, and wallet stay put.
 
-export const CURRENT_SAVE_VERSION = 5;
-export const BUILD_VERSION = '0.3.0-gameplay';
+export const CURRENT_SAVE_VERSION = 6;
+export const BUILD_VERSION = '0.4.0-gameplay';
 
 // ---------- Top-level shape ----------
 
 export interface SaveV1 {
-  version: 5;
+  version: 6;
   metadata: SaveMetadata;
   player: PlayerState;
   inventory: InventoryState;
@@ -317,6 +321,11 @@ export interface ClaimImprovements {
   rocker: boolean;
   sluice: boolean;
   longTom: boolean;
+  hydraulic: boolean;
+}
+
+export function emptyImprovements(): ClaimImprovements {
+  return { camp: 0, cache: false, rocker: false, sluice: false, longTom: false, hydraulic: false };
 }
 
 export interface ClaimRecord {
@@ -366,8 +375,12 @@ export interface FieldworkState {
   lastJumperRoll: number;
   /** Town price multiplier walked once per in-game day. */
   townBias: number;
-  /** Hunger does not drain until this game time. */
+  /** Hunger does not drain until this game time. A meal sets it. */
   fedUntil: number;
+  /** Coffee warmth and easier stamina until this game time. */
+  coffeeUntil: number;
+  /** Completed runs of each machine. Pete's tool jobs read these. */
+  machineRuns: { rocker: number; sluice: number; long_tom: number; hydraulic: number };
 }
 
 export function defaultFieldwork(): FieldworkState {
@@ -383,6 +396,8 @@ export function defaultFieldwork(): FieldworkState {
     lastJumperRoll: 0,
     townBias: 1,
     fedUntil: 0,
+    coffeeUntil: 0,
+    machineRuns: { rocker: 0, sluice: 0, long_tom: 0, hydraulic: 0 },
   };
 }
 
@@ -392,7 +407,7 @@ export function createDefaultSave(): SaveV1 {
   const now = Date.now();
   const seed = Math.floor(Math.random() * 2 ** 31);
   return {
-    version: 5,
+    version: 6,
     metadata: {
       createdAt: now,
       lastSavedAt: now,

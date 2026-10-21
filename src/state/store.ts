@@ -14,6 +14,7 @@ import {
   type VendorId,
   type WalletState,
   type WeatherState,
+  emptyImprovements,
 } from '@/save/schema';
 import {
   HUNGER_DRAIN_PER_SEC,
@@ -168,6 +169,12 @@ export interface GameStateStore {
   sellSupply(id: string, gameTime: number): boolean;
   buyImprovement(id: string, gameTime: number): boolean;
   hireHand(gameTime: number): boolean;
+  noteMachineRun(kind: 'rocker' | 'sluice' | 'long_tom' | 'hydraulic', gameTime: number): void;
+  resolveJumper(
+    claimId: string,
+    how: 'scare' | 'pay' | 'caught' | 'escaped',
+    gameTime: number,
+  ): { ok: boolean; reason: string };
   giveLesson(gameTime: number): void;
   hearNextRumor(gameTime: number): { id: string; title: string; body: string } | null;
   onRain(gameTime: number): boolean;
@@ -480,8 +487,12 @@ export const gameStore = createStore<GameStateStore>((set, get) => ({
         else consumables[id] = n - 1;
         return true;
       };
+      let coffeeUntil = state.save.fieldwork.coffeeUntil;
       if (eat('meal_ration')) fedUntil = Math.max(fedUntil, gameTime + 220);
-      else if (eat('coffee')) fedUntil = Math.max(fedUntil, gameTime + 90);
+      else if (eat('coffee')) {
+        fedUntil = Math.max(fedUntil, gameTime + 90);
+        coffeeUntil = Math.max(coffeeUntil, gameTime + 200);
+      }
       const camp = bestCamp(state.save.fieldwork.claims);
       if (camp >= 1) fedUntil = Math.max(fedUntil, gameTime + (camp >= 2 ? 420 : 260));
       let carry = state.save.inventory.carry.gold;
@@ -506,7 +517,7 @@ export const gameStore = createStore<GameStateStore>((set, get) => ({
             carry: { ...state.save.inventory.carry, gold: carry, consumables },
             vault: { gold: vault },
           },
-          fieldwork: { ...state.save.fieldwork, fedUntil },
+          fieldwork: { ...state.save.fieldwork, fedUntil, coffeeUntil },
         },
       };
     });
@@ -639,7 +650,7 @@ export const gameStore = createStore<GameStateStore>((set, get) => ({
       pay: 1,
       stakedAt: gameTime,
       name: verdict.name,
-      improvements: { camp: 0, cache: false, rocker: false, sluice: false, longTom: false },
+      improvements: emptyImprovements(),
       jumperSince: null,
     };
     set((state) => {
@@ -687,7 +698,7 @@ export const gameStore = createStore<GameStateStore>((set, get) => ({
       pay: 1,
       stakedAt: gameTime,
       name: `${mineId} ridge lode`,
-      improvements: { camp: 0, cache: false, rocker: false, sluice: false, longTom: false },
+      improvements: emptyImprovements(),
       jumperSince: null,
     };
     set((state) => ({
@@ -787,12 +798,14 @@ export const gameStore = createStore<GameStateStore>((set, get) => ({
       const have = (consumables[def.id] ?? 0) + 1;
       consumables[def.id] = have;
       const meters = { ...state.save.player.meters };
-      const drink = def.id === 'coffee' || def.id === 'water_canteen';
-      if (drink && meters.thirst < 0.82) {
+      const drinkNow = def.id === 'coffee' || (def.id === 'water_canteen' && meters.thirst < 0.82);
+      let coffeeUntil = state.save.fieldwork.coffeeUntil;
+      if (drinkNow) {
         consumables[def.id] = have - 1;
         if ((consumables[def.id] ?? 0) <= 0) delete consumables[def.id];
         meters.hunger = Math.min(1, meters.hunger + def.hunger);
         meters.thirst = Math.min(1, meters.thirst + def.thirst);
+        if (def.id === 'coffee') coffeeUntil = Math.max(coffeeUntil, gameTime + 200);
       }
       return {
         save: {
@@ -803,6 +816,7 @@ export const gameStore = createStore<GameStateStore>((set, get) => ({
             ...state.save.inventory,
             carry: { ...state.save.inventory.carry, consumables },
           },
+          fieldwork: { ...state.save.fieldwork, coffeeUntil },
         },
       };
     });
@@ -931,6 +945,84 @@ export const gameStore = createStore<GameStateStore>((set, get) => ({
       };
     });
     return true;
+  },
+
+  noteMachineRun(kind, gameTime) {
+    set((state) => {
+      const runs = { ...state.save.fieldwork.machineRuns, [kind]: state.save.fieldwork.machineRuns[kind] + 1 };
+      const names = {
+        rocker: 'Rocker run',
+        sluice: 'Sluice run',
+        long_tom: 'Long tom run',
+        hydraulic: 'Monitor run',
+      } as const;
+      return {
+        save: {
+          ...state.save,
+          quests: flagQuests(state.save, 'runMachine', runs[kind], kind),
+          fieldwork: {
+            ...state.save.fieldwork,
+            machineRuns: runs,
+            journal: remember(state.save.fieldwork.journal, {
+              id: `run-${kind}-${runs[kind]}`,
+              title: names[kind],
+              body:
+                kind === 'rocker'
+                  ? 'The box rocked clean. The ends of the swing are where the water throws.'
+                  : kind === 'sluice'
+                    ? 'Hopper, gate, then the gold in the riffles.'
+                    : kind === 'long_tom'
+                      ? 'The grizzly took the cobbles. The lower box held the color.'
+                      : 'The nozzle cut the dark streak. Barren dirt is wasted water.',
+              gameTime,
+            }),
+          },
+        },
+      };
+    });
+  },
+
+  resolveJumper(claimId, how, gameTime) {
+    const save = get().save;
+    const claim = save.fieldwork.claims.find((c) => c.id === claimId);
+    if (!claim || (claim.jumperSince === null && how !== 'caught' && how !== 'escaped')) {
+      return { ok: false, reason: 'Nobody is on that claim.' };
+    }
+    if (how === 'pay' && save.wallet.balance < 40) return { ok: false, reason: 'Paying them off costs $40.' };
+    set((state) => {
+      const claims = state.save.fieldwork.claims.map((c) => {
+        if (c.id !== claimId) return c;
+        const pay =
+          how === 'escaped' ? c.pay * 0.88 : how === 'scare' || how === 'caught' ? Math.min(1, c.pay + 0.06) : c.pay;
+        return { ...c, pay, jumperSince: null };
+      });
+      const wallet = how === 'pay' ? spend(state.save.wallet, 40, gameTime, 'jumper payoff') : state.save.wallet;
+      const body =
+        how === 'pay'
+          ? 'Forty dollars and they walked. The claim is quiet.'
+          : how === 'scare'
+            ? 'You ran them off. They dropped the shovel.'
+            : how === 'caught'
+              ? 'You caught them on the flat. The sack stayed.'
+              : 'They slipped off with a little color.';
+      return {
+        save: {
+          ...state.save,
+          wallet,
+          fieldwork: {
+            ...state.save.fieldwork,
+            claims,
+            journal: remember(state.save.fieldwork.journal, {
+              id: `jumper-${claimId}-${gameTime.toFixed(0)}`,
+              title: 'Claim jumper',
+              body,
+              gameTime,
+            }),
+          },
+        },
+      };
+    });
+    return { ok: true, reason: how };
   },
 
   giveLesson(gameTime) {
@@ -1178,13 +1270,18 @@ function spend(wallet: WalletState, cost: number, gameTime: number, item: string
   };
 }
 
-function flagQuests(save: SaveV1, type: ObjectiveType, value: number): SaveV1['quests'] {
+function flagQuests(
+  save: SaveV1,
+  type: ObjectiveType,
+  value: number,
+  param?: string,
+): SaveV1['quests'] {
   const active = { ...save.quests.active };
   let changed = false;
   for (const id of Object.keys(active)) {
     const def = getQuestDef(id);
     if (!def) continue;
-    const result = applyFlagToQuestObjectives(active[id]!, def, type, value);
+    const result = applyFlagToQuestObjectives(active[id]!, def, type, value, param);
     if (result.anyChanged) {
       active[id] = result.updated;
       changed = true;

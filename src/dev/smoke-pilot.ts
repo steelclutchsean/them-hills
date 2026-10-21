@@ -53,11 +53,20 @@ export interface ThemHillsProbe {
   saveVersion: number;
   panTier: number;
   claimCount: number;
+  geologyMarks: number;
+  sampleHoles: number;
+  machineCount: number;
+  activeViz: string | null;
   save: () => Promise<void>;
   /** A v4-shaped copy of the live save, for the migration smoke. */
   exportLegacyV4: () => unknown;
   buyUpgrade: (category: string) => boolean;
   stakeClaim: () => { ok: boolean; reason: string };
+  prepareShowcase: () => { x: number; z: number };
+  startMachine: (kind: string) => boolean;
+  cancelProspect: () => void;
+  lookAt: (x: number, z: number) => void;
+  spawnJumper: () => boolean;
   /** Teleport to a named review camera. Returns false for an unknown name. */
   applyShot?: (name: string) => boolean;
 }

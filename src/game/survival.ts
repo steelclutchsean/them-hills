@@ -37,3 +37,63 @@ export function computeSurvivalYieldFactor(meters: { hunger: number; thirst: num
   if (worst >= 0.35) return 1;
   return 0.78 + (0.22 * worst) / 0.35;
 }
+
+export interface Comfort {
+  /** Short HUD line. Empty when nothing is helping. */
+  label: string;
+  /** Added to stamina regen per second. */
+  staminaRegen: number;
+  /** Multiplier on sprint drain. Below 1 is easier. */
+  staminaDrainScale: number;
+  /** Multiplier on stamina spent per dig swing. */
+  digCost: number;
+  yield: number;
+  warm: boolean;
+}
+
+/** Food, coffee, and a roof are buffs. Hunger still trims yield when it is actually low. */
+export function comfortFor(opts: {
+  hunger: number;
+  thirst: number;
+  fed: boolean;
+  coffee: boolean;
+  nearCamp: boolean;
+  campTier: 0 | 1 | 2;
+  night: boolean;
+}): Comfort {
+  const parts: string[] = [];
+  let staminaRegen = 0;
+  let staminaDrainScale = 1;
+  let digCost = 1;
+  let yieldFactor = computeSurvivalYieldFactor(opts);
+  let warm = false;
+  if (opts.fed) {
+    parts.push('Fed');
+    digCost *= 0.72;
+    staminaRegen += 0.06;
+    yieldFactor *= 1.08;
+  }
+  if (opts.coffee) {
+    parts.push('Coffee');
+    staminaRegen += 0.12;
+    staminaDrainScale *= 0.7;
+    digCost *= 0.85;
+    yieldFactor *= 1.04;
+    if (opts.night) warm = true;
+  }
+  if (opts.nearCamp && opts.campTier >= 1 && opts.night) {
+    parts.push(opts.campTier >= 2 ? 'Cabin warmth' : 'Lean-to warmth');
+    staminaRegen += 0.08;
+    digCost *= 0.85;
+    yieldFactor *= 1.05;
+    warm = true;
+  }
+  return {
+    label: parts.join(' · '),
+    staminaRegen,
+    staminaDrainScale,
+    digCost,
+    yield: yieldFactor,
+    warm,
+  };
+}

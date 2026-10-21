@@ -149,6 +149,44 @@ export type MinigameViz =
       lastTapFlashSec: number;
       /** Detector tier 1/2/3 — drives mesh and decay rate. */
       detectorTier: 1 | 2 | 3;
+    }
+  | {
+      kind: 'rocker';
+      /** 0 at one end of the rock, 1 at the other. */
+      rock: number;
+      rocksDone: number;
+      rocksNeeded: number;
+      water: number;
+      lastTap: number;
+      gold: number;
+    }
+  | {
+      kind: 'sluice';
+      phase: 'feed' | 'flow' | 'cleanup';
+      indicator: number;
+      flow: number;
+      slot: number;
+      slots: readonly number[];
+      cleaned: number;
+    }
+  | {
+      kind: 'longtom';
+      phase: 'grizzly' | 'cleanup';
+      shake: number;
+      hopper: number;
+      slot: number;
+      slots: readonly number[];
+      cleaned: number;
+      lastTap: number;
+    }
+  | {
+      kind: 'monitor';
+      aim: number;
+      band: number;
+      spray: boolean;
+      cut: number;
+      waste: number;
+      gold: number;
     };
 
 export interface CollectFlakeViz {
@@ -181,8 +219,8 @@ export type MinigameUpdate =
   | { kind: 'in_progress'; progress: MinigameProgress }
   | { kind: 'complete'; score: number; progress: MinigameProgress };
 
-/** Per-stage knobs. The view models still key off `viz.kind`, so a rocker
- *  reuses the classify meter and a sluice reuses the pan. */
+/** Per-stage knobs. Pan, dig, and classify keep their own views. Rocker,
+ *  sluice, long tom, and monitor have separate view models. */
 export interface StageOptions {
   tutorial?: boolean;
   /** Classify rhythm is a rocker box instead of a sieve. */
