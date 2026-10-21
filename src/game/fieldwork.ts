@@ -393,7 +393,7 @@ export function openingGuide(save: SaveV1): {
   if (owned.rocker < 1) {
     return {
       title: 'A rocker box',
-      detail: 'Ask Pete, then buy a rocker at the store ($236). It sits on your claim. Tap at each end of the rock.',
+      detail: 'The rocker is $236 at the store. Keep panning Coyote Creek until you can pay. It sits on your claim.',
       beam: 'store',
     };
   }

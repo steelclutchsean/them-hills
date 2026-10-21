@@ -443,7 +443,8 @@ export function createDefaultSave(): SaveV1 {
     },
     player: {
       position: { x: 0, y: 0, z: 0 },
-      rotation: { yaw: 0, pitch: 0 },
+      // Face the creek. Yaw 0 looks north, and the opening hint says to walk east.
+      rotation: { yaw: -Math.PI / 2, pitch: 0 },
       meters: { stamina: 1, hunger: 1, thirst: 1 },
       spawnPoint: 'camp',
       appearance: { presetId: 'default' },
