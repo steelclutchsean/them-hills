@@ -692,7 +692,8 @@ async function bootstrap(): Promise<void> {
   populate
     .then((results) => {
       const ridgePlanted = plantRidgePines(renderer.scene, ridgePinePoints());
-      const total = results.reduce((sum, r) => sum + r.placed, 0) + fallenLogs.placed + ridgePlanted;
+      const total =
+        results.reduce((sum, r) => sum + r.placed, 0) + fallenLogs.placed + ridgePlanted;
       console.log(`[scatter] environment populated (${total} instances)`);
       creekProbe.invalidate();
 
@@ -2030,7 +2031,9 @@ async function bootstrap(): Promise<void> {
         if (!page.save) return;
         gameStore.getState().hydrate(page.save);
         const p = page.save.player;
-        character.placeAt(p.position.x, p.position.y, p.position.z);
+        const floor = terrain.getHeightAt(p.position.x, p.position.z);
+        const y = p.position.y < floor + 0.4 ? floor + 1.5 : p.position.y;
+        character.plant(p.position.x, y, p.position.z);
         character.setYaw(p.rotation.yaw);
         worldTime = page.save.world.gameTime;
         applyReading(page.save.settings);
@@ -2337,6 +2340,12 @@ async function bootstrap(): Promise<void> {
       if (northBody && driftKeepOut(northBody.group, northBody.position, held)) {
         character.placeAt(held.x, held.y, held.z);
       }
+      const floor = terrain.getHeightAt(held.x, held.z);
+      const underground =
+        held.y < floor - 0.05 &&
+        !inDriftCut(held.x, held.z) &&
+        !mines.some((mine) => mine.isPlayerInside(held));
+      if (underground) character.plant(held.x, floor + 1.5, held.z);
 
       // 6. Camera position. During a prospect minigame, swap the spring-arm
       // rig for the fixed first-person prospect view + tool viewmodel.
@@ -3898,15 +3907,20 @@ async function bootstrap(): Promise<void> {
       notice: bootNotice,
       onContinue: () => startPlaying(),
       onNewGame: () => {
-        void deleteSave().then(() => {
-          const fresh = createDefaultSave();
-          gameStore.getState().hydrate(fresh);
-          const p = fresh.player.position;
-          character.placeAt(p.x, p.y, p.z);
-          character.setYaw(fresh.player.rotation.yaw);
-          worldTime = fresh.world.gameTime;
-          startPlaying();
-        });
+        const fresh = createDefaultSave();
+        gameStore.getState().hydrate(fresh);
+        const p = fresh.player.position;
+        const y = Math.max(p.y, terrain.getHeightAt(p.x, p.z) + 1.5);
+        character.plant(p.x, y, p.z);
+        character.setYaw(fresh.player.rotation.yaw);
+        worldTime = fresh.world.gameTime;
+        startPlaying();
+        // The claim book clear used to finish before the hills opened, so the
+        // click sat dead until IndexedDB returned and then dropped the body
+        // at y = 0, under the heightfield.
+        void deleteSave()
+          .then(() => saveCurrentState(gameStore.getState().serialize()))
+          .catch((err) => console.error('[save] new game clear failed', err));
       },
       onSettings: () => settings.open(),
     });
@@ -3919,6 +3933,11 @@ async function bootstrap(): Promise<void> {
     settings.close();
     if (canvas) void Promise.resolve(canvas.requestPointerLock()).catch(() => undefined);
   }
+
+  // Static colliders are invisible to the character query until the world
+  // has stepped once. The title screen does not step, so the first walk
+  // used to fall through the ground.
+  physics.step();
 
   loop.start();
 

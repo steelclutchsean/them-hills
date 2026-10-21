@@ -74,6 +74,8 @@ export interface Character {
   getPosition(): THREE.Vector3;
   /** Teleport the kinematic body. Used by the playtest pilot to reach a site. */
   placeAt(x: number, y: number, z: number): void;
+  /** Teleport and treat the body as already standing, so the next step does not fall. */
+  plant(x: number, y: number, z: number): void;
   setYaw(yaw: number): void;
   getYaw(): number;
   /** World point the dig or pan camera and the wrist aim share. */
@@ -244,7 +246,14 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
   }
 
   function showFor(step: ProspectingActivity['step'] | null, livePan: boolean): void {
-    if (step === 'dig' || step === 'sluice' || step === 'tom' || step === 'strike' || step === 'drill' || step === 'muck') {
+    if (
+      step === 'dig' ||
+      step === 'sluice' ||
+      step === 'tom' ||
+      step === 'strike' ||
+      step === 'drill' ||
+      step === 'muck'
+    ) {
       rig.showTool('shovel');
     } else if (step === 'pan' && !livePan) rig.showTool('pan');
     else rig.showTool('none');
@@ -348,7 +357,15 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
     }
 
     const tool =
-      grip === 'dig' ? 'dig' : grip === 'pan' ? 'pan' : posed?.step === 'rocker' ? 'rock' : posed?.step === 'monitor' ? 'aim' : 'none';
+      grip === 'dig'
+        ? 'dig'
+        : grip === 'pan'
+          ? 'pan'
+          : posed?.step === 'rocker'
+            ? 'rock'
+            : posed?.step === 'monitor'
+              ? 'aim'
+              : 'none';
     clip = motion.update(dt, requested, {
       time,
       carrying: pose?.carrying === true && !posed,
@@ -356,6 +373,16 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
       toolTarget: tool === 'none' ? null : focusAt(grip === 'pan' ? 'pan' : 'dig'),
       ground: pose?.ground ?? null,
     });
+  }
+
+  function relocate(x: number, y: number, z: number, planted: boolean): void {
+    body.setTranslation(new RAPIER.Vector3(x, y, z), true);
+    body.setNextKinematicTranslation(new RAPIER.Vector3(x, y, z));
+    group.position.set(x, y, z);
+    verticalVelocity = 0;
+    grounded = planted;
+    wasGrounded = planted;
+    if (planted) groundedGrace = 0.18;
   }
 
   return {
@@ -367,11 +394,10 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
       return new THREE.Vector3(t.x, t.y, t.z);
     },
     placeAt(x, y, z) {
-      body.setTranslation(new RAPIER.Vector3(x, y, z), true);
-      body.setNextKinematicTranslation(new RAPIER.Vector3(x, y, z));
-      group.position.set(x, y, z);
-      verticalVelocity = 0;
-      grounded = false;
+      relocate(x, y, z, false);
+    },
+    plant(x, y, z) {
+      relocate(x, y, z, true);
     },
     setYaw(next) {
       yaw = next;
