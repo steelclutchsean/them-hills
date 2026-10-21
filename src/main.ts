@@ -1028,11 +1028,11 @@ async function bootstrap(): Promise<void> {
   function shedView(distance: number): { x: number; y: number; z: number; lx: number; ly: number; lz: number } {
     const p = townArc.firePos;
     return {
-      x: p.x + distance,
-      y: p.y + 2.6,
-      z: p.z + distance * 0.85,
-      lx: p.x,
-      ly: p.y + 3.1,
+      x: p.x + 1.4,
+      y: p.y + 3.3,
+      z: p.z + distance,
+      lx: p.x - 0.2,
+      ly: p.y + 2.7,
       lz: p.z,
     };
   }
@@ -1071,6 +1071,10 @@ async function bootstrap(): Promise<void> {
   }
 
   const sceneRay = new THREE.Raycaster();
+  const fanForward = new THREE.Vector3();
+  const fanRight = new THREE.Vector3();
+  const fanUp = new THREE.Vector3();
+  const fanDir = new THREE.Vector3();
   const occluderSkip = /atmosphere|water_|terrain|grass|drift-|shaft-|guide-|fire-smoke|fire-ember|fire-flame|gravel|sky|rush-tent|stamp-mill|fire-shed|company-wagon/i;
   let occluderRoots: THREE.Object3D[] | null = null;
 
@@ -1097,44 +1101,92 @@ async function bootstrap(): Promise<void> {
     return found;
   }
 
-  function viewIsClear(cam: THREE.Vector3, subjects: readonly THREE.Vector3[]): boolean {
-    const dir = new THREE.Vector3();
+  function subjectBlocked(cam: THREE.Vector3, subjects: readonly THREE.Vector3[]): boolean {
     const roots = occluders();
-    if (roots.length === 0) return true;
+    if (roots.length === 0) return false;
     for (const subject of subjects) {
-      dir.copy(subject).sub(cam);
-      const dist = dir.length();
+      fanDir.copy(subject).sub(cam);
+      const dist = fanDir.length();
       if (dist < 0.4) continue;
-      dir.multiplyScalar(1 / dist);
-      sceneRay.set(cam, dir);
+      fanDir.multiplyScalar(1 / dist);
+      sceneRay.set(cam, fanDir);
       sceneRay.near = 0.2;
       sceneRay.far = Math.max(0.3, dist - 0.45);
       const hits = sceneRay.intersectObjects(roots, true);
-      if (hits.some((hit) => solidOccluder(hit.object))) return false;
+      if (hits.some((hit) => solidOccluder(hit.object))) return true;
     }
-    return true;
+    return false;
   }
 
-  /** Orbit a scene camera until each subject has a clear ray. Foliage still fades if the lens is inside it. */
-  function clearSceneCamera(cam: THREE.Vector3, look: THREE.Vector3, subjects: readonly THREE.Vector3[]): void {
+  /** How many of the central view rays hit a tree, brush, or boulder. */
+  function viewClutter(cam: THREE.Vector3, look: THREE.Vector3): number {
+    const roots = occluders();
+    if (roots.length === 0) return 0;
+    fanForward.copy(look).sub(cam);
+    const dist = fanForward.length();
+    if (dist < 0.5) return 0;
+    fanForward.multiplyScalar(1 / dist);
+    fanRight.crossVectors(fanForward, fanUp.set(0, 1, 0));
+    if (fanRight.lengthSq() < 1e-6) fanRight.set(1, 0, 0);
+    fanRight.normalize();
+    fanUp.crossVectors(fanRight, fanForward).normalize();
+    const offsets: readonly [number, number][] = [
+      [0, 0.04],
+      [-0.32, 0.1],
+      [0.32, 0.1],
+      [-0.18, 0.24],
+      [0.18, 0.24],
+    ];
+    let hits = 0;
+    for (const [ox, oy] of offsets) {
+      fanDir.copy(fanForward).addScaledVector(fanRight, ox).addScaledVector(fanUp, oy).normalize();
+      sceneRay.set(cam, fanDir);
+      sceneRay.near = 0.15;
+      sceneRay.far = 12;
+      const hit = sceneRay.intersectObjects(roots, true).find((entry) => solidOccluder(entry.object));
+      if (hit) hits++;
+    }
+    return hits;
+  }
+
+  /**
+   * Slide a scene camera until each subject is clear and the middle of the
+   * frame is not a tree or a boulder. Foliage against the lens still fades.
+   */
+  function clearSceneCamera(
+    cam: THREE.Vector3,
+    look: THREE.Vector3,
+    subjects: readonly THREE.Vector3[],
+    accept?: (pos: THREE.Vector3) => boolean,
+  ): void {
     const base = cam.clone().sub(look);
     const planar = Math.max(0.5, Math.hypot(base.x, base.z));
     const yaw0 = Math.atan2(base.x, base.z);
     const height = base.y;
-    for (let step = 0; step < 13; step++) {
+    let best: THREE.Vector3 | null = null;
+    let bestScore = Number.POSITIVE_INFINITY;
+    for (let step = 0; step < 17; step++) {
       const side = step === 0 ? 0 : (step % 2 === 0 ? 1 : -1) * Math.ceil(step / 2);
-      const yaw = yaw0 + side * 0.18;
+      const pull = 1 + Math.floor(Math.abs(side) / 3) * 0.22;
+      const yaw = yaw0 + side * 0.16;
       const pos = new THREE.Vector3(
-        look.x + Math.sin(yaw) * planar,
-        look.y + height + Math.abs(side) * 0.7,
-        look.z + Math.cos(yaw) * planar,
+        look.x + Math.sin(yaw) * planar * pull,
+        look.y + height + Math.abs(side) * 0.45,
+        look.z + Math.cos(yaw) * planar * pull,
       );
       pos.y = Math.max(pos.y, terrain.getHeightAt(pos.x, pos.z) + 1.5);
-      if (viewIsClear(pos, subjects)) {
-        cam.copy(pos);
-        return;
+      if (accept && !accept(pos)) continue;
+      if (subjects.some((subject) => subject.distanceTo(pos) < 2.6)) continue;
+      const blocked = subjectBlocked(pos, subjects);
+      const clutter = viewClutter(pos, look);
+      const score = (blocked ? 20 : 0) + clutter;
+      if (score < bestScore) {
+        bestScore = score;
+        best = pos.clone();
+        if (score === 0) break;
       }
     }
+    if (best) cam.copy(best);
   }
   let arcBanner: string | null = null;
   let arcStatusLine: string | null = null;
@@ -2075,18 +2127,26 @@ async function bootstrap(): Promise<void> {
               const player = character.getPosition();
               sceneSubjects.push(player.clone().setY(player.y + 1.3), npc.clone().setY(npc.y + 1.4));
               if (who === 'silas') {
-                sceneSubjects.push(
-                  new THREE.Vector3(townArc.millPos.x - 4.4, townArc.millPos.y + 2.8, townArc.millPos.z + 0.2),
-                );
+                const mill = townArc.millPos;
+                sceneSubjects.push(new THREE.Vector3(mill.x - 4.4, mill.y + 2.8, mill.z + 0.2));
+                sceneSubjects.push(new THREE.Vector3(mill.x, mill.y + 2.4, mill.z + 0.4));
+                renderer.camera.position.set(mill.x + 7.2, mill.y + 3.1, mill.z + 11.2);
+                sceneLook.set(mill.x - 0.6, mill.y + 2.5, mill.z + 1.0);
+              } else {
+                sceneLook.copy(player).add(npc).multiplyScalar(0.5);
+                sceneLook.y += 1.3;
               }
-              sceneLook.copy(player).add(npc).multiplyScalar(0.5);
-              sceneLook.y += who === 'silas' ? 2.15 : 1.3;
             }
           }
           if (sceneSubjects.length > 0) {
-            clearSceneCamera(renderer.camera.position, sceneLook, sceneSubjects);
+            const mill = townArc.millPos;
+            const keepFront =
+              dialogue?.treeId === 'silas'
+                ? (pos: THREE.Vector3) => pos.z > mill.z + 7 && pos.x > mill.x + 1.5
+                : undefined;
+            clearSceneCamera(renderer.camera.position, sceneLook, sceneSubjects, keepFront);
             renderer.camera.lookAt(sceneLook);
-            fadeFoliageNear(renderer.camera.position, 2.6);
+            fadeFoliageNear(renderer.camera.position, 9);
           } else {
             fadeFoliageNear(null);
           }
@@ -2373,7 +2433,7 @@ async function bootstrap(): Promise<void> {
         renderer.hemi.intensity = 0;
         renderer.ambient.color.setRGB(8 / 255, 8 / 255, 10 / 255);
         renderer.ambient.intensity = 1;
-        renderer.renderer.toneMappingExposure = 0.66;
+        renderer.renderer.toneMappingExposure = 0.74;
         if (renderer.scene.fog instanceof THREE.FogExp2) {
           renderer.scene.fog.color.set(0x050508);
           renderer.scene.fog.density = 0.055;

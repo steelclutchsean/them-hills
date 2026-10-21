@@ -404,7 +404,7 @@ export function fadeFoliageNear(camera: THREE.Vector3 | null, radius = 2.5): voi
     const dz = node.obj.position.z - camera.z;
     if (dx * dx + dy * dy + dz * dz > radiusSq) continue;
     const dist = Math.hypot(dx, dy, dz);
-    const fade = 1 - dist / radius;
+    const fade = dist < 4.5 ? 1 : 1 - (dist - 4.5) / Math.max(0.2, radius - 4.5);
     node.obj.traverse((obj) => {
       if (!(obj instanceof THREE.Mesh)) return;
       const current = obj.material;
@@ -415,8 +415,8 @@ export function fadeFoliageNear(camera: THREE.Vector3 | null, radius = 2.5): voi
       obj.userData.fadeMat = fadeMat;
       if ('opacity' in fadeMat) {
         fadeMat.transparent = true;
-        fadeMat.opacity = 1 - fade * 0.92;
-        fadeMat.depthWrite = fade < 0.35;
+        fadeMat.opacity = fade > 0.85 ? 0.04 : 1 - fade * 0.96;
+        fadeMat.depthWrite = fade < 0.25;
         fadeMat.needsUpdate = true;
       }
       obj.material = fadeMat;

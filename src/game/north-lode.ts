@@ -325,7 +325,7 @@ export function dressNorthLode(group: THREE.Group): void {
   const lampMat = new THREE.MeshStandardMaterial({
     color: 0xffe1a8,
     emissive: 0xffb45a,
-    emissiveIntensity: 0.55,
+    emissiveIntensity: 0.35,
     roughness: 0.4,
   });
   const lights: THREE.PointLight[] = [];
@@ -335,7 +335,7 @@ export function dressNorthLode(group: THREE.Group): void {
     const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), lampMat);
     lamp.name = i === 2 ? 'drift-lantern' : `drift-lantern-${i}`;
     lamp.position.set(0, 1.92, z);
-    const light = new THREE.PointLight(0xffb46a, 6.5, 6.2, 2);
+    const light = new THREE.PointLight(0xffe2cc, 4.2, 6.0, 2);
     light.position.set(0, 1.78, z);
     light.castShadow = false;
     lamps.push(lamp);
@@ -394,7 +394,7 @@ export function dressNorthLode(group: THREE.Group): void {
   cart.position.set(0, 0.08, -3.4);
   group.add(cart);
 
-  const bearer = new THREE.PointLight(0xffd2a0, 0, 5.2, 2);
+  const bearer = new THREE.PointLight(0xffe2cc, 0, 4.6, 2);
   bearer.name = 'bearer-lantern';
   group.add(bearer);
 
@@ -684,7 +684,7 @@ export function setDriftBearer(group: THREE.Group, local: THREE.Vector3 | null):
     return;
   }
   rig.bearer.position.copy(local);
-  rig.bearer.intensity = 3.2;
+  rig.bearer.intensity = 1.5;
 }
 
 /** Eye height inside the air of the drift, looking deeper in. */
@@ -748,7 +748,7 @@ export function updateNorthLode(group: THREE.Group, time: number, creak: number,
   if (!rig) return;
   const flicker = 0.82 + Math.sin(time * 9.5) * 0.08 + Math.sin(time * 23) * 0.04;
   rig.lights.forEach((light, i) => {
-    light.intensity = (6.2 + flicker * 1.4 + Math.sin(time * 7 + i) * 0.35) * (rig.phase === 'blast' && rig.t < 0.2 ? 0.35 : 1);
+    light.intensity = (4.0 + flicker * 0.55 + Math.sin(time * 7 + i) * 0.18) * (rig.phase === 'blast' && rig.t < 0.2 ? 0.35 : 1);
   });
   rig.lamps.forEach((lamp) => {
     const mat = lamp.material as THREE.MeshStandardMaterial;
