@@ -409,7 +409,7 @@ def main() -> None:
     # The Celtic, forest, and synthesized placeholder renders used to live
     # here. Running them again would replace the single-key score and the
     # field recordings. Round 2 is tools/audio/render_round2.py.
-    raise SystemExit("This renderer is retired. Run tools/audio/render_round2.py")
+    raise SystemExit("This renderer is retired. Run tools/audio/render_sampled.py")
 
 
 if __name__ == "__main__":

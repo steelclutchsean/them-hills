@@ -3,8 +3,9 @@
 
 The score is one arrangement of "Oh! Susanna" (Stephen Foster, 1848, public
 domain) in D major at 84 BPM. Every stem is the same 16 bars, so the game
-can bring layers in on a bar line without a key or tempo change. The
-performance itself was written for Them Hills and is dedicated to CC0.
+can bring layers in on a bar line without a key or tempo change. The sampled
+render lives in render_sampled.py. This file still holds the arrangement
+and the field-recording helpers that renderer imports. Do not run it.
 
 Field recordings are read from /tmp/audio-src/round2 (downloaded once, not
 committed). Re-running needs those files. Outputs land in public/audio/.
@@ -582,17 +583,9 @@ def render_field(tmp: Path) -> None:
 
 
 def main() -> None:
-    tmp = SRC / "rendered"
-    tmp.mkdir(parents=True, exist_ok=True)
-    for sub in ("music", "ambience", "sfx", "ir"):
-        (OUT / sub).mkdir(parents=True, exist_ok=True)
-    render_score(tmp)
-    render_field(tmp)
-    total = 0
-    for path in sorted(OUT.rglob("*")):
-        if path.is_file():
-            total += path.stat().st_size
-    print(f"public/audio {total / 1024:.0f} KiB")
+    # Synthesis and the Flemish town bed used to be written here. Running
+    # them again would replace the sampled stems and the town street loop.
+    raise SystemExit("This renderer is retired. Run tools/audio/render_sampled.py")
 
 
 if __name__ == "__main__":
