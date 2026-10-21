@@ -639,7 +639,9 @@ test('drift, blast, cave-in, flood, and fire stay in frame', async ({ page }) =>
 });
 
 test('audio system initializes and mix settings persist', async ({ page }) => {
-  test.setTimeout(180_000);
+  // Two full boots. On software GL the first claim test spends about three
+  // minutes on one boot, so 180s closed the page during the second mix check.
+  test.setTimeout(360_000);
   const errors = trackErrors(page);
   await page.goto('/');
   await page.waitForSelector('#boot-start', { timeout: 90_000 });
