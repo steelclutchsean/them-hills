@@ -2847,6 +2847,7 @@ async function bootstrap(): Promise<void> {
       publishProbe();
     },
     render: () => {
+      renderer.renderer.info.reset();
       renderer.render();
       presentedFrames += 1;
       if (presentedFrames === 2) spawnGrass();

@@ -49,6 +49,9 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererBundle {
   renderer.toneMappingExposure = RENDER_QUALITY.exposure;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // The composer renders several passes. Leave the counter alone so the
+  // frame budget can read the sum, and reset it once at the start of the frame.
+  renderer.info.autoReset = false;
 
   const scene = new THREE.Scene();
   scene.background = null;
