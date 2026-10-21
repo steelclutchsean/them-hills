@@ -7,8 +7,8 @@ import { createRng } from './rng';
 // across the terrain to break up the polygonal hill silhouette and add the
 // lived-in detail the bare heightmap was missing.
 //
-// Each blade is a single triangle (3 verts, 1 face) in local space, rooted
-// at the origin and pointing up to ~0.5m. Per-instance attributes carry the
+// Each blade is a bent ribbon in local space, rooted at the origin and
+// pointing up to ~0.5m. Per-instance attributes carry the
 // world offset, Y rotation, scale, and a per-blade phase so wind ripples
 // don't move in lockstep. A small custom shader sways the tip with sin(time)
 // scaled by a tip-bias so the base stays anchored.
@@ -27,7 +27,10 @@ const BASE_VS = /* glsl */ `
   uniform float uBladeHeight;
   uniform float uWindAmp;
   varying vec3 vColor;
+  varying vec3 vWorld;
+  #include <common>
   #include <fog_pars_vertex>
+  #include <shadowmap_pars_vertex>
 
   void main() {
     vec3 pos = position * aScale;
@@ -40,15 +43,21 @@ const BASE_VS = /* glsl */ `
     float s = sin(aRotY);
     vec3 rotated = vec3(c * pos.x + s * pos.z, pos.y, -s * pos.x + c * pos.z);
     vec3 worldPos = aOffset + rotated;
+    vWorld = worldPos;
     vec3 baseCol = mix(aColorBase, aColorTip, tipBias);
     float hemiW = mix(0.45, 0.92, tipBias);
     vec3 gi = uAmbientColor * (uAmbientIntensity * 0.7)
             + mix(uHemiGround, uHemiSky, hemiW) * uHemiIntensity;
-    // Cheap subsurface: tips catch the sun even when the blade faces away.
     vec3 lit = baseCol * (gi + uSunColor * uSunIntensity * 0.5);
     lit += baseCol * uSunColor * uSunIntensity * tipBias * 0.22;
     vColor = lit;
-    vec4 mvPosition = viewMatrix * vec4(worldPos, 1.0);
+    vec4 worldPosition = vec4(worldPos, 1.0);
+    #ifdef USE_SHADOWMAP
+      #if NUM_DIR_LIGHT_SHADOWS > 0
+        vDirectionalShadowCoord[0] = directionalShadowMatrix[0] * worldPosition;
+      #endif
+    #endif
+    vec4 mvPosition = viewMatrix * worldPosition;
     gl_Position = projectionMatrix * mvPosition;
     #include <fog_vertex>
   }
@@ -56,10 +65,30 @@ const BASE_VS = /* glsl */ `
 
 const BASE_FS = /* glsl */ `
   varying vec3 vColor;
+  varying vec3 vWorld;
+  #include <common>
+  #include <packing>
   #include <fog_pars_fragment>
+  #include <shadowmap_pars_fragment>
   void main() {
-    gl_FragColor = vec4(vColor, 1.0);
+    float shadow = 1.0;
+    #ifdef USE_SHADOWMAP
+      #if NUM_DIR_LIGHT_SHADOWS > 0
+        shadow = getShadow(
+          directionalShadowMap[0],
+          directionalLightShadows[0].shadowMapSize,
+          directionalLightShadows[0].shadowIntensity,
+          directionalLightShadows[0].shadowBias,
+          directionalLightShadows[0].shadowRadius,
+          vDirectionalShadowCoord[0]
+        );
+      #endif
+    #endif
+    shadow = mix(0.42, 1.0, shadow);
+    gl_FragColor = vec4(vColor * shadow, 1.0);
     #include <fog_fragment>
+    float mist = (1.0 - smoothstep(-2.0, 6.5, vWorld.y)) * 0.1;
+    gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, mist);
   }
 `;
 
@@ -92,6 +121,8 @@ export interface GrassField {
     ambientColor: THREE.Color;
     ambientIntensity: number;
   }): void;
+  /** Drop blades from the end. Cannot grow past the count allocated at creation. */
+  setCount(count: number): void;
 }
 
 export function createGrassField(terrain: Terrain, opts: GrassFieldOpts): GrassField {
@@ -108,16 +139,34 @@ export function createGrassField(terrain: Terrain, opts: GrassFieldOpts): GrassF
     tipColor = { r: [0.42, 0.52], g: [0.55, 0.73], b: [0.16, 0.24] },
   } = opts;
 
-  // Single-triangle blade in local space — base centered on origin, tip up.
+  // Bent ribbon: a short fold so a blade reads as a stroke, not a shard.
+  const hw = bladeHalfBase;
+  const h = bladeHeight;
   const baseGeom = new THREE.BufferGeometry();
   baseGeom.setAttribute(
     'position',
     new THREE.BufferAttribute(
-      new Float32Array([-bladeHalfBase, 0, 0, bladeHalfBase, 0, 0, 0, bladeHeight, 0]),
+      new Float32Array([
+        -hw,
+        0,
+        0,
+        hw,
+        0,
+        0,
+        -hw * 0.62,
+        h * 0.58,
+        0.035,
+        hw * 0.62,
+        h * 0.58,
+        0.035,
+        0,
+        h,
+        0.01,
+      ]),
       3,
     ),
   );
-  baseGeom.setIndex([0, 1, 2]);
+  baseGeom.setIndex([0, 1, 3, 0, 3, 2, 2, 3, 4]);
 
   // Per-instance attributes
   const offsets = new Float32Array(count * 3);
@@ -172,12 +221,14 @@ export function createGrassField(terrain: Terrain, opts: GrassFieldOpts): GrassF
   // since per-instance offsets aren't part of the local geometry bounds.
   instGeom.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), extent * 1.5);
 
-  const uniforms = THREE.UniformsUtils.clone(THREE.UniformsLib.fog) as Record<
-    string,
-    THREE.IUniform
-  >;
-  uniforms.uBladeHeight = { value: bladeHeight };
-  uniforms.uWindAmp = { value: windAmplitude };
+  const uniforms = THREE.UniformsUtils.merge([
+    THREE.UniformsLib.fog,
+    THREE.UniformsLib.lights,
+    {
+      uBladeHeight: { value: bladeHeight },
+      uWindAmp: { value: windAmplitude },
+    },
+  ]) as Record<string, THREE.IUniform>;
   bindFrameUniforms(uniforms);
 
   const material = new THREE.ShaderMaterial({
@@ -187,15 +238,19 @@ export function createGrassField(terrain: Terrain, opts: GrassFieldOpts): GrassF
     fragmentShader: BASE_FS,
     side: THREE.DoubleSide,
     fog: true,
+    lights: true,
   });
 
   const mesh = new THREE.Mesh(instGeom, material);
   mesh.frustumCulled = false; // per-instance offsets defeat AABB culling
   mesh.castShadow = false;
-  mesh.receiveShadow = false;
+  mesh.receiveShadow = true;
 
   return {
     mesh,
+    setCount(count: number) {
+      instGeom.instanceCount = Math.max(0, Math.min(placed, Math.floor(count)));
+    },
     update(_state) {
       // Sun, hemisphere, and time are the shared frame uniform block.
     },

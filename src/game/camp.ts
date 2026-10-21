@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { addCampWorks } from '@/game/structures';
 
 // Camp NPC. Player walks up, presses INTERACT — meters refill to full and
 // game time advances ~4 hours. No cost. Visually a stone-ringed campfire
@@ -68,6 +69,7 @@ export function createCamp(
   embers.position.y = 0.16;
   embers.scale.set(1, 0.45, 1);
   group.add(embers);
+  addCampWorks(group);
 
   // Interact halo on the ground
   const ringGeom = new THREE.TorusGeometry(0.7, 0.04, 6, 24);

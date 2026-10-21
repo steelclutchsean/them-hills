@@ -49,6 +49,7 @@ export interface ThemHillsProbe {
   error: string | null;
   frameLuma: number;
   peakCarryGrams: number;
+  graphics: string;
   save: () => Promise<void>;
   /** Teleport to a named review camera. Returns false for an unknown name. */
   applyShot?: (name: string) => boolean;

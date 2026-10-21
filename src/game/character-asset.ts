@@ -41,6 +41,7 @@ export interface CharacterRig {
   elbowR: BoneJoint;
   handL: BoneJoint;
   handR: BoneJoint;
+  showTool(tool: 'none' | 'shovel' | 'pan'): void;
   hipL: BoneJoint;
   hipR: BoneJoint;
   kneeL: BoneJoint;
@@ -102,15 +103,16 @@ export async function loadCharacter(): Promise<CharacterRig> {
     return [b];
   };
 
-  // Procedural head + hat on the Head bone.
   const headBone = bones.get('Head');
   if (headBone) {
-    headBone.add(createProceduralHead());
+    headBone.add(createProspectorHead());
     headBone.add(createProspectorHat());
   }
+  const tools = attachHandTools(bones.get('hand_r'));
 
   return {
     group: wrapper,
+    showTool: tools.show,
     spine: makeJoint(find('spine_02')),
     head: makeJoint(find('Head')),
     shoulderL: makeJoint(find('upperarm_l')),
@@ -126,27 +128,123 @@ export async function loadCharacter(): Promise<CharacterRig> {
   };
 }
 
-// Procedural skin-toned head — slightly oval sphere with no painted features.
-// Sits on top of the Head bone; the cowboy hat covers most of the upper portion
-// from typical 3rd-person camera distance. We can revisit detail (eyes, mouth,
-// beard) later or swap in a proper rigged head asset.
-function createProceduralHead(): THREE.Group {
+// Built head: skull, jaw, ears, nose, eyes, brows, mouth, and a short beard.
+// Parent the Head bone. The hat still covers the crown.
+function createProspectorHead(): THREE.Group {
   const group = new THREE.Group();
-  group.name = 'procedural_head';
+  group.name = 'prospector_head';
+  const skin = new THREE.MeshStandardMaterial({ color: SKIN_COLOR, roughness: 0.72 });
+  const beardMat = new THREE.MeshStandardMaterial({ color: 0x6a4330, roughness: 0.9 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x1c140f, roughness: 0.45 });
+  const white = new THREE.MeshStandardMaterial({ color: 0xf4efe6, roughness: 0.35 });
+  const brow = new THREE.MeshStandardMaterial({ color: 0x4a3024, roughness: 0.8 });
 
-  const matSkin = new THREE.MeshStandardMaterial({
-    color: SKIN_COLOR,
-    flatShading: false,
-    roughness: 0.85,
-  });
-
-  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.105, 18, 14), matSkin);
-  skull.scale.set(1.0, 1.08, 0.95);
-  skull.position.y = 0.05;
+  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 14), skin);
+  skull.scale.set(1.02, 1.12, 0.96);
+  skull.position.y = 0.06;
   skull.castShadow = true;
   group.add(skull);
 
+  const jaw = new THREE.Mesh(new THREE.SphereGeometry(0.072, 12, 10), skin);
+  jaw.scale.set(0.95, 0.72, 0.9);
+  jaw.position.set(0, -0.02, -0.02);
+  group.add(jaw);
+
+  const earGeom = new THREE.SphereGeometry(0.028, 8, 6);
+  const earL = new THREE.Mesh(earGeom, skin);
+  earL.scale.set(0.55, 1, 0.7);
+  earL.position.set(0.095, 0.04, 0);
+  group.add(earL);
+  const earR = earL.clone();
+  earR.position.x = -0.095;
+  group.add(earR);
+
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.022, 8, 6), skin);
+  nose.scale.set(0.8, 1.1, 1.3);
+  nose.position.set(0, 0.02, -0.09);
+  group.add(nose);
+
+  const eyeWhite = new THREE.SphereGeometry(0.016, 8, 6);
+  const eyeL = new THREE.Mesh(eyeWhite, white);
+  eyeL.position.set(0.032, 0.045, -0.082);
+  group.add(eyeL);
+  const eyeR = eyeL.clone();
+  eyeR.position.x = -0.032;
+  group.add(eyeR);
+  const pupil = new THREE.SphereGeometry(0.008, 6, 6);
+  const pL = new THREE.Mesh(pupil, dark);
+  pL.position.set(0.032, 0.044, -0.094);
+  group.add(pL);
+  const pR = pL.clone();
+  pR.position.x = -0.032;
+  group.add(pR);
+
+  const browGeom = new THREE.BoxGeometry(0.028, 0.006, 0.008);
+  const bL = new THREE.Mesh(browGeom, brow);
+  bL.position.set(0.032, 0.068, -0.086);
+  bL.rotation.z = -0.25;
+  group.add(bL);
+  const bR = bL.clone();
+  bR.position.x = -0.032;
+  bR.rotation.z = 0.25;
+  group.add(bR);
+
+  const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.006, 0.008), dark);
+  mouth.position.set(0, -0.028, -0.078);
+  group.add(mouth);
+
+  const beard = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 8), beardMat);
+  beard.scale.set(0.85, 0.7, 0.55);
+  beard.position.set(0, -0.05, -0.03);
+  group.add(beard);
+
   return group;
+}
+
+function attachHandTools(hand: THREE.Object3D | undefined): {
+  show(tool: 'none' | 'shovel' | 'pan'): void;
+} {
+  const shovel = new THREE.Group();
+  shovel.name = 'held-shovel';
+  const handle = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.012, 0.014, 0.85, 6),
+    new THREE.MeshStandardMaterial({ color: 0x6b4630, roughness: 0.9 }),
+  );
+  handle.position.y = 0.42;
+  shovel.add(handle);
+  const blade = new THREE.Mesh(
+    new THREE.BoxGeometry(0.16, 0.18, 0.02),
+    new THREE.MeshStandardMaterial({ color: 0xb7a48c, metalness: 0.35, roughness: 0.45 }),
+  );
+  blade.position.y = 0.9;
+  shovel.add(blade);
+  shovel.visible = false;
+
+  const pan = new THREE.Group();
+  pan.name = 'held-pan';
+  const bowl = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.16, 0.11, 0.05, 12),
+    new THREE.MeshStandardMaterial({ color: 0x8d7764, metalness: 0.4, roughness: 0.4 }),
+  );
+  bowl.rotation.x = 0.6;
+  pan.add(bowl);
+  pan.visible = false;
+
+  // Hand bone local axes are not world axes. A small offset puts the
+  // grip in the palm for the dig and pan poses.
+  shovel.position.set(0, 0, 0);
+  shovel.rotation.x = 0.55;
+  pan.position.set(0.02, 0.06, 0.04);
+  if (hand) {
+    hand.add(shovel);
+    hand.add(pan);
+  }
+  return {
+    show(tool) {
+      shovel.visible = tool === 'shovel';
+      pan.visible = tool === 'pan';
+    },
+  };
 }
 
 // Procedural prospector hat. Sits on top of the Head bone — local Y is upward

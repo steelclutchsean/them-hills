@@ -14,8 +14,8 @@ const GradeShader = {
   name: 'Grade',
   uniforms: {
     tDiffuse: { value: null as THREE.Texture | null },
-    uSaturation: { value: 1.08 },
-    uVignette: { value: 0.34 },
+    uSaturation: { value: 1.18 },
+    uVignette: { value: 0.22 },
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -33,6 +33,12 @@ const GradeShader = {
       vec3 col = texture2D(tDiffuse, vUv).rgb;
       float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));
       col = mix(vec3(luma), col, uSaturation);
+      // Sierra poster grade: teal shade, warm highlights.
+      vec3 shadowTint = vec3(0.9, 0.98, 1.02);
+      vec3 highTint = vec3(1.05, 0.98, 0.92);
+      float lift = smoothstep(0.05, 0.7, luma);
+      col *= mix(shadowTint, highTint, lift);
+      col = pow(max(col, vec3(0.0)), vec3(0.9));
       vec2 p = vUv * 2.0 - 1.0;
       float vig = smoothstep(1.25, 0.28, dot(p, p));
       col *= mix(1.0 - uVignette, 1.0, vig);

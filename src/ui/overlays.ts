@@ -35,6 +35,7 @@ export function reportBoot(pct: number, label: string): Promise<void> {
 export function mountOverlays(opts: {
   onResume: () => void;
   onSettings: () => void;
+  onQuality?: (name: 'low' | 'medium' | 'high' | 'ultra') => void;
 }): OverlayController {
   const boot = document.getElementById('boot');
   const actions = document.getElementById('boot-actions');
@@ -63,6 +64,7 @@ export function mountOverlays(opts: {
     }
     scrim.hidden = false;
     card.hidden = false;
+    document.exitPointerLock?.();
     card.textContent = '';
     if (id === 'map') {
       const note = document.createElement('p');
@@ -108,6 +110,23 @@ export function mountOverlays(opts: {
       });
       row.append(resume, settings);
       card.appendChild(row);
+      const quality = document.createElement('div');
+      quality.className = 'panel-actions';
+      const label = document.createElement('p');
+      label.textContent = 'Graphics';
+      card.appendChild(label);
+      for (const name of ['low', 'medium', 'high', 'ultra'] as const) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.dataset.quality = name;
+        button.textContent = name[0]!.toUpperCase() + name.slice(1);
+        button.addEventListener('click', () => {
+          document.documentElement.dataset.quality = name;
+          opts.onQuality?.(name);
+        });
+        quality.appendChild(button);
+      }
+      card.appendChild(quality);
     }
   }
 

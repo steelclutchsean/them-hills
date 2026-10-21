@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { upgradeLoadedMaterials } from '@/render/materials';
+import { installFoliageWind, stylizeKit } from '@/render/painterly';
 
 // glTF asset cache + a typed registry of available models.
 //
@@ -22,6 +23,8 @@ export function loadModel(url: string): Promise<THREE.Group> {
         url,
         (gltf) => {
           upgradeLoadedMaterials(gltf.scene);
+          stylizeKit(gltf.scene);
+          installFoliageWind();
           resolve(gltf.scene);
         },
         undefined,

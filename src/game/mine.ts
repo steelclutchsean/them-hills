@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { addMineWorks } from '@/game/structures';
+import { kitRockMaterial, stoneMaterial } from '@/render/painterly';
 import { RAPIER } from '@/physics/world';
 import type { PanningSite } from './stream';
 
@@ -166,20 +168,7 @@ function caveStoneMaterials(): {
   dark: THREE.MeshStandardMaterial;
 } {
   if (caveStone) return caveStone;
-  const loader = new THREE.TextureLoader();
-  const rockTex = loader.load('assets/textures/namaqualand_boulder_02_diff_4k.jpg');
-  rockTex.colorSpace = THREE.SRGBColorSpace;
-  rockTex.wrapS = THREE.RepeatWrapping;
-  rockTex.wrapT = THREE.RepeatWrapping;
-  rockTex.anisotropy = 8;
-  rockTex.repeat.set(2.2, 1.2);
-  const rockDark = rockTex.clone();
-  rockDark.needsUpdate = true;
-  rockDark.repeat.set(1.6, 1.1);
-  caveStone = {
-    stone: new THREE.MeshStandardMaterial({ map: rockTex, color: 0xc8c2b8, roughness: 0.92 }),
-    dark: new THREE.MeshStandardMaterial({ map: rockDark, color: 0x8a8680, roughness: 0.96 }),
-  };
+  caveStone = { stone: stoneMaterial(), dark: kitRockMaterial() };
   return caveStone;
 }
 
@@ -253,6 +242,7 @@ export function createMineEntrance(
     boardGroup.add(board);
   }
   group.add(boardGroup);
+  addMineWorks(group, config.displayName);
 
   // ---- Cave interior (always visible through the gaps in the boards) ----
   // Coordinates relative to the group; positive Z is "into the hill".

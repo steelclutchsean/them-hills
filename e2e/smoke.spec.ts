@@ -1,11 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
 
-declare global {
-  interface Window {
-    __themHills?: Probe & { save(): Promise<void> };
-  }
-}
-
 interface Probe {
   ready: boolean;
   phase: string;
@@ -16,6 +10,7 @@ interface Probe {
   error: string | null;
   frameLuma: number;
   peakCarryGrams: number;
+  graphics?: string;
   applyShot?: (name: string) => boolean;
   audio?: {
     context: string;
@@ -27,6 +22,12 @@ interface Probe {
     cue: string;
     surface: string;
   };
+}
+
+declare global {
+  interface Window {
+    __themHills?: Probe & { save(): Promise<void> };
+  }
 }
 
 function trackErrors(page: Page): string[] {
@@ -72,6 +73,7 @@ async function waitReady(page: Page): Promise<Probe> {
 }
 
 test('boots, guides the first claim, and the panels respond', async ({ page }) => {
+  test.setTimeout(240_000);
   const errors = trackErrors(page);
   await page.goto('/');
   await expect(page.locator('#boot-status')).toBeVisible();
@@ -106,6 +108,11 @@ test('boots, guides the first claim, and the panels respond', async ({ page }) =
   await expect(page.locator('.panel-map-note')).toBeHidden();
   await page.keyboard.press('Escape');
   await expect(page.locator('.panel-card h2')).toHaveText('Paused');
+  await expect(page.locator('[data-quality="high"]')).toBeVisible();
+  await page.evaluate(() => document.exitPointerLock());
+  await page.locator('[data-quality="medium"]').click();
+  await page.waitForFunction(() => document.documentElement.dataset.quality === 'medium');
+  await page.waitForFunction(() => window.__themHills?.graphics === 'medium');
   await page.keyboard.press('Escape');
 
   const origin = (await readProbe(page)).position;
@@ -184,9 +191,19 @@ test('plays the prospect loop and reloads the save', async ({ page }) => {
 });
 
 test('captures fixed cameras', async ({ page }) => {
-  test.setTimeout(150_000);
+  test.setTimeout(240_000);
   const errors = trackErrors(page);
-  const shots = ['spawn', 'creek', 'camp', 'dusk', 'night', 'dawn'] as const;
+  const shots = [
+    'spawn',
+    'creek',
+    'camp',
+    'dusk',
+    'night',
+    'dawn',
+    'inn',
+    'creekbank',
+    'prospector',
+  ] as const;
   await page.goto('/?shot=spawn');
   await waitReady(page);
   for (const shot of shots) {
@@ -228,9 +245,11 @@ test('audio system initializes and mix settings persist', async ({ page }) => {
 
   await page.keyboard.press('Escape');
   await expect(page.locator('.panel-card h2')).toHaveText('Paused');
-  await page.locator('.panel-actions button', { hasText: 'Settings' }).evaluate((el: HTMLButtonElement) => {
-    el.click();
-  });
+  await page
+    .locator('.panel-actions button', { hasText: 'Settings' })
+    .evaluate((el: HTMLButtonElement) => {
+      el.click();
+    });
   const music = page.locator('input[data-audio="music"]');
   await expect(page.locator('.settings-panel')).toBeVisible();
   await music.evaluate((el) => {
@@ -253,9 +272,11 @@ test('audio system initializes and mix settings persist', async ({ page }) => {
     { timeout: 15_000 },
   );
   await page.keyboard.press('Escape');
-  await page.locator('.panel-actions button', { hasText: 'Settings' }).evaluate((el: HTMLButtonElement) => {
-    el.click();
-  });
+  await page
+    .locator('.panel-actions button', { hasText: 'Settings' })
+    .evaluate((el: HTMLButtonElement) => {
+      el.click();
+    });
   await expect(page.locator('.settings-panel')).toBeVisible();
   await expect(page.locator('input[data-audio="music"]')).toHaveValue('0.25');
   const restored = await page.evaluate(() => window.__themHills?.audio);

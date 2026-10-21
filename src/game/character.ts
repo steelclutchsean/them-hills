@@ -14,6 +14,7 @@ import {
   applyWalk,
 } from './character-animations';
 import { loadCharacter, type CharacterRig } from './character-asset';
+import { getReviewPose } from '@/dev/review-shots';
 
 // Movement, jump, gravity, stamina, a state machine for animation selection,
 // and a rigged glTF character (Quaternius "Universal Base Characters"). Animations
@@ -206,8 +207,17 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
     group.position.set(t.x, t.y, t.z);
     group.rotation.y = yaw;
 
+    const reviewPose = getReviewPose();
+    const posed: ProspectingActivity | null =
+      reviewPose === 'dig' || reviewPose === 'pan' ? { step: reviewPose, progress: 0.5 } : activity;
+
+    if (posed?.step === 'dig') rig.showTool('shovel');
+    else if (posed?.step === 'pan') rig.showTool('pan');
+    else rig.showTool('none');
+
     // Animation dispatch — task overlay wins over movement state.
-    if (activity) {
+    if (posed) {
+      activity = posed;
       switch (activity.step) {
         case 'dig':
           applyDig(rig, time, activity.progress);

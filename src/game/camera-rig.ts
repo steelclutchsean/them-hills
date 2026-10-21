@@ -47,6 +47,7 @@ export interface CameraRig {
   getPitch(): number;
   /** Snap the rig. Used by the review-shot harness between screenshots. */
   setYawPitch(yaw: number, pitch: number): void;
+  setArmLength(length: number): void;
 }
 
 const X_AXIS = new THREE.Vector3(1, 0, 0);
@@ -59,7 +60,7 @@ export function bearingFromYaw(yawRad: number): number {
 }
 
 export function createCameraRig(opts: CameraRigOpts): CameraRig {
-  const armLength = opts.armLength ?? 5;
+  let armLength = opts.armLength ?? 5;
   const pivotHeight = opts.pivotHeight ?? 1.4;
 
   const camera = opts.camera;
@@ -138,6 +139,10 @@ export function createCameraRig(opts: CameraRigOpts): CameraRig {
     setYawPitch(nextYaw, nextPitch) {
       yaw = nextYaw;
       pitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, nextPitch));
+      shownDistance = armLength;
+    },
+    setArmLength(length: number) {
+      armLength = Math.max(MIN_CAMERA_DISTANCE, length);
       shownDistance = armLength;
     },
   };

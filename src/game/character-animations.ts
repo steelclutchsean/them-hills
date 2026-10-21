@@ -155,14 +155,114 @@ export function applyLanded(rig: CharacterRig, time: number, _t01: number, smoot
   applyAirborneCycle(rig, time, smoothing);
 }
 
-// ----- Prospecting — rest pose for now. Iterate once arms-down is dialed in. -----
+// Dig and pan are keyframe clips: a short list of poses sampled by time.
+// Deltas are added on top of the arm-down rest, same as the walk cycle.
+type Vec3 = readonly [number, number, number];
+interface DigKey {
+  t: number;
+  shoulderL: Vec3;
+  shoulderR: Vec3;
+  elbowL: Vec3;
+  elbowR: Vec3;
+  spine: Vec3;
+  kneeL: number;
+  kneeR: number;
+}
+
+const DIG_CLIP: readonly DigKey[] = [
+  {
+    t: 0,
+    shoulderL: [-1.5, 0, 0],
+    shoulderR: [-1.5, 0, 0],
+    elbowL: [0, 0, 0],
+    elbowR: [0, 0, 0],
+    spine: [0, 0, 0],
+    kneeL: 0,
+    kneeR: 0,
+  },
+  {
+    t: 0.28,
+    shoulderL: [-0.2, 0.2, 0.4],
+    shoulderR: [-0.15, -0.2, -0.35],
+    elbowL: [0.9, 0, 0],
+    elbowR: [0.8, 0, 0],
+    spine: [0.35, 0, 0],
+    kneeL: 0.2,
+    kneeR: 0.15,
+  },
+  {
+    t: 0.48,
+    shoulderL: [-1.7, 0.1, 0.2],
+    shoulderR: [-1.8, -0.1, -0.15],
+    elbowL: [0.15, 0, 0],
+    elbowR: [0.1, 0, 0],
+    spine: [0.7, 0, 0],
+    kneeL: 0.45,
+    kneeR: 0.4,
+  },
+  {
+    t: 0.78,
+    shoulderL: [-1.4, 0, 0.1],
+    shoulderR: [-1.45, 0, -0.1],
+    elbowL: [0.2, 0, 0],
+    elbowR: [0.2, 0, 0],
+    spine: [0.2, 0, 0],
+    kneeL: 0.1,
+    kneeR: 0.1,
+  },
+  {
+    t: 1.15,
+    shoulderL: [-1.5, 0, 0],
+    shoulderR: [-1.5, 0, 0],
+    elbowL: [0, 0, 0],
+    elbowR: [0, 0, 0],
+    spine: [0, 0, 0],
+    kneeL: 0,
+    kneeR: 0,
+  },
+];
+
+function sampleClip(keys: readonly DigKey[], time: number): DigKey {
+  const duration = keys[keys.length - 1]!.t;
+  const t = time % duration;
+  let i = 0;
+  while (i < keys.length - 2 && keys[i + 1]!.t < t) i++;
+  const a = keys[i]!;
+  const b = keys[i + 1]!;
+  const span = Math.max(0.0001, b.t - a.t);
+  const u = (t - a.t) / span;
+  const mix = (x: number, y: number) => x + (y - x) * u;
+  const mix3 = (x: Vec3, y: Vec3): Vec3 => [mix(x[0], y[0]), mix(x[1], y[1]), mix(x[2], y[2])];
+  return {
+    t,
+    shoulderL: mix3(a.shoulderL, b.shoulderL),
+    shoulderR: mix3(a.shoulderR, b.shoulderR),
+    elbowL: mix3(a.elbowL, b.elbowL),
+    elbowR: mix3(a.elbowR, b.elbowR),
+    spine: mix3(a.spine, b.spine),
+    kneeL: mix(a.kneeL, b.kneeL),
+    kneeR: mix(a.kneeR, b.kneeR),
+  };
+}
+
+function applyKeyed(rig: CharacterRig, pose: DigKey, smoothing: number): void {
+  applyDelta(rig.spine, pose.spine[0], pose.spine[1], pose.spine[2], smoothing);
+  applyDelta(rig.shoulderL, pose.shoulderL[0], pose.shoulderL[1], pose.shoulderL[2], smoothing);
+  applyDelta(rig.shoulderR, pose.shoulderR[0], pose.shoulderR[1], pose.shoulderR[2], smoothing);
+  applyDelta(rig.elbowL, pose.elbowL[0], pose.elbowL[1], pose.elbowL[2], smoothing);
+  applyDelta(rig.elbowR, pose.elbowR[0], pose.elbowR[1], pose.elbowR[2], smoothing);
+  applyDelta(rig.kneeL, pose.kneeL, 0, 0, smoothing);
+  applyDelta(rig.kneeR, pose.kneeR, 0, 0, smoothing);
+}
+
 export function applyDig(
   rig: CharacterRig,
-  _time: number,
+  time: number,
   _progress: number,
-  smoothing = 0.3,
+  smoothing = 0.45,
 ): void {
   applyRestPose(rig, smoothing);
+  applyKeyed(rig, sampleClip(DIG_CLIP, time), smoothing);
 }
 
 export function applyClassify(
@@ -174,13 +274,67 @@ export function applyClassify(
   applyRestPose(rig, smoothing);
 }
 
+const PAN_CLIP: readonly DigKey[] = [
+  {
+    t: 0,
+    shoulderL: [-0.7, 0.35, 0.5],
+    shoulderR: [-0.55, -0.4, -0.45],
+    elbowL: [0.7, 0, 0],
+    elbowR: [0.85, 0, 0],
+    spine: [0.25, 0.15, 0],
+    kneeL: 0.15,
+    kneeR: 0.1,
+  },
+  {
+    t: 0.5,
+    shoulderL: [-0.55, -0.2, 0.2],
+    shoulderR: [-0.7, 0.25, -0.2],
+    elbowL: [0.9, 0, 0],
+    elbowR: [0.7, 0, 0],
+    spine: [0.3, -0.2, 0],
+    kneeL: 0.1,
+    kneeR: 0.2,
+  },
+  {
+    t: 1.0,
+    shoulderL: [-0.8, 0.4, 0.55],
+    shoulderR: [-0.5, -0.45, -0.5],
+    elbowL: [0.65, 0, 0],
+    elbowR: [0.95, 0, 0],
+    spine: [0.22, 0.22, 0],
+    kneeL: 0.2,
+    kneeR: 0.08,
+  },
+  {
+    t: 1.5,
+    shoulderL: [-0.6, 0.1, 0.3],
+    shoulderR: [-0.65, -0.1, -0.3],
+    elbowL: [0.8, 0, 0],
+    elbowR: [0.8, 0, 0],
+    spine: [0.28, 0, 0],
+    kneeL: 0.12,
+    kneeR: 0.12,
+  },
+  {
+    t: 2.0,
+    shoulderL: [-0.7, 0.35, 0.5],
+    shoulderR: [-0.55, -0.4, -0.45],
+    elbowL: [0.7, 0, 0],
+    elbowR: [0.85, 0, 0],
+    spine: [0.25, 0.15, 0],
+    kneeL: 0.15,
+    kneeR: 0.1,
+  },
+];
+
 export function applyPan(
   rig: CharacterRig,
-  _time: number,
+  time: number,
   _progress: number,
   smoothing = 0.4,
 ): void {
   applyRestPose(rig, smoothing);
+  applyKeyed(rig, sampleClip(PAN_CLIP, time), smoothing);
 }
 
 export function applyCollect(

@@ -1,5 +1,13 @@
 # Them Hills — overhaul roadmap
 
+## Round 2 — Sierra poster
+
+The world is one painted palette: dry-grass gold, pine green, sunbaked dirt, creek teal, warm dust in the distance. Photo ground maps and the Quaternius albedo maps are no longer what you see. Cabins, shop counters, a camp sluice, and mine headframes replace the box shells. Grass and water sample the shadow map. The creek has a raised lip, foam, a sky reflection, and caustics. The prospector has a built face, a dig clip, a pan clip, and tools in hand. Light shafts, valley mist, and dust or fireflies fill the air. Terrain is sixteen frustum-culled chunks. The pause menu has Low / Medium / High / Ultra, auto-detected, stored in localStorage (not the save).
+
+Still weak, on purpose until a later pass: the buildings are procedural timber, not a scanned set. Water reflection is a fresnel tint, not a grab of the scene. There is no SSAO. Dig and pan are authored keyframe poses. Trees are culled by distance, not a mesh LOD chain. The quality preset does not respawn scatter that was already placed.
+
+Gameplay events live in `src/game/events.ts` (`onGameplay` / `emitGameplay`). The current synth still plays; an audio pass can subscribe without editing the mixer.
+
 The game is already a full prospecting loop (explore, four-step dig, carry gold, sell, upgrade, quests, mines, day and night, weather, IndexedDB saves). The gap this pass went after was presentation, and the live playtest showed a new player never reaches that loop.
 
 Save schema stays at version 4. Existing saves load.

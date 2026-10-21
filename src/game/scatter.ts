@@ -47,6 +47,26 @@ export interface ScatterResult {
 
 const TERRAIN_EXTENT_HALF = 95; // a bit inside the 100×100 half-extent to keep models off the edge
 
+const swayNodes: { obj: THREE.Object3D; phase: number; baseX: number; baseZ: number }[] = [];
+
+/** Whole-tree sway plus a distance cull. Grass wind is separate. */
+export function updateScatterWind(time: number, camera: THREE.Vector3): void {
+  for (const node of swayNodes) {
+    const dx = node.obj.position.x - camera.x;
+    const dz = node.obj.position.z - camera.z;
+    const dist = Math.hypot(dx, dz);
+    node.obj.visible = dist < 98;
+    if (!node.obj.visible) continue;
+    const cast = dist < 42;
+    node.obj.traverse((child) => {
+      if (child instanceof THREE.Mesh) child.castShadow = cast;
+    });
+    const amp = dist > 60 ? 0 : 0.012;
+    node.obj.rotation.z = node.baseZ + Math.sin(time * 0.7 + node.phase) * amp;
+    node.obj.rotation.x = node.baseX + Math.cos(time * 0.55 + node.phase) * amp * 0.6;
+  }
+}
+
 const defaultSample = (rng: Rng): { x: number; z: number } => ({
   x: rng.range(-TERRAIN_EXTENT_HALF, TERRAIN_EXTENT_HALF),
   z: rng.range(-TERRAIN_EXTENT_HALF, TERRAIN_EXTENT_HALF),
@@ -97,6 +117,12 @@ export async function scatterAssets(
     if (yawRandom) inst.rotation.y = rng.range(0, Math.PI * 2);
     inst.scale.setScalar(worldScale);
     configureShadows(inst, shadowCast, shadowReceive);
+    swayNodes.push({
+      obj: inst,
+      phase: rng.next() * Math.PI * 2,
+      baseX: inst.rotation.x,
+      baseZ: inst.rotation.z,
+    });
     root.add(inst);
     if (exclusionRadius) {
       positions.push({ x, z, radius: exclusionRadius(worldScale) });

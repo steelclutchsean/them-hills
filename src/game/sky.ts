@@ -87,9 +87,9 @@ const KEY_PALETTES: { hour: number; palette: SkyPalette }[] = [
   {
     hour: 12,
     palette: {
-      bg: 0x88aacc,
-      fog: 0x9bb8d3,
-      sunColor: 0xffffff,
+      bg: 0x7ea4c4,
+      fog: 0xc6b48a,
+      sunColor: 0xfff0d2,
       sunIntensity: 1.15,
       ambientColor: 0xffffff,
       ambientIntensity: 0.55,
@@ -278,11 +278,13 @@ export function createSkyController(opts: {
     // for standard materials; custom shaders read both from the frame block.
     ambient.color.set(p.ambientColor);
     ambient.intensity = ambientIntensity * 0.72;
-    _ground.set(0x3c4a2e);
-    _ground.lerp(_fog, 0.4);
+    // Warm dirt bounce so shade is not a flat grey. The fog still pulls
+    // the fill toward the sky color at the horizon.
+    _ground.set(0x8a5a32);
+    _ground.lerp(_fog, 0.28);
     hemi.color.copy(_bg);
     hemi.groundColor.copy(_ground);
-    hemi.intensity = ambientIntensity * 0.9;
+    hemi.intensity = ambientIntensity * 1.05;
 
     // Sun arc: 0° at sunrise (east horizon), 90° at noon (overhead),
     // 180° at sunset (west horizon), 270° at midnight (below ground).
