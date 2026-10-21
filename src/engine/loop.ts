@@ -7,6 +7,12 @@ export interface GameLoopOptions {
   render(): void;
   /** Default 1/60s. */
   fixedStep?: number;
+  /**
+   * Longest real-time gap one frame is allowed to feed the accumulator.
+   * Default 0.25s so a backgrounded tab cannot spiral. The playtest pilot
+   * raises this so a multi-second shader compile still advances the sim.
+   */
+  maxFrameDt?: number;
 }
 
 export interface GameLoop {
@@ -16,6 +22,7 @@ export interface GameLoop {
 
 export function createGameLoop(opts: GameLoopOptions): GameLoop {
   const fixedStep = opts.fixedStep ?? 1 / 60;
+  const maxFrameDt = opts.maxFrameDt ?? 0.25;
   let running = false;
   let last = 0;
   let accumulator = 0;
@@ -26,7 +33,7 @@ export function createGameLoop(opts: GameLoopOptions): GameLoop {
     let dt = (now - last) / 1000;
     last = now;
     // Clamp dt after a long pause (e.g., tab switch) to avoid spiral-of-death.
-    if (dt > 0.25) dt = 0.25;
+    if (dt > maxFrameDt) dt = maxFrameDt;
     accumulator += dt;
     while (accumulator >= fixedStep) {
       opts.update(fixedStep);

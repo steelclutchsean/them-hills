@@ -126,6 +126,7 @@ export function createInputManager(): InputManager {
     },
     poll() {
       gp.poll();
+      kb.consumeEdges();
       const { dx, dy } = kb.consumeMouseDelta();
       frameMouseDx = dx;
       frameMouseDy = dy;

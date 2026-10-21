@@ -60,11 +60,7 @@ export function createExtractMeterView(): ExtractMeterView {
   const fleckMat = new THREE.MeshBasicMaterial({ color: 0xffd96a });
   for (let i = 0; i < 5; i++) {
     const fleck = new THREE.Mesh(new THREE.SphereGeometry(0.006, 6, 5), fleckMat);
-    fleck.position.set(
-      (Math.random() - 0.5) * 0.05,
-      (Math.random() - 0.5) * 0.035,
-      0.022,
-    );
+    fleck.position.set((Math.random() - 0.5) * 0.05, (Math.random() - 0.5) * 0.035, 0.022);
     chunkGroup.add(fleck);
   }
   chunkGroup.position.set(0, -0.04, 0);

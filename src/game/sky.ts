@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createAtmosphere, type Atmosphere, type SkyGrade } from '@/render/atmosphere';
 import type { WeatherView } from './weather';
 
 // Day/night cycle. The world clock advances 1:1 with real time (worldTime
@@ -17,6 +18,14 @@ const START_HOUR_OFFSET = 8; // start the world at 08:00, not midnight
 
 export function getSkyHour(worldTime: number): number {
   return ((((worldTime / SKY_SECONDS_PER_DAY) * 24 + START_HOUR_OFFSET) % 24) + 24) % 24;
+}
+
+/** Inverse of getSkyHour, used by dev review bookmarks. */
+export function worldTimeForSkyHour(hour: number): number {
+  const wrapped = ((hour % 24) + 24) % 24;
+  let worldTime = ((wrapped - START_HOUR_OFFSET) / 24) * SKY_SECONDS_PER_DAY;
+  if (worldTime < 0) worldTime += SKY_SECONDS_PER_DAY;
+  return worldTime;
 }
 
 interface SkyPalette {
@@ -78,9 +87,9 @@ const KEY_PALETTES: { hour: number; palette: SkyPalette }[] = [
   {
     hour: 12,
     palette: {
-      bg: 0x88aacc,
-      fog: 0x9bb8d3,
-      sunColor: 0xffffff,
+      bg: 0x7ea4c4,
+      fog: 0xc6b48a,
+      sunColor: 0xfff0d2,
       sunIntensity: 1.15,
       ambientColor: 0xffffff,
       ambientIntensity: 0.55,
@@ -188,13 +197,34 @@ export interface SkyController {
 
 const WEATHER_TINT = new THREE.Color(0x6a7080);
 
+const _ground = new THREE.Color(0x3c4a2e);
+const _grade: SkyGrade = {
+  horizon: new THREE.Color(),
+  sunColor: new THREE.Color(),
+  sunDirection: new THREE.Vector3(),
+  cloudCover: 0.3,
+  starStrength: 0,
+  ground: new THREE.Color(),
+};
+
+function smooth01(edge0: number, edge1: number, x: number): number {
+  const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+}
+
 export function createSkyController(opts: {
   scene: THREE.Scene;
+  camera: THREE.Camera;
   ambient: THREE.AmbientLight;
+  hemi: THREE.HemisphereLight;
   sun: THREE.DirectionalLight;
   renderer: THREE.WebGLRenderer;
+  onGrade?: (grade: SkyGrade) => void;
 }): SkyController {
-  const { scene, ambient, sun, renderer } = opts;
+  const { scene, camera, ambient, hemi, sun, renderer, onGrade } = opts;
+  const atmosphere: Atmosphere = createAtmosphere(camera);
+  // The dome is the background. A solid scene.background would fight it.
+  scene.background = null;
   let lastHour = START_HOUR_OFFSET;
 
   function update(worldTime: number, weather?: WeatherView): void {
@@ -224,26 +254,59 @@ export function createSkyController(opts: {
       sun.color.set(p.sunColor);
     }
 
-    if (scene.background instanceof THREE.Color) {
-      scene.background.copy(_bg);
-    } else {
-      scene.background = _bg.clone();
-    }
-    if (scene.fog instanceof THREE.Fog) {
-      scene.fog.color.copy(_fog);
-    }
-    renderer.setClearColor(_bg);
-
-    sun.intensity = sunIntensity;
-    ambient.color.set(p.ambientColor);
-    ambient.intensity = ambientIntensity;
-
-    // Sun arc: 0° at sunrise (east horizon), 90° at noon (overhead),
-    // 180° at sunset (west horizon), 270° at midnight (below ground).
+    // Exponential fog. Density rises at night and in weather so the map
+    // edge stays hidden without a hard linear wall at noon.
     const theta = ((hour - 6) / 24) * Math.PI * 2;
     const sx = Math.cos(theta);
     const sy = Math.sin(theta);
-    sun.position.set(sx * 100, sy * 100, 30);
+    const elev = sy;
+    let density = 0.0072 + smooth01(0.4, -0.15, elev) * 0.0045;
+    let cloudCover = 0.28;
+    if (weather && weather.intensity > 0 && weather.state !== 'clear') {
+      const storm = weather.state === 'rain';
+      density += weather.intensity * (storm ? 0.011 : 0.005);
+      cloudCover = (storm ? 0.78 : 0.58) + weather.intensity * 0.18;
+    }
+    if (scene.fog instanceof THREE.FogExp2) {
+      scene.fog.color.copy(_fog);
+      scene.fog.density = density;
+    }
+    renderer.setClearColor(_fog);
+
+    sun.intensity = sunIntensity;
+    // Ambient is the flat fill. Hemisphere carries the sky/ground split
+    // for standard materials; custom shaders read both from the frame block.
+    ambient.color.set(p.ambientColor);
+    ambient.intensity = ambientIntensity * 0.72;
+    // Warm dirt bounce so shade is not a flat grey. The fog still pulls
+    // the fill toward the sky color at the horizon.
+    _ground.set(0x8a5a32);
+    _ground.lerp(_fog, 0.28);
+    hemi.color.copy(_bg);
+    hemi.groundColor.copy(_ground);
+    hemi.intensity = ambientIntensity * 1.05;
+
+    // Sun arc: 0° at sunrise (east horizon), 90° at noon (overhead),
+    // 180° at sunset (west horizon), 270° at midnight (below ground).
+    // Position is the arc only. main.ts slides it onto the player for shadows.
+    sun.position.set(sx * 100, Math.max(sy, -0.15) * 100, 30);
+
+    const starStrength = smooth01(0.12, -0.18, elev) * (1 - Math.min(1, cloudCover) * 0.85);
+    // Night tone-mapping lift so the moonlit hills stay readable. Caves
+    // still crush the lights after this runs.
+    const night = smooth01(0.18, -0.2, elev);
+    let exposure = 1.02 + night * 0.34;
+    if (weather && weather.state !== 'clear') exposure *= 1 - weather.intensity * 0.1;
+    renderer.toneMappingExposure = exposure;
+
+    _grade.horizon.copy(_fog);
+    _grade.sunColor.copy(sun.color);
+    _grade.sunDirection.set(sx, sy, 0.3).normalize();
+    _grade.cloudCover = cloudCover;
+    _grade.starStrength = starStrength;
+    _grade.ground.copy(_ground);
+    atmosphere.update(_grade, worldTime);
+    onGrade?.(_grade);
   }
 
   return {

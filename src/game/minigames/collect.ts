@@ -180,7 +180,8 @@ export function createCollectMinigame(): Minigame {
               z: -0.5 + best.f.y * PAN_RADIUS_VIZ * 0.3,
             },
             0xffe26a,
-            10,
+            12,
+            'spark',
           );
           effects.shake(0.006, 0.08);
         }
@@ -198,9 +199,7 @@ export function createCollectMinigame(): Minigame {
         washInitiated = true;
       }
 
-      const collected = flakes.filter(
-        (f) => f.state !== 'present' && f.suckProgress >= 1,
-      ).length;
+      const collected = flakes.filter((f) => f.state !== 'present' && f.suckProgress >= 1).length;
       // For the "washed away" flakes (state=collecting but suckProgress<1)
       // we exclude them from the collected count — they don't score.
       const timeRemaining = Math.max(0, STAGE_DURATION_SEC - sessionTime);

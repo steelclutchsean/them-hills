@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Them Hills — a 3D third-person prospecting RPG/sim." />
     <title>Them Hills</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
     <style>
       html,
       body {
@@ -38,11 +40,137 @@
         font-weight: 600;
         margin-bottom: 4px;
       }
+      #boot {
+        position: fixed;
+        inset: 0;
+        z-index: 40;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background:
+          radial-gradient(ellipse at 50% 30%, rgba(200, 155, 59, 0.18), transparent 55%), #141a22;
+        pointer-events: auto;
+      }
+      #boot[hidden] {
+        display: none;
+      }
+      .boot-card {
+        width: min(440px, calc(100vw - 32px));
+        padding: 28px 28px 22px;
+        border: 1px solid rgba(200, 155, 59, 0.45);
+        border-radius: 14px;
+        background: rgba(8, 10, 14, 0.88);
+        box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+      }
+      .boot-kicker {
+        margin: 0;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: #c89b3b;
+        font-size: 12px;
+      }
+      .boot-card h1 {
+        margin: 6px 0 12px;
+        font-size: 32px;
+        font-weight: 650;
+      }
+      #boot-status {
+        margin: 0 0 14px;
+        color: rgba(255, 255, 255, 0.82);
+        line-height: 1.45;
+      }
+      .boot-track {
+        height: 8px;
+        border-radius: 99px;
+        background: rgba(255, 255, 255, 0.08);
+        overflow: hidden;
+      }
+      #boot-fill {
+        width: 4%;
+        height: 100%;
+        background: #c89b3b;
+      }
+      .boot-controls,
+      .panel-card ul {
+        margin: 8px 0 16px;
+        padding-left: 18px;
+        color: rgba(255, 255, 255, 0.82);
+        line-height: 1.55;
+      }
+      #boot-start,
+      .panel-actions button {
+        font: inherit;
+        color: #1a1408;
+        background: #e2c27a;
+        border: 0;
+        border-radius: 8px;
+        padding: 10px 16px;
+        cursor: pointer;
+        font-weight: 650;
+      }
+      .panel-scrim {
+        position: fixed;
+        inset: 0;
+        z-index: 30;
+        background: rgba(6, 8, 12, 0.45);
+        pointer-events: none;
+      }
+      .panel-card {
+        position: fixed;
+        z-index: 31;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: min(440px, calc(100vw - 32px));
+        max-height: min(80vh, 640px);
+        overflow: auto;
+        padding: 22px 24px;
+        border-radius: 14px;
+        border: 1px solid rgba(200, 155, 59, 0.45);
+        background: rgba(8, 10, 14, 0.94);
+        pointer-events: auto;
+      }
+      .panel-card h2 {
+        margin: 0 0 8px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: #c89b3b;
+        font-size: 14px;
+      }
+      .panel-actions {
+        display: flex;
+        gap: 8px;
+      }
+      body[data-map='1'] .panel-card {
+        top: 18px;
+        transform: translateX(-50%);
+        background: transparent;
+        border: 0;
+        box-shadow: none;
+      }
+      .panel-map-note {
+        margin: 0;
+        text-align: center;
+        color: #f5d088;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+      }
+      #panel-inventory p {
+        margin: 6px 0;
+      }
     </style>
   </head>
   <body>
     <canvas id="game-canvas"></canvas>
     <div id="hud"></div>
+    <div id="boot">
+      <div class="boot-card">
+        <p class="boot-kicker">Prospecting</p>
+        <h1>Them Hills</h1>
+        <p id="boot-status">Waking the hills…</p>
+        <div class="boot-track"><div id="boot-fill"></div></div>
+        <div id="boot-actions" hidden></div>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

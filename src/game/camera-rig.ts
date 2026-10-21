@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RAPIER } from '@/physics/world';
 import type { LookDelta } from '@/input/manager';
+import { fadeObstacles } from '@/game/obstacles';
 
 // Third-person spring-arm camera. Pivot at character head height; camera sits behind
 // at armLength, with yaw/pitch driven by getLookDelta. A Rapier ray-cast from the
@@ -20,10 +21,10 @@ import type { LookDelta } from '@/input/manager';
 // read getYaw() for its movement basis, then placeCamera() runs after physics step
 // to position the camera using the character's final translation.
 
-const PITCH_MIN = -0.45;
-const PITCH_MAX = 1.35;
-const RAY_BUFFER = 0.25;
-const MIN_CAMERA_DISTANCE = 0.6;
+const PITCH_MIN = -0.35;
+const PITCH_MAX = 1.02;
+const RAY_BUFFER = 0.3;
+const MIN_CAMERA_DISTANCE = 0.85;
 
 export interface CameraRigOpts {
   camera: THREE.PerspectiveCamera;
@@ -36,9 +37,17 @@ export interface CameraRigOpts {
 export interface CameraRig {
   camera: THREE.PerspectiveCamera;
   applyLook(look: LookDelta): void;
-  placeCamera(targetPos: THREE.Vector3, world: RAPIER.World, excludeColliderHandle: number): void;
+  placeCamera(
+    targetPos: THREE.Vector3,
+    world: RAPIER.World,
+    excludeColliderHandle: number,
+    dt: number,
+  ): void;
   getYaw(): number;
   getPitch(): number;
+  /** Snap the rig. Used by the review-shot harness between screenshots. */
+  setYawPitch(yaw: number, pitch: number): void;
+  setArmLength(length: number): void;
 }
 
 const X_AXIS = new THREE.Vector3(1, 0, 0);
@@ -51,7 +60,7 @@ export function bearingFromYaw(yawRad: number): number {
 }
 
 export function createCameraRig(opts: CameraRigOpts): CameraRig {
-  const armLength = opts.armLength ?? 5;
+  let armLength = opts.armLength ?? 5;
   const pivotHeight = opts.pivotHeight ?? 1.4;
 
   const camera = opts.camera;
@@ -60,8 +69,10 @@ export function createCameraRig(opts: CameraRigOpts): CameraRig {
 
   const offset = new THREE.Vector3();
   const pivot = new THREE.Vector3();
+  const desiredCam = new THREE.Vector3();
   const rayOrigin = new RAPIER.Vector3(0, 0, 0);
   const rayDir = new RAPIER.Vector3(0, 0, 0);
+  let shownDistance = armLength;
 
   return {
     camera,
@@ -73,7 +84,7 @@ export function createCameraRig(opts: CameraRigOpts): CameraRig {
       if (pitch < PITCH_MIN) pitch = PITCH_MIN;
       else if (pitch > PITCH_MAX) pitch = PITCH_MAX;
     },
-    placeCamera(targetPos, world, excludeColliderHandle) {
+    placeCamera(targetPos, world, excludeColliderHandle, dt) {
       pivot.set(targetPos.x, targetPos.y + pivotHeight, targetPos.z);
 
       offset.set(0, 0, armLength);
@@ -84,8 +95,10 @@ export function createCameraRig(opts: CameraRigOpts): CameraRig {
       const dirY = offset.y / armLength;
       const dirZ = offset.z / armLength;
 
+      // Lift the ray off the ground so a slope under the pivot doesn't
+      // report a zero-length hit and pin the camera overhead.
       rayOrigin.x = pivot.x;
-      rayOrigin.y = pivot.y;
+      rayOrigin.y = pivot.y + 0.35;
       rayOrigin.z = pivot.z;
       rayDir.x = dirX;
       rayDir.y = dirY;
@@ -95,17 +108,42 @@ export function createCameraRig(opts: CameraRigOpts): CameraRig {
       const excludeCollider = world.getCollider(excludeColliderHandle);
       const hit = world.castRay(ray, armLength, true, undefined, undefined, excludeCollider);
 
-      const distance =
-        hit !== null ? Math.max(MIN_CAMERA_DISTANCE, hit.timeOfImpact - RAY_BUFFER) : armLength;
+      let desired = armLength;
+      if (hit !== null && hit.timeOfImpact > 0.35) {
+        desired = Math.max(MIN_CAMERA_DISTANCE, hit.timeOfImpact - RAY_BUFFER);
+      }
+
+      desiredCam.set(pivot.x + dirX * desired, pivot.y + dirY * desired, pivot.z + dirZ * desired);
+      const treeHit = fadeObstacles(pivot, desiredCam);
+      if (treeHit !== null && treeHit > 0.35 && treeHit < desired) {
+        desired = Math.max(MIN_CAMERA_DISTANCE, treeHit - RAY_BUFFER);
+      }
+
+      // Pull in immediately when something is in the way; ease back out
+      // so the arm doesn't stick at the shortened distance.
+      if (desired < shownDistance) shownDistance = desired;
+      else {
+        const t = 1 - Math.exp(-8 * Math.max(0, dt));
+        shownDistance += (desired - shownDistance) * t;
+      }
 
       camera.position.set(
-        pivot.x + dirX * distance,
-        pivot.y + dirY * distance,
-        pivot.z + dirZ * distance,
+        pivot.x + dirX * shownDistance,
+        pivot.y + dirY * shownDistance,
+        pivot.z + dirZ * shownDistance,
       );
       camera.lookAt(pivot);
     },
     getYaw: () => yaw,
     getPitch: () => pitch,
+    setYawPitch(nextYaw, nextPitch) {
+      yaw = nextYaw;
+      pitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, nextPitch));
+      shownDistance = armLength;
+    },
+    setArmLength(length: number) {
+      armLength = Math.max(MIN_CAMERA_DISTANCE, length);
+      shownDistance = armLength;
+    },
   };
 }

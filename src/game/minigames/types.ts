@@ -14,11 +14,19 @@ export interface MinigameAudio {
   playFlakeCollect(): void;
 }
 
+/** How a minigame burst should move and blend. */
+export type BurstStyle = 'mote' | 'dirt' | 'spark' | 'droplet';
+
 /** Visual-effects surface — sparks, screen shake. Decoupled the same
  *  way audio is. Minigames trigger; main loop ticks the underlying
  *  particle pool and applies shake to the camera. */
 export interface MinigameEffects {
-  burst(origin: { x: number; y: number; z: number }, color: number, count?: number): void;
+  burst(
+    origin: { x: number; y: number; z: number },
+    color: number,
+    count?: number,
+    style?: BurstStyle,
+  ): void;
   shake(intensity: number, durationSec?: number): void;
 }
 

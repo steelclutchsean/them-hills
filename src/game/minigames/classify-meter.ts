@@ -83,12 +83,7 @@ export function createClassifyMeterView(): ClassifyMeterView {
       const t = viz.lastTapFlashSec / FLASH_DURATION_SEC;
       flashMat.opacity = 0.45 * (1 - t);
       // Tint by tap quality: green for good (≥1.5), yellow (≥1.0), red.
-      const c =
-        viz.lastTapScore >= 1.5
-          ? 0x9bf08c
-          : viz.lastTapScore >= 1.0
-            ? 0xfff2b0
-            : 0xff8b6b;
+      const c = viz.lastTapScore >= 1.5 ? 0x9bf08c : viz.lastTapScore >= 1.0 ? 0xfff2b0 : 0xff8b6b;
       flashMat.color.setHex(c);
     } else {
       flashMat.opacity = 0;

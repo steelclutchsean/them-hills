@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { RAPIER } from '@/physics/world';
+import { bindFrameUniforms, FRAME_UNIFORM_GLSL } from '@/render/frame-uniforms';
+import { groundMaps } from '@/render/painterly';
 
 // 200m × 200m heightmap with deterministic rolling-hills generator.
 // Flattens a ~30m radius around the origin so the spawn area is gentle.
@@ -18,17 +20,14 @@ const EXTENT_X = 200;
 const EXTENT_Z = 200;
 const HEIGHT_SCALE = 6;
 
-// Bank shape — same for every channel. The water plane sits at natural
+// Bank shape — same for every channel. The water surface sits at natural
 // ground level (WATER_OFFSET_ABOVE_FLOOR == channel depth, defined in
-// stream.ts). The terrain pulls DOWN inside halfWidth (riverbed) so the
-// bed is genuinely below the water plane. Banks stay flush with natural
-// terrain — no raised berm — so water meets the surrounding ground with
-// no step. `BANK_WIDTH` and `BANK_TRANSITION` still define the river-rocks
-// texture zone: the river-rocks diffuse covers water + the BANK_WIDTH past
-// the water edge, then a smooth BANK_TRANSITION blend to forest-floor.
-const BANK_WIDTH = 1.6; // meters past halfWidth where rocks texture stays solid
-const BANK_HEIGHT = 0; // flush water — no raised bank
-const BANK_TRANSITION = 2.4; // meters past bank zone where rocks → forest
+// stream.ts). The terrain pulls DOWN inside halfWidth so the bed is below
+// the surface, then rises a lip of BANK_HEIGHT across BANK_WIDTH. The
+// gravel splat covers that lip and fades to grass across BANK_TRANSITION.
+const BANK_WIDTH = 2.2; // meters past halfWidth where the gravel lip stays
+const BANK_HEIGHT = 1.15; // raised berm so the creek has a readable bank
+const BANK_TRANSITION = 2.6; // meters past the lip where gravel fades to grass
 
 export type ChannelOrientation = 'NS' | 'EW';
 
@@ -42,21 +41,12 @@ export interface ChannelConfig {
   depth: number;
 }
 
-export interface TerrainLightingState {
-  sunDirection: THREE.Vector3;
-  sunColor: THREE.Color;
-  sunIntensity: number;
-  ambientColor: THREE.Color;
-  ambientIntensity: number;
-}
-
 export interface Terrain {
-  mesh: THREE.Mesh;
+  /** Chunked visual meshes. The physics collider stays one heightfield. */
+  mesh: THREE.Group;
   collider: RAPIER.Collider;
   /** Ground height at world (x, z), bilinear interpolated. Matches the Rapier collider. */
   getHeightAt(x: number, z: number): number;
-  /** Push the latest sun + ambient lighting to the terrain shader uniforms. */
-  updateLighting(state: TerrainLightingState): void;
 }
 
 /** Column-major index: heights[i + j * nrows] where i = row (Z), j = col (X). */
@@ -145,40 +135,52 @@ function generateHeights(channels: readonly ChannelConfig[]): Float32Array {
 }
 
 const TERRAIN_VS = /* glsl */ `
-  attribute vec3 color;
   attribute float aBankMask;
   varying vec3 vWorld;
   varying vec3 vNormal;
   varying vec3 vColor;
   varying float vBankMask;
+
+  #include <common>
+  #include <shadowmap_pars_vertex>
+  #include <fog_pars_vertex>
+
   void main() {
-    vec4 worldPos = modelMatrix * vec4(position, 1.0);
-    vWorld = worldPos.xyz;
-    vNormal = normalize(normalMatrix * normal);
+    #include <beginnormal_vertex>
+    #include <defaultnormal_vertex>
+    // World-space normal. The previous shader dotted a view-space normal
+    // against a world-space sun, so the hills relit as the camera orbited.
+    vNormal = normalize(mat3(modelMatrix) * objectNormal);
+
+    #include <begin_vertex>
+    #include <project_vertex>
+    #include <worldpos_vertex>
+    vWorld = worldPosition.xyz;
     vColor = color;
     vBankMask = aBankMask;
-    gl_Position = projectionMatrix * viewMatrix * worldPos;
+
+    #include <shadowmap_vertex>
+    #include <fog_vertex>
   }
 `;
 
-// Two diffuses sampled in world space and blended by the per-vertex
-// bank-mask attribute. The forest-floor diffuse covers the open terrain;
-// the river-rocks diffuse covers the riverbed under the water plane and
-// the rising banks. Both are sampled at two scales and mixed by a slow
-// noise so the player doesn't see a visible repeating grid.
+// Painted splat. Grass, dirt, gravel, and rock are triplanar samples of
+// the Sierra palette, weighted by slope, height, and the creek bank mask.
 const TERRAIN_FS = /* glsl */ `
-  uniform vec3 uSunDir;
-  uniform vec3 uSunColor;
-  uniform float uSunIntensity;
-  uniform vec3 uAmbientColor;
-  uniform float uAmbientIntensity;
-  uniform sampler2D uDiffuseGround;
-  uniform sampler2D uDiffuseRocks;
-  uniform float uTileScale;
+  ${FRAME_UNIFORM_GLSL}
+  uniform sampler2D uGrass;
+  uniform sampler2D uDirt;
+  uniform sampler2D uGravel;
+  uniform sampler2D uRock;
   varying vec3 vWorld;
   varying vec3 vNormal;
   varying vec3 vColor;
   varying float vBankMask;
+
+  #include <common>
+  #include <packing>
+  #include <fog_pars_fragment>
+  #include <shadowmap_pars_fragment>
 
   float hash(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -194,46 +196,102 @@ const TERRAIN_FS = /* glsl */ `
     return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
   }
 
-  vec3 sampleTwoScales(sampler2D tex, vec2 worldXZ) {
-    vec2 uvSmall = worldXZ * uTileScale;
-    vec2 uvLarge = worldXZ * (uTileScale * 0.25) + vec2(0.37, 0.81);
-    vec3 small = texture2D(tex, uvSmall).rgb;
-    vec3 large = texture2D(tex, uvLarge).rgb;
-    float blend = noise(worldXZ * 0.04);
-    return mix(small, large, blend * 0.5);
+  vec3 triplanar(sampler2D tex, vec3 pos, vec3 n) {
+    vec3 w = abs(n);
+    w = pow(w, vec3(3.0));
+    w /= max(w.x + w.y + w.z, 1e-4);
+    vec3 x = texture2D(tex, pos.zy * 0.18).rgb;
+    vec3 y = texture2D(tex, pos.xz * 0.18).rgb;
+    vec3 z = texture2D(tex, pos.xy * 0.18).rgb;
+    return x * w.x + y * w.y + z * w.z;
   }
 
   void main() {
     vec2 worldXZ = vWorld.xz;
-
-    vec3 ground = sampleTwoScales(uDiffuseGround, worldXZ);
-    vec3 rocks  = sampleTwoScales(uDiffuseRocks, worldXZ);
-
-    // The bank mask is interpolated by the GPU across the triangle, but the
-    // raw 0..1 ramp can read as a flat fade. A slight smoothstep on top
-    // gives the rocks zone slightly harder edges where it meets the forest.
+    vec3 n0 = normalize(vNormal);
+    float slope = 1.0 - clamp(n0.y, 0.0, 1.0);
     float maskShaped = smoothstep(0.05, 0.95, vBankMask);
-    vec3 tex = mix(ground, rocks, maskShaped);
 
-    // Tint by per-vertex color (meadow / hill / cliff / sand). vColor sits
-    // roughly in (0.3..0.6) per channel so multiplying by 2.1 puts neutral
-    // around 1.0; sand/cliff vertices pull the texture warmer or browner.
-    vec3 base = tex * vColor * 2.1;
+    vec3 grass = triplanar(uGrass, vWorld, n0);
+    vec3 dirt = triplanar(uDirt, vWorld, n0);
+    vec3 gravel = triplanar(uGravel, vWorld, n0);
+    vec3 rock = triplanar(uRock, vWorld, n0);
 
-    float upDot = clamp(vNormal.y, 0.0, 1.0);
-    base *= mix(0.55, 1.0, upDot);
+    float rockW = smoothstep(0.22, 0.62, slope);
+    float grassW = (1.0 - rockW) * (1.0 - maskShaped) * smoothstep(0.15, 0.0, slope);
+    float gravelW = maskShaped * (1.0 - rockW * 0.35);
+    float dirtW = (1.0 - grassW) * (1.0 - rockW) * (1.0 - gravelW * 0.65);
+    float sumW = max(grassW + dirtW + gravelW + rockW, 1e-3);
+    vec3 tex = (grass * grassW + dirt * dirtW + gravel * gravelW + rock * rockW) / sumW;
 
-    float lambert = max(0.0, dot(vNormal, uSunDir));
-    vec3 lit = base * (uAmbientColor * uAmbientIntensity + uSunColor * uSunIntensity * lambert * 0.85);
+    // Vertex color is a mild biome brightness, not a second photograph.
+    vec3 albedo = tex * mix(vec3(1.08), vColor * 1.15, 0.12);
+    float macro = noise(worldXZ * 0.012);
+    float mottle = noise(worldXZ * 0.045 + 4.0);
+    albedo *= mix(0.78, 1.22, macro);
+    albedo.r *= mix(0.92, 1.12, mottle);
+    albedo.g *= mix(1.08, 0.9, mottle);
+    float rough = mix(0.92, 0.72, maskShaped);
+
+    // Detail normal from the same hash noise, added in world XZ so lighting
+    // breaks up the heightfield's large facets without extra vertices.
+    float e = 0.42;
+    float h0 = noise(worldXZ * 1.8);
+    float hx = noise((worldXZ + vec2(e, 0.0)) * 1.8);
+    float hz = noise((worldXZ + vec2(0.0, e)) * 1.8);
+    vec3 n = normalize(vNormal + vec3((h0 - hx) * 2.4, 0.0, (h0 - hz) * 2.4));
+
+    float shadow = 1.0;
+    #ifdef USE_SHADOWMAP
+      #if NUM_DIR_LIGHT_SHADOWS > 0
+        shadow = getShadow(
+          directionalShadowMap[0],
+          directionalLightShadows[0].shadowMapSize,
+          directionalLightShadows[0].shadowIntensity,
+          directionalLightShadows[0].shadowBias,
+          directionalLightShadows[0].shadowRadius,
+          vDirectionalShadowCoord[0]
+        );
+      #endif
+    #endif
+    // Keep a readable floor. Pitch-black shade fights the stylized kit.
+    shadow = mix(0.38, 1.0, shadow);
+
+    vec3 sunDir = normalize(uSunDir);
+    float wrap = clamp(dot(n, sunDir) * 0.62 + 0.38, 0.0, 1.0);
+    float hemiW = clamp(n.y * 0.5 + 0.5, 0.0, 1.0);
+    vec3 gi = uAmbientColor * (uAmbientIntensity * 0.65)
+            + mix(uHemiGround, uHemiSky, hemiW) * uHemiIntensity;
+    float cavity = mix(0.74, 1.0, smoothstep(0.02, 0.85, n.y));
+    vec3 lit = albedo * cavity * (gi + uSunColor * uSunIntensity * wrap * shadow);
+
+    vec3 viewDir = normalize(cameraPosition - vWorld);
+    vec3 halfDir = normalize(sunDir + viewDir);
+    float specPow = mix(12.0, 72.0, clamp(1.0 - rough, 0.0, 1.0));
+    float spec = pow(max(dot(n, halfDir), 0.0), specPow) * (1.0 - rough);
+    // Banks read wet; open ground stays matte.
+    spec *= shadow * mix(0.03, 0.32, maskShaped);
+    lit += uSunColor * spec * uSunIntensity;
+
+    // Caustics on the wet bed. Scrolling product noise, only where the
+    // bank mask says this vertex is in the channel.
+    float cauA = noise(worldXZ * 2.4 - vec2(uTime * 0.35, uTime * 0.12));
+    float cauB = noise(worldXZ * 4.1 + vec2(uTime * 0.22, -uTime * 0.28));
+    float caustic = smoothstep(0.55, 0.92, cauA * cauB) * maskShaped * shadow;
+    lit += vec3(0.45, 0.85, 0.78) * caustic * uSunIntensity * 0.55;
 
     gl_FragColor = vec4(lit, 1.0);
+    #include <fog_fragment>
+    // Valley mist. Lower ground picks up the fog color even at the camera.
+    float mist = (1.0 - smoothstep(-2.0, 6.5, vWorld.y)) * 0.12;
+    gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, mist);
   }
 `;
 
-const COLOR_MEADOW = new THREE.Color(0x4d6c3a);
-const COLOR_HILL = new THREE.Color(0x617d44);
-const COLOR_CLIFF = new THREE.Color(0x6b5a3e);
-const COLOR_SAND = new THREE.Color(0x9b8e63);
+const COLOR_MEADOW = new THREE.Color(0xc6a84a);
+const COLOR_HILL = new THREE.Color(0x8a9344);
+const COLOR_CLIFF = new THREE.Color(0x8d7764);
+const COLOR_SAND = new THREE.Color(0xc2b39a);
 
 /**
  * Per-vertex coloring + bank-mask attribute. vColor shades meadow / hill /
@@ -337,6 +395,51 @@ function paintVertexColors(
   geom.setAttribute('aBankMask', new THREE.BufferAttribute(bankMasks, 1));
 }
 
+function sliceChunk(
+  source: THREE.BufferGeometry,
+  ix0: number,
+  ix1: number,
+  iy0: number,
+  iy1: number,
+): THREE.BufferGeometry {
+  const pos = source.attributes.position;
+  const normal = source.attributes.normal;
+  const color = source.attributes.color;
+  const bank = source.attributes.aBankMask;
+  if (!pos || !normal || !color || !bank) {
+    throw new Error('[terrain] chunk source is missing attributes');
+  }
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const colors: number[] = [];
+  const banks: number[] = [];
+  const push = (ix: number, iy: number): void => {
+    const i = iy * N + ix;
+    positions.push(pos.getX(i), pos.getY(i), pos.getZ(i));
+    normals.push(normal.getX(i), normal.getY(i), normal.getZ(i));
+    colors.push(color.getX(i), color.getY(i), color.getZ(i));
+    banks.push(bank.getX(i));
+  };
+  for (let iy = iy0; iy < iy1; iy++) {
+    for (let ix = ix0; ix < ix1; ix++) {
+      // Same winding as THREE.PlaneGeometry.
+      push(ix, iy);
+      push(ix, iy + 1);
+      push(ix + 1, iy);
+      push(ix, iy + 1);
+      push(ix + 1, iy + 1);
+      push(ix + 1, iy);
+    }
+  }
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geom.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  geom.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geom.setAttribute('aBankMask', new THREE.Float32BufferAttribute(banks, 1));
+  geom.computeBoundingSphere();
+  return geom;
+}
+
 export function createTerrain(world: RAPIER.World, channels: readonly ChannelConfig[]): Terrain {
   const heights = generateHeights(channels);
 
@@ -355,36 +458,52 @@ export function createTerrain(world: RAPIER.World, channels: readonly ChannelCon
 
   paintVertexColors(geom, heights, channels);
 
-  // Polyhaven 4K diffuses tiled in world space.
-  const textureLoader = new THREE.TextureLoader();
-  const groundTex = textureLoader.load('assets/textures/forrest_ground_01_diff_4k.jpg');
-  groundTex.wrapS = THREE.RepeatWrapping;
-  groundTex.wrapT = THREE.RepeatWrapping;
-  groundTex.colorSpace = THREE.SRGBColorSpace;
-  groundTex.anisotropy = 8;
-  const rocksTex = textureLoader.load('assets/textures/river_small_rocks_diff_4k.jpg');
-  rocksTex.wrapS = THREE.RepeatWrapping;
-  rocksTex.wrapT = THREE.RepeatWrapping;
-  rocksTex.colorSpace = THREE.SRGBColorSpace;
-  rocksTex.anisotropy = 8;
+  const painted = groundMaps();
+  const uniforms = THREE.UniformsUtils.merge([
+    THREE.UniformsLib.fog,
+    THREE.UniformsLib.lights,
+    {
+      uGrass: { value: painted.grass },
+      uDirt: { value: painted.dirt },
+      uGravel: { value: painted.gravel },
+      uRock: { value: painted.rock },
+    },
+  ]);
+  bindFrameUniforms(uniforms);
 
   const terrainMat = new THREE.ShaderMaterial({
-    uniforms: {
-      uSunDir: { value: new THREE.Vector3(0.5, 1, 0.3).normalize() },
-      uSunColor: { value: new THREE.Color(0xffffff) },
-      uSunIntensity: { value: 1.0 },
-      uAmbientColor: { value: new THREE.Color(0xffffff) },
-      uAmbientIntensity: { value: 0.5 },
-      uDiffuseGround: { value: groundTex },
-      uDiffuseRocks: { value: rocksTex },
-      // 0.25 = one tile per 4 world meters.
-      uTileScale: { value: 0.25 },
-    },
+    name: 'Terrain',
+    uniforms,
     vertexShader: TERRAIN_VS,
     fragmentShader: TERRAIN_FS,
+    lights: true,
+    fog: true,
+    vertexColors: true,
   });
-  const mesh = new THREE.Mesh(geom, terrainMat);
-  mesh.receiveShadow = true;
+
+  // Four-by-four chunks of the same grid so the camera can cull hills
+  // that are behind it. Edges share the global vertex indices, so the
+  // tiles meet without a crack. Far chunks are the LOD: they live in the
+  // same material but drop out of the frustum first.
+  const mesh = new THREE.Group();
+  mesh.name = 'terrain';
+  const chunkSegs = SUBDIVS / 4;
+  for (let cz = 0; cz < 4; cz++) {
+    for (let cx = 0; cx < 4; cx++) {
+      const chunk = sliceChunk(
+        geom,
+        cx * chunkSegs,
+        (cx + 1) * chunkSegs,
+        cz * chunkSegs,
+        (cz + 1) * chunkSegs,
+      );
+      const chunkMesh = new THREE.Mesh(chunk, terrainMat);
+      chunkMesh.receiveShadow = true;
+      chunkMesh.name = `terrain-${cx}-${cz}`;
+      mesh.add(chunkMesh);
+    }
+  }
+  geom.dispose();
 
   const scale = new RAPIER.Vector3(EXTENT_X, HEIGHT_SCALE, EXTENT_Z);
   const colliderDesc = RAPIER.ColliderDesc.heightfield(SUBDIVS, SUBDIVS, heights, scale);
@@ -412,13 +531,6 @@ export function createTerrain(world: RAPIER.World, channels: readonly ChannelCon
       const h0 = h00 + (h10 - h00) * tx;
       const h1 = h01 + (h11 - h01) * tx;
       return (h0 + (h1 - h0) * tz) * HEIGHT_SCALE;
-    },
-    updateLighting(state) {
-      (terrainMat.uniforms.uSunDir!.value as THREE.Vector3).copy(state.sunDirection);
-      (terrainMat.uniforms.uSunColor!.value as THREE.Color).copy(state.sunColor);
-      terrainMat.uniforms.uSunIntensity!.value = state.sunIntensity;
-      (terrainMat.uniforms.uAmbientColor!.value as THREE.Color).copy(state.ambientColor);
-      terrainMat.uniforms.uAmbientIntensity!.value = state.ambientIntensity;
     },
   };
 }

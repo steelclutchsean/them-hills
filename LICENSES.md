@@ -62,7 +62,15 @@ All current dependencies are MIT-licensed unless noted. Audit on every `npm inst
 
 ## Textures
 
-(none yet)
+Poly Haven CC0 photogrammetry, vendored under `public/assets/textures/`:
+
+- `forrest_ground_01` diffuse + roughness — terrain albedo and roughness
+- `river_small_rocks` diffuse — stream banks
+- `namaqualand_boulder_02`, `namaqualand_boulder_03`, `rock_moss_set_01` — boulders and mine stone
+
+License: [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/). Source: https://polyhaven.com
+
+The ranger outfit referenced `T_Regular_Male_*` skin maps that were not in the vendored pack. Those URIs now point at the Superhero male skin atlas (`T_Superhero_Male_Normal.png`, `T_Superhero_Male_Dark.png`, `T_Superhero_Male_Roughness.png`), which shares the same body UVs. Still Quaternius CC0.
 
 ---
 

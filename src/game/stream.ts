@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { bindFrameUniforms, FRAME_UNIFORM_GLSL } from '@/render/frame-uniforms';
 import type { Terrain } from './terrain';
 import { createRng } from './rng';
 
@@ -33,9 +34,9 @@ export interface StreamConfig {
 
 const SITE_INTERACT_RADIUS = 1.5;
 
-const DEFAULT_SHALLOW = 0x9bd1d8;
-const DEFAULT_DEEP = 0x355d6b;
-const DEFAULT_FOAM = 0xeef8fa;
+const DEFAULT_SHALLOW = 0x5eb8a8;
+const DEFAULT_DEEP = 0x1c5c62;
+const DEFAULT_FOAM = 0xf4efe2;
 
 // Water plane sits this far above the deepest carved riverbed point.
 // Matches CHANNEL_CONFIGS.depth in main.ts — i.e. water rests at natural
@@ -51,14 +52,6 @@ export interface PanningSite {
   streamYaw: number;
   /** Optional yield multiplier — used by special sites (e.g. cave) to boost rewards. */
   bonusYield?: number;
-}
-
-export interface StreamLightingState {
-  sunDirection: THREE.Vector3;
-  sunColor: THREE.Color;
-  sunIntensity: number;
-  ambientColor: THREE.Color;
-  ambientIntensity: number;
 }
 
 export interface Stream {
@@ -82,24 +75,32 @@ export interface Stream {
    * No-op when called with the same epoch as the current set.
    */
   setEpoch(epoch: number): void;
-  /** Push sun + ambient state into the water shader (called per frame). */
-  updateLighting(state: StreamLightingState): void;
 }
 
 const VERT_SHADER = /* glsl */ `
+  ${FRAME_UNIFORM_GLSL}
   varying vec3 vWorld;
   varying vec3 vViewDir;
   varying vec3 vNormalW;
+  #include <common>
+  #include <fog_pars_vertex>
+  #include <shadowmap_pars_vertex>
   void main() {
     vec4 worldPos = modelMatrix * vec4(position, 1.0);
+    float wave = sin(worldPos.x * 1.6 + uTime * 1.25) * 0.04
+               + sin(worldPos.z * 2.3 - uTime * 0.9) * 0.028;
+    worldPos.y += wave;
     vWorld = worldPos.xyz;
-    vec3 cameraWorld = (inverse(viewMatrix) * vec4(0,0,0,1)).xyz;
-    vViewDir = normalize(cameraWorld - vWorld);
-    // World-space normal so the fragment shader can gate surface effects
-    // (foam, sun-glint, ripple noise) to only the top face of the water
-    // volume — sides and bottom render as solid deep water.
+    vec4 mvPosition = viewMatrix * worldPos;
+    gl_Position = projectionMatrix * mvPosition;
+    vViewDir = normalize(cameraPosition - vWorld);
     vNormalW = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
-    gl_Position = projectionMatrix * viewMatrix * worldPos;
+    #ifdef USE_SHADOWMAP
+      #if NUM_DIR_LIGHT_SHADOWS > 0
+        vDirectionalShadowCoord[0] = directionalShadowMatrix[0] * worldPos;
+      #endif
+    #endif
+    #include <fog_vertex>
   }
 `;
 
@@ -118,7 +119,7 @@ const VERT_SHADER = /* glsl */ `
 // below the water surface). Side fragments at bed level read as fully
 // deep; top fragments read as shallow→deep by cross-section.
 const FRAG_SHADER = /* glsl */ `
-  uniform float uTime;
+  ${FRAME_UNIFORM_GLSL}
   uniform vec3 uShallow;
   uniform vec3 uDeep;
   uniform vec3 uFoam;
@@ -132,15 +133,13 @@ const FRAG_SHADER = /* glsl */ `
   // Y-coordinate of the water surface (top face). Drives vertical depth on
   // the side and bottom faces of the water volume.
   uniform float uWaterTopY;
-  // Lighting from sky controller, set each frame.
-  uniform vec3 uSunDir;
-  uniform vec3 uSunColor;
-  uniform float uSunIntensity;
-  uniform vec3 uAmbientColor;
-  uniform float uAmbientIntensity;
   varying vec3 vWorld;
   varying vec3 vViewDir;
   varying vec3 vNormalW;
+  #include <common>
+  #include <packing>
+  #include <fog_pars_fragment>
+  #include <shadowmap_pars_fragment>
 
   float hash(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -185,7 +184,7 @@ const FRAG_SHADER = /* glsl */ `
     base = mix(base * 0.86, base * 1.18, smoothstep(0.30, 0.70, surface));
 
     // Bank-edge foam — wherever the top face is shallow AND foam noise is high.
-    float bankProximity = (1.0 - smoothstep(0.04, 0.22, depth)) * topness;
+    float bankProximity = (1.0 - smoothstep(0.02, 0.48, depth)) * topness;
     float foamNoise = noise(worldXZ * 4.5 - flow * 0.85);
     float foamMask = bankProximity * smoothstep(0.40, 0.85, foamNoise);
     base = mix(base, uFoam, foamMask * 0.85);
@@ -197,15 +196,42 @@ const FRAG_SHADER = /* glsl */ `
     float h1 = noise((worldXZ + vec2(0.10, 0.0)) * 0.9 - flow * 0.7);
     float h2 = noise((worldXZ + vec2(0.0, 0.10)) * 0.9 - flow * 0.7);
     vec3 surfNormal = normalize(vec3((h0 - h1) * 4.5, 1.0, (h0 - h2) * 4.5));
-    vec3 reflectDir = reflect(-uSunDir, surfNormal);
-    float spec = pow(max(0.0, dot(reflectDir, vViewDir)), 36.0);
-    base += uSunColor * (spec * 0.85 * uSunIntensity * topness);
+    vec3 viewDir = normalize(vViewDir);
+    vec3 sunDir = normalize(uSunDir);
+    vec3 reflectDir = reflect(-sunDir, surfNormal);
+    float spec = pow(max(0.0, dot(reflectDir, viewDir)), 48.0);
+    // HDR glint so the bloom pass picks up the sun on the water.
+    base += uSunColor * (spec * 2.4 * uSunIntensity * topness);
 
-    // Ambient + sun lighting on the body color. Water doesn't lambert
-    // realistically but a simple tint by sky color keeps day-night
-    // consistent with everything else.
-    vec3 lit = base * (uAmbientColor * uAmbientIntensity * 0.7
-                      + uSunColor * uSunIntensity * 0.6);
+    float fres = pow(1.0 - max(dot(viewDir, surfNormal), 0.0), 4.0) * topness;
+    // Sky reflection. A real refraction grab of the scene is a second
+    // pass; this tints the fresnel toward the hemisphere sky so the
+    // surface picks up the same air as the grade.
+    vec3 reflected = mix(uHemiSky, uFoam, 0.35);
+    base = mix(base, reflected, fres * 0.65);
+
+    // Caustic bands in the shallows, scrolling with the flow.
+    float cau = noise(worldXZ * 3.2 - flow * 1.4) * noise(worldXZ * 6.0 + flow * 0.7);
+    base += vec3(0.55, 0.95, 0.85) * smoothstep(0.62, 0.9, cau) * (1.0 - depthFactor) * topness;
+
+    float shadow = 1.0;
+    #ifdef USE_SHADOWMAP
+      #if NUM_DIR_LIGHT_SHADOWS > 0
+        shadow = getShadow(
+          directionalShadowMap[0],
+          directionalLightShadows[0].shadowMapSize,
+          directionalLightShadows[0].shadowIntensity,
+          directionalLightShadows[0].shadowBias,
+          directionalLightShadows[0].shadowRadius,
+          vDirectionalShadowCoord[0]
+        );
+      #endif
+    #endif
+    shadow = mix(0.45, 1.0, shadow);
+
+    float sunShade = mix(0.62, 1.0, shadow);
+    vec3 lit = base * sunShade;
+    lit = mix(lit, lit * uSunColor, 0.18 * uSunIntensity * shadow);
 
     // Alpha. Top face: shallow → deep gradient (0.45 → 0.92) so the riverbed
     // shows through shallows. Side / bottom faces: solid 0.88 so the water
@@ -214,8 +240,14 @@ const FRAG_SHADER = /* glsl */ `
     float sideAlpha = 0.88;
     float alpha = mix(sideAlpha, topAlpha, topness);
     alpha = max(alpha, foamMask * 0.85);
+    alpha = mix(alpha, min(1.0, alpha + 0.35), fres);
 
     gl_FragColor = vec4(lit, alpha);
+    #ifdef USE_FOG
+      float fogFactor = 1.0 - exp(-fogDensity * fogDensity * vFogDepth * vFogDepth);
+      gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor * 0.55);
+      gl_FragColor.a *= 1.0 - fogFactor;
+    #endif
   }
 `;
 
@@ -237,28 +269,30 @@ export function createStream(terrain: Terrain, cfg: StreamConfig): Stream {
   // surface sits this far above the deepest carved riverbed point.
   const MAX_DEPTH = WATER_OFFSET_ABOVE_FLOOR;
 
+  const uniforms = THREE.UniformsUtils.merge([
+    THREE.UniformsLib.fog,
+    THREE.UniformsLib.lights,
+  ]) as Record<string, THREE.IUniform>;
+  uniforms.uShallow = { value: new THREE.Color(cfg.shallowColor ?? DEFAULT_SHALLOW) };
+  uniforms.uDeep = { value: new THREE.Color(cfg.deepColor ?? DEFAULT_DEEP) };
+  uniforms.uFoam = { value: new THREE.Color(cfg.foamColor ?? DEFAULT_FOAM) };
+  uniforms.uFlowDir = { value: flowDir };
+  uniforms.uFlowSpeed = { value: 0.55 };
+  uniforms.uCenterPos = { value: new THREE.Vector2(cfg.centerX, cfg.centerZ) };
+  uniforms.uPerpDir = { value: perpDir };
+  uniforms.uHalfWidth = { value: cfg.halfWidth };
+  uniforms.uMaxDepth = { value: MAX_DEPTH };
+  uniforms.uWaterTopY = { value: baseY };
+  bindFrameUniforms(uniforms);
+
   const waterMat = new THREE.ShaderMaterial({
-    uniforms: {
-      uTime: { value: 0 },
-      uShallow: { value: new THREE.Color(cfg.shallowColor ?? DEFAULT_SHALLOW) },
-      uDeep: { value: new THREE.Color(cfg.deepColor ?? DEFAULT_DEEP) },
-      uFoam: { value: new THREE.Color(cfg.foamColor ?? DEFAULT_FOAM) },
-      uFlowDir: { value: flowDir },
-      uFlowSpeed: { value: 0.55 },
-      uCenterPos: { value: new THREE.Vector2(cfg.centerX, cfg.centerZ) },
-      uPerpDir: { value: perpDir },
-      uHalfWidth: { value: cfg.halfWidth },
-      uMaxDepth: { value: MAX_DEPTH },
-      uWaterTopY: { value: baseY },
-      uSunDir: { value: new THREE.Vector3(0.5, 1, 0.3).normalize() },
-      uSunColor: { value: new THREE.Color(0xffffff) },
-      uSunIntensity: { value: 1.0 },
-      uAmbientColor: { value: new THREE.Color(0xffffff) },
-      uAmbientIntensity: { value: 0.5 },
-    },
+    name: 'StreamWater',
+    uniforms,
     vertexShader: VERT_SHADER,
     fragmentShader: FRAG_SHADER,
     transparent: true,
+    fog: true,
+    lights: true,
     side: THREE.DoubleSide,
     // Render water AFTER opaque geometry so alpha blending is correct
     // against the textured riverbed below. Also disable depth write so
@@ -272,11 +306,22 @@ export function createStream(terrain: Terrain, cfg: StreamConfig): Stream {
   // reads as a body of water from any angle.
   const boxXExtent = cfg.orientation === 'NS' ? cfg.halfWidth * 2 : cfg.halfLength * 2;
   const boxZExtent = cfg.orientation === 'NS' ? cfg.halfLength * 2 : cfg.halfWidth * 2;
-  const waterGeom = new THREE.BoxGeometry(boxXExtent, MAX_DEPTH, boxZExtent);
+  const segsAcross = 12;
+  const segsAlong = 64;
+  const waterGeom = new THREE.BoxGeometry(
+    boxXExtent,
+    MAX_DEPTH,
+    boxZExtent,
+    cfg.orientation === 'NS' ? segsAcross : segsAlong,
+    1,
+    cfg.orientation === 'NS' ? segsAlong : segsAcross,
+  );
   const waterMesh = new THREE.Mesh(waterGeom, waterMat);
   // Position so the top face sits at baseY (water surface) and the bottom
   // face sits at the bed (baseY − MAX_DEPTH).
   waterMesh.position.set(cfg.centerX, baseY - MAX_DEPTH / 2, cfg.centerZ);
+  waterMesh.receiveShadow = true;
+  waterMesh.castShadow = false;
   group.add(waterMesh);
 
   const ringGeom = new THREE.TorusGeometry(0.4, 0.05, 6, 24);
@@ -379,13 +424,6 @@ export function createStream(terrain: Terrain, cfg: StreamConfig): Stream {
       if (epoch === currentEpoch) return;
       regenerateSites(epoch);
     },
-    updateLighting(state) {
-      (waterMat.uniforms.uSunDir!.value as THREE.Vector3).copy(state.sunDirection);
-      (waterMat.uniforms.uSunColor!.value as THREE.Color).copy(state.sunColor);
-      waterMat.uniforms.uSunIntensity!.value = state.sunIntensity;
-      (waterMat.uniforms.uAmbientColor!.value as THREE.Color).copy(state.ambientColor);
-      waterMat.uniforms.uAmbientIntensity!.value = state.ambientIntensity;
-    },
   };
   return stream;
 }
@@ -413,8 +451,6 @@ export interface StreamRegistry {
   isInStreamZone(x: number, z: number, padding?: number): boolean;
   /** Push a new epoch to every stream; sites regenerate if the epoch changed. */
   setEpoch(epoch: number): void;
-  /** Push lighting state to every stream's water shader. */
-  updateLighting(state: StreamLightingState): void;
 }
 
 export function createStreamRegistry(streams: Stream[]): StreamRegistry {
@@ -447,9 +483,6 @@ export function createStreamRegistry(streams: Stream[]): StreamRegistry {
     },
     setEpoch(epoch) {
       for (const s of streams) s.setEpoch(epoch);
-    },
-    updateLighting(state) {
-      for (const s of streams) s.updateLighting(state);
     },
   };
 }

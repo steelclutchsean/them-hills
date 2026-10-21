@@ -16,7 +16,7 @@
 //     hardcoded values so behavior is unchanged for fresh saves.
 
 export const CURRENT_SAVE_VERSION = 4;
-export const BUILD_VERSION = '0.1.12-phase10b';
+export const BUILD_VERSION = '0.2.0-overhaul-phase1';
 
 // ---------- Top-level shape ----------
 

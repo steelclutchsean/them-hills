@@ -192,10 +192,7 @@ function createSieveLayer(radius: number): THREE.Group {
   );
   layer.add(rim);
 
-  const meshDisk = new THREE.Mesh(
-    new THREE.CircleGeometry(radius * 0.96, 24),
-    MESH_MAT,
-  );
+  const meshDisk = new THREE.Mesh(new THREE.CircleGeometry(radius * 0.96, 24), MESH_MAT);
   meshDisk.rotation.x = -Math.PI / 2;
   meshDisk.position.y = 0.025;
   layer.add(meshDisk);
@@ -225,11 +222,7 @@ export function createClassifierMesh(tier: 1 | 2 | 3): THREE.Group {
     for (let i = 0; i < 3; i++) {
       const leg = new THREE.Mesh(legGeom, RIM_MAT);
       const angle = (i / 3) * Math.PI * 2;
-      leg.position.set(
-        Math.cos(angle) * radius * 0.85,
-        -0.07,
-        Math.sin(angle) * radius * 0.85,
-      );
+      leg.position.set(Math.cos(angle) * radius * 0.85, -0.07, Math.sin(angle) * radius * 0.85);
       leg.rotation.z = Math.cos(angle) * 0.25;
       leg.rotation.x = Math.sin(angle) * 0.25;
       group.add(leg);
@@ -268,10 +261,7 @@ export function createPickaxeMesh(): THREE.Group {
 
   // Pick head — single tapered horizontal bar through the top of the
   // handle. Two cones at the ends give the pointed-pickaxe silhouette.
-  const headBar = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.022, 0.022, 0.34, 8),
-    METAL_MAT,
-  );
+  const headBar = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.34, 8), METAL_MAT);
   headBar.position.set(0, HANDLE_HEIGHT / 2 - 0.02, 0);
   headBar.rotation.z = Math.PI / 2;
   group.add(headBar);

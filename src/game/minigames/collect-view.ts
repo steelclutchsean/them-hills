@@ -204,9 +204,21 @@ export function createCollectView(): CollectViewMeshes {
   // Capture each snuffer's rest position so the per-click lurch can
   // layer offset on top without drifting over time.
   const snufferRest: Record<1 | 2 | 3, { x: number; y: number; z: number }> = {
-    1: { x: snufferMeshes[1].position.x, y: snufferMeshes[1].position.y, z: snufferMeshes[1].position.z },
-    2: { x: snufferMeshes[2].position.x, y: snufferMeshes[2].position.y, z: snufferMeshes[2].position.z },
-    3: { x: snufferMeshes[3].position.x, y: snufferMeshes[3].position.y, z: snufferMeshes[3].position.z },
+    1: {
+      x: snufferMeshes[1].position.x,
+      y: snufferMeshes[1].position.y,
+      z: snufferMeshes[1].position.z,
+    },
+    2: {
+      x: snufferMeshes[2].position.x,
+      y: snufferMeshes[2].position.y,
+      z: snufferMeshes[2].position.z,
+    },
+    3: {
+      x: snufferMeshes[3].position.x,
+      y: snufferMeshes[3].position.y,
+      z: snufferMeshes[3].position.z,
+    },
   };
   for (const m of Object.values(snufferMeshes)) {
     m.visible = false;

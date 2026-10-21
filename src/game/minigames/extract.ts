@@ -71,7 +71,7 @@ export function createExtractMinigame(): Minigame {
         // of the fill bar in extract-meter). Bar runs along x from
         // -0.21 to +0.21 — translate progress to local x.
         const sparkX = (progress - 0.5) * 0.42;
-        effects.burst({ x: sparkX, y: 0.08, z: -0.55 }, 0xffd96a, 8);
+        effects.burst({ x: sparkX, y: 0.08, z: -0.55 }, 0xffd96a, 8, 'spark');
         // Tiny shake on each chip.
         effects.shake(0.008, 0.08);
       }

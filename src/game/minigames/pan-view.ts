@@ -40,8 +40,7 @@ export interface PanViewMeshes {
 }
 
 function makePanVariant(tier: 1 | 2 | 3): TierVariant {
-  const panRadius =
-    tier === 1 ? PAN_RADIUS_T1 : tier === 2 ? PAN_RADIUS_T2 : PAN_RADIUS_T3;
+  const panRadius = tier === 1 ? PAN_RADIUS_T1 : tier === 2 ? PAN_RADIUS_T2 : PAN_RADIUS_T3;
 
   const variant = new THREE.Group();
   variant.name = `pan_t${tier}`;
@@ -64,10 +63,7 @@ function makePanVariant(tier: 1 | 2 | 3): TierVariant {
   variant.add(bowl);
 
   // Bottom disc.
-  const bottom = new THREE.Mesh(
-    new THREE.CircleGeometry(panRadius * 0.72, 32),
-    bowlMat,
-  );
+  const bottom = new THREE.Mesh(new THREE.CircleGeometry(panRadius * 0.72, 32), bowlMat);
   bottom.rotation.x = -Math.PI / 2;
   bottom.position.y = -0.06;
   variant.add(bottom);
@@ -78,10 +74,7 @@ function makePanVariant(tier: 1 | 2 | 3): TierVariant {
     transparent: true,
     opacity: 0.55,
   });
-  const water = new THREE.Mesh(
-    new THREE.CircleGeometry(panRadius * 0.94, 32),
-    waterMat,
-  );
+  const water = new THREE.Mesh(new THREE.CircleGeometry(panRadius * 0.94, 32), waterMat);
   water.rotation.x = -Math.PI / 2;
   water.position.y = -0.045;
   variant.add(water);

@@ -73,8 +73,8 @@ export function createStrikeMinigame(): Minigame {
         // grey + amber to read as cold metal struck hot. Heavier than
         // dig's gravel burst — rocks resist.
         const meterX = (indicator - 0.5) * 0.42;
-        effects.burst({ x: meterX, y: 0.08, z: -0.55 }, 0xb0a890, 12);
-        effects.burst({ x: meterX, y: 0.08, z: -0.55 }, 0xffb04a, 6);
+        effects.burst({ x: meterX, y: 0.08, z: -0.55 }, 0xb0a890, 12, 'dirt');
+        effects.burst({ x: meterX, y: 0.08, z: -0.55 }, 0xffb04a, 8, 'spark');
         // Stronger shake than dig — rocks have weight.
         effects.shake(0.025 + quality * 0.025, 0.2);
       }

@@ -1,64 +1,95 @@
 import * as THREE from 'three';
+import { RENDER_QUALITY } from '@/engine/quality';
+import { createEnvironmentController, type EnvironmentController } from '@/engine/environment';
+import { createPostPipeline, type PostPipeline } from '@/engine/post';
+import type { SkyGrade } from '@/render/atmosphere';
+import { initFrameUniforms, syncFrameUniforms } from '@/render/frame-uniforms';
 
 export interface RendererBundle {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   renderer: THREE.WebGLRenderer;
   ambient: THREE.AmbientLight;
+  hemi: THREE.HemisphereLight;
   sun: THREE.DirectionalLight;
+  /**
+   * Sky writes the sun's arc position every frame. Call this after that,
+   * before syncFrame, to slide the shadow frustum onto the player and
+   * return the un-offset world sun direction.
+   */
+  followSun(target: THREE.Vector3): THREE.Vector3;
+  /** Copy light objects into the shared custom-shader uniform block. */
+  syncFrame(time: number, sunDirection: THREE.Vector3): void;
+  /** Coarse sky bucket → PMREM. Safe to call every frame. */
+  updateEnvironment(grade: SkyGrade): void;
   render(): void;
+  /** Re-read RENDER_QUALITY after a preset change. */
+  applyGraphics(): void;
   dispose(): void;
 }
 
 export function createRenderer(canvas: HTMLCanvasElement): RendererBundle {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  initFrameUniforms();
+
+  const renderer = new THREE.WebGLRenderer({
+    canvas,
+    antialias: false,
+    powerPreference: 'high-performance',
+    stencil: false,
+  });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, RENDER_QUALITY.maxPixelRatio));
   renderer.setSize(window.innerWidth, window.innerHeight, false);
-  renderer.setClearColor(0x88aacc);
-  // Soft shadows. The shadow camera bounds + per-mesh castShadow flags are
-  // configured in main.ts; here we just enable the pipeline.
+  renderer.setClearColor(0x9bb8d3);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = RENDER_QUALITY.exposure;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x88aacc);
-  scene.fog = new THREE.Fog(0x88aacc, 50, 250);
+  scene.background = null;
+  scene.fog = new THREE.FogExp2(0x9bb8d3, 0.0085);
+  scene.environmentIntensity = RENDER_QUALITY.environmentIntensity;
 
-  const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 500);
-  // Initial pose; the camera rig (Phase 1) takes over each frame.
+  const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 650);
   camera.position.set(0, 5, 8);
   camera.lookAt(0, 1.5, 0);
 
-  // Lighting — initial values are placeholders. The sky controller (Phase 7)
-  // drives color, intensity, and sun position from the time-of-day clock.
-  const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+  const ambient = new THREE.AmbientLight(0xc5d0dc, 0.45);
   scene.add(ambient);
 
-  const sun = new THREE.DirectionalLight(0xffffff, 1.0);
-  sun.position.set(50, 80, 30);
-  // Shadow camera covers a 120×120m square around the player (set each
-  // frame in main.ts by repositioning sun + target relative to charPos).
-  // 2048² shadow map is the sweet spot for 60–120m coverage on modern
-  // hardware — 1024² is visibly aliased on tree silhouettes from a few
-  // meters out.
+  const hemi = new THREE.HemisphereLight(0x8eafd0, 0x3d4a28, 0.32);
+  scene.add(hemi);
+
+  const sun = new THREE.DirectionalLight(0xfff1d0, 1.15);
+  sun.position.set(40, 80, 24);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
-  sun.shadow.camera.left = -60;
-  sun.shadow.camera.right = 60;
-  sun.shadow.camera.top = 60;
-  sun.shadow.camera.bottom = -60;
-  sun.shadow.camera.near = 1;
-  sun.shadow.camera.far = 220;
-  // Bias values tuned to hide acne without producing noticeable peter-pan.
-  sun.shadow.bias = -0.0008;
-  sun.shadow.normalBias = 0.04;
+  sun.shadow.mapSize.set(RENDER_QUALITY.shadowMapSize, RENDER_QUALITY.shadowMapSize);
+  const ext = RENDER_QUALITY.shadowExtent;
+  sun.shadow.camera.left = -ext;
+  sun.shadow.camera.right = ext;
+  sun.shadow.camera.top = ext;
+  sun.shadow.camera.bottom = -ext;
+  sun.shadow.camera.near = RENDER_QUALITY.shadowNear;
+  sun.shadow.camera.far = RENDER_QUALITY.shadowFar;
+  sun.shadow.bias = RENDER_QUALITY.shadowBias;
+  sun.shadow.normalBias = RENDER_QUALITY.shadowNormalBias;
+  sun.shadow.radius = RENDER_QUALITY.shadowRadius;
+  sun.shadow.intensity = RENDER_QUALITY.shadowIntensity;
+  sun.shadow.camera.updateProjectionMatrix();
   scene.add(sun);
   scene.add(sun.target);
+
+  const environment: EnvironmentController = createEnvironmentController(renderer, scene);
+  const post: PostPipeline = createPostPipeline(renderer, scene, camera);
+
+  const sunDir = new THREE.Vector3();
 
   const onResize = (): void => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight, false);
+    post.setSize(window.innerWidth, window.innerHeight);
   };
   window.addEventListener('resize', onResize);
 
@@ -67,10 +98,54 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererBundle {
     camera,
     renderer,
     ambient,
+    hemi,
     sun,
-    render: () => renderer.render(scene, camera),
+    followSun(target) {
+      sunDir.copy(sun.position);
+      if (sunDir.lengthSq() < 1e-4) sunDir.set(0.2, 1, 0.2);
+      sunDir.normalize();
+      sun.position.x += target.x;
+      sun.position.z += target.z;
+      sun.target.position.set(target.x, 0, target.z);
+      sun.target.updateMatrixWorld();
+      return sunDir;
+    },
+    syncFrame(time, direction) {
+      syncFrameUniforms({
+        time,
+        sunDirection: direction,
+        sunColor: sun.color,
+        sunIntensity: sun.intensity,
+        ambientColor: ambient.color,
+        ambientIntensity: ambient.intensity,
+        hemiSky: hemi.color,
+        hemiGround: hemi.groundColor,
+        hemiIntensity: hemi.intensity,
+      });
+    },
+    updateEnvironment(grade) {
+      environment.update(grade);
+    },
+    applyGraphics() {
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, RENDER_QUALITY.maxPixelRatio));
+      renderer.toneMappingExposure = RENDER_QUALITY.exposure;
+      sun.shadow.mapSize.set(RENDER_QUALITY.shadowMapSize, RENDER_QUALITY.shadowMapSize);
+      const shadowMap = sun.shadow.map;
+      if (shadowMap) {
+        shadowMap.dispose();
+        sun.shadow.map = null;
+      }
+      sun.shadow.radius = RENDER_QUALITY.shadowRadius;
+      sun.shadow.intensity = RENDER_QUALITY.shadowIntensity;
+      scene.environmentIntensity = RENDER_QUALITY.environmentIntensity;
+      post.bloom.strength = RENDER_QUALITY.bloomStrength;
+      post.setSize(window.innerWidth, window.innerHeight);
+    },
+    render: () => post.render(),
     dispose: () => {
       window.removeEventListener('resize', onResize);
+      post.dispose();
+      environment.dispose();
       renderer.dispose();
     },
   };

@@ -43,6 +43,8 @@ export interface AudioSystem {
   playFlakeCollect(): void;
   /** Ascending stage-complete chime. `stageIdx` 0..3 → C5, E5, G5, C6. */
   playStageComplete(stageIdx: number): void;
+  /** Gold-find stinger. `grams` brightens the top note. */
+  playFind(grams: number): void;
   /** True if the AudioContext has been created and is running. */
   isEnabled(): boolean;
   /** Settings-driven channel volumes, each in [0, 1]. Live — applies on
@@ -68,6 +70,9 @@ export function createAudioSystem(): AudioSystem {
   let sfxScale = 1.0;
   /** Per-stream proximity envelope, separate from the user's volume. */
   let streamGain: GainNode | null = null;
+  let windGain: GainNode | null = null;
+  let rainGain: GainNode | null = null;
+  let noiseBuffer: AudioBuffer | null = null;
   let started = false;
 
   function ensureContext(): AudioContext | null {
@@ -131,6 +136,71 @@ export function createAudioSystem(): AudioSystem {
     filter.connect(streamGain);
     streamGain.connect(ambientBus);
     src.start();
+
+    // A second noise bed: low wind always, plus a hiss that follows rain.
+    const windSrc = ctx.createBufferSource();
+    windSrc.buffer = buf;
+    windSrc.loop = true;
+    const windFilter = ctx.createBiquadFilter();
+    windFilter.type = 'lowpass';
+    windFilter.frequency.value = 420;
+    windGain = ctx.createGain();
+    windGain.gain.value = 0.012;
+    windSrc.connect(windFilter);
+    windFilter.connect(windGain);
+    windGain.connect(ambientBus);
+    windSrc.start();
+
+    const rainSrc = ctx.createBufferSource();
+    rainSrc.buffer = buf;
+    rainSrc.loop = true;
+    const rainFilter = ctx.createBiquadFilter();
+    rainFilter.type = 'highpass';
+    rainFilter.frequency.value = 1800;
+    rainGain = ctx.createGain();
+    rainGain.gain.value = 0;
+    rainSrc.connect(rainFilter);
+    rainFilter.connect(rainGain);
+    rainGain.connect(ambientBus);
+    rainSrc.start();
+  }
+
+  function noiseBuf(): AudioBuffer | null {
+    if (!ctx) return null;
+    if (noiseBuffer) return noiseBuffer;
+    const sr = ctx.sampleRate;
+    noiseBuffer = ctx.createBuffer(1, sr, sr);
+    const data = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    return noiseBuffer;
+  }
+
+  function scheduleNoise(
+    freqHz: number,
+    q: number,
+    durationSec: number,
+    peakGain: number,
+    startOffsetSec = 0,
+  ): void {
+    if (!ctx || !sfxBus) return;
+    const buffer = noiseBuf();
+    if (!buffer) return;
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.value = freqHz;
+    filter.Q.value = q;
+    const env = ctx.createGain();
+    const t0 = ctx.currentTime + startOffsetSec;
+    env.gain.setValueAtTime(0.0001, t0);
+    env.gain.exponentialRampToValueAtTime(Math.max(0.0002, peakGain), t0 + 0.01);
+    env.gain.exponentialRampToValueAtTime(0.0001, t0 + durationSec);
+    src.connect(filter);
+    filter.connect(env);
+    env.connect(sfxBus);
+    src.start(t0);
+    src.stop(t0 + durationSec + 0.02);
   }
 
   function scheduleTone(
@@ -178,6 +248,14 @@ export function createAudioSystem(): AudioSystem {
       // Smooth toward target; don't snap on transitions.
       const cur = streamGain.gain.value;
       streamGain.gain.value = cur + (target - cur) * 0.05;
+      if (windGain) {
+        const windTarget = 0.01 + weatherIntensity * 0.045;
+        windGain.gain.value += (windTarget - windGain.gain.value) * 0.04;
+      }
+      if (rainGain) {
+        const rainTarget = weatherIntensity * 0.05;
+        rainGain.gain.value += (rainTarget - rainGain.gain.value) * 0.08;
+      }
     },
     playUITap() {
       scheduleTone(880, 0, 0.08, 0.08, 'sine');
@@ -203,16 +281,14 @@ export function createAudioSystem(): AudioSystem {
       }
     },
     playSplash() {
-      // Descending two-tone strike — high splatter into the lower body of
-      // water. Pairs with the prospecting animation's first dip.
       scheduleTone(600, 0.0, 0.14, 0.08, 'triangle');
       scheduleTone(360, 0.06, 0.22, 0.07, 'sine');
+      scheduleNoise(900, 0.6, 0.18, 0.08);
     },
     playDigSwing(quality) {
-      // Low thunk. Quality scales the brightness — perfect swings get a
-      // sharp upper harmonic; bad swings just thud.
       const q = Math.max(0, Math.min(1, quality));
       scheduleTone(75, 0, 0.16, 0.13, 'sine');
+      scheduleNoise(140, 0.7, 0.12, 0.09);
       if (q > 0.4) {
         scheduleTone(180 + q * 120, 0, 0.09, 0.05 * q, 'triangle');
       }
@@ -223,14 +299,21 @@ export function createAudioSystem(): AudioSystem {
       scheduleTone(660 + q * 330, 0, 0.06, 0.07, 'triangle');
     },
     playPanSwirl() {
-      // Quick rising swish — fakes a wet swoosh with a fast frequency
-      // sweep between two tones overlapped at low gain.
       scheduleTone(300, 0, 0.12, 0.05, 'sine');
       scheduleTone(540, 0.03, 0.1, 0.04, 'sine');
+      scheduleNoise(700, 0.5, 0.14, 0.045);
     },
     playFlakeCollect() {
-      // Bright pluck — high E (1320Hz) with quick decay.
       scheduleTone(1320, 0, 0.06, 0.07, 'sine');
+      scheduleTone(1760, 0.02, 0.08, 0.035, 'triangle');
+    },
+    playFind(grams) {
+      const g = Math.max(0, Math.min(1, grams / 0.35));
+      scheduleTone(523, 0, 0.14, 0.08, 'sine');
+      scheduleTone(659, 0.07, 0.16, 0.08, 'sine');
+      scheduleTone(784, 0.14, 0.24, 0.09, 'sine');
+      scheduleTone(1046 + g * 180, 0.2, 0.32, 0.05, 'triangle');
+      scheduleNoise(2400, 1.2, 0.1, 0.03, 0.05);
     },
     playStageComplete(stageIdx) {
       // Major-triad ascent: C5, E5, G5, C6 for stages 0..3.

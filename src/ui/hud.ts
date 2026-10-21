@@ -64,6 +64,10 @@ export interface HudUpdate {
   } | null;
   /** Persistent corner banner — list of all active quests + their objective progress. */
   questTracker: QuestProgressView[];
+  /** First-session objective. Shown even when no quest has been accepted. */
+  guide: { title: string; detail: string } | null;
+  /** Short label for the tools in hand, e.g. "Shovel T1 · Pan T1". */
+  toolsLabel: string;
 }
 
 export interface MountedHud {
@@ -167,7 +171,13 @@ const STYLE = `
     line-height: 1.5;
   }
   .hud-info { top: 12px; left: 12px; max-width: 28vw; min-width: 220px; }
-  .hud-inventory { top: 12px; right: 12px; min-width: 220px; text-align: left; }
+  .hud-inventory {
+    top: 12px;
+    right: 12px;
+    width: 240px;
+    text-align: left;
+  }
+  .hud-inventory .row .val { text-align: right; }
   /* Section titles for both info + inventory cards. */
   .hud-info .card-title, .hud-inventory .card-title {
     font-size: 11px;
@@ -231,8 +241,10 @@ const STYLE = `
     border-top: 1px solid rgba(255, 255, 255, 0.08);
     margin: 8px 0;
   }
-  /* Dimmed dev-debug rows kept visible but quiet. */
-  .hud-info .debug-row {
+  /* Dev rows stay in the DOM for tests. Hidden unless ?debug=1. */
+  .hud-info .debug-row { display: none; }
+  body[data-debug='1'] .hud-info .debug-row {
+    display: block;
     color: rgba(255, 255, 255, 0.4);
     font-size: 11px;
     margin-top: 2px;
@@ -626,6 +638,7 @@ export function mountHud(root: HTMLElement): MountedHud {
   inventory.appendChild(walletRow);
   lines.invWallet = walletVal;
 
+  makeRow(inventory, 'invTools', 'Tools');
   makeRow(inventory, 'invSpot', 'Spot / oz');
 
   let frameCount = 0;
@@ -692,7 +705,8 @@ export function mountHud(root: HTMLElement): MountedHud {
           : s.spotPriceSource === 'cached'
             ? '◐ cached'
             : '○ baseline';
-      lines.invSpot!.textContent = `$${s.spotPricePerOzt.toFixed(2)}  ${sourceLabel}`;
+      lines.invSpot!.textContent = `$${Math.round(s.spotPricePerOzt)} ${sourceLabel}`;
+      lines.invTools!.textContent = s.toolsLabel;
 
       // Prompt
       if (s.prompt) {
@@ -837,37 +851,55 @@ export function mountHud(root: HTMLElement): MountedHud {
         dialogue.hidden = true;
       }
 
-      // Active quest tracker — one block per active quest, in acceptance order
-      if (s.questTracker.length > 0) {
+      // Objective + active quests. The guide is the first-session claim
+      // and stays up even when the quest log is empty.
+      if (s.guide || s.questTracker.length > 0) {
         questTracker.hidden = false;
         questTracker.innerHTML = '';
 
-        const header = document.createElement('div');
-        header.className = 'qt-header';
-        const anyComplete = s.questTracker.some((q) => q.allComplete);
-        header.textContent = anyComplete
-          ? `Active Quests (${s.questTracker.length}) — ready to turn in`
-          : `Active Quests (${s.questTracker.length})`;
-        questTracker.appendChild(header);
-
-        s.questTracker.forEach((q, qIdx) => {
+        if (s.guide) {
+          const header = document.createElement('div');
+          header.className = 'qt-header';
+          header.textContent = 'Objective';
           const title = document.createElement('div');
           title.className = 'qt-title';
-          if (qIdx > 0) title.style.marginTop = '8px';
-          title.textContent = q.allComplete ? `${q.title} ✓` : q.title;
-          questTracker.appendChild(title);
+          title.textContent = s.guide.title;
+          const detail = document.createElement('div');
+          detail.className = 'qt-obj';
+          detail.textContent = s.guide.detail;
+          questTracker.append(header, title, detail);
+        }
 
-          q.objectives.forEach((o) => {
-            const obj = document.createElement('div');
-            obj.className = `qt-obj ${o.complete ? 'complete' : ''}`;
-            obj.textContent = `▸ ${o.description}`;
-            questTracker.appendChild(obj);
-            const prog = document.createElement('div');
-            prog.className = 'qt-progress';
-            prog.textContent = `${o.progress.toFixed(2)} / ${o.target.toFixed(2)}`;
-            questTracker.appendChild(prog);
+        if (s.questTracker.length === 0) {
+          // guide-only
+        } else {
+          const header = document.createElement('div');
+          header.className = 'qt-header';
+          const anyComplete = s.questTracker.some((q) => q.allComplete);
+          header.textContent = anyComplete
+            ? `Active Quests (${s.questTracker.length}) — ready to turn in`
+            : `Active Quests (${s.questTracker.length})`;
+          questTracker.appendChild(header);
+
+          s.questTracker.forEach((q, qIdx) => {
+            const title = document.createElement('div');
+            title.className = 'qt-title';
+            if (qIdx > 0) title.style.marginTop = '8px';
+            title.textContent = q.allComplete ? `${q.title} ✓` : q.title;
+            questTracker.appendChild(title);
+
+            q.objectives.forEach((o) => {
+              const obj = document.createElement('div');
+              obj.className = `qt-obj ${o.complete ? 'complete' : ''}`;
+              obj.textContent = `▸ ${o.description}`;
+              questTracker.appendChild(obj);
+              const prog = document.createElement('div');
+              prog.className = 'qt-progress';
+              prog.textContent = `${o.progress.toFixed(2)} / ${o.target.toFixed(2)}`;
+              questTracker.appendChild(prog);
+            });
           });
-        });
+        }
       } else {
         questTracker.hidden = true;
       }
@@ -916,16 +948,11 @@ export function mountHud(root: HTMLElement): MountedHud {
   };
 }
 
-function setMeter(
-  m: { fill: HTMLElement; pct: HTMLElement },
-  value: number,
-  suffix = '',
-): void {
+function setMeter(m: { fill: HTMLElement; pct: HTMLElement }, value: number, suffix = ''): void {
   const clamped = Math.max(0, Math.min(1, value));
   m.fill.style.width = `${(clamped * 100).toFixed(0)}%`;
   // Color shifts red → amber → green as the meter fills.
-  const color =
-    clamped < 0.25 ? '#d65454' : clamped < 0.55 ? '#e0a542' : '#7cbf6c';
+  const color = clamped < 0.25 ? '#d65454' : clamped < 0.55 ? '#e0a542' : '#7cbf6c';
   m.fill.style.background = color;
   m.pct.textContent = `${(clamped * 100).toFixed(0)}%${suffix}`;
 }

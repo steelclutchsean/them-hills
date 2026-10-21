@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { addMineWorks } from '@/game/structures';
+import { kitRockMaterial, stoneMaterial } from '@/render/painterly';
 import { RAPIER } from '@/physics/world';
 import type { PanningSite } from './stream';
 
@@ -158,6 +160,18 @@ function ensureWoodTextures(): { beam: THREE.CanvasTexture; aged: THREE.CanvasTe
   return { beam: beamWoodTex, aged: agedWoodTex };
 }
 
+let caveStone: { stone: THREE.MeshStandardMaterial; dark: THREE.MeshStandardMaterial } | null =
+  null;
+
+function caveStoneMaterials(): {
+  stone: THREE.MeshStandardMaterial;
+  dark: THREE.MeshStandardMaterial;
+} {
+  if (caveStone) return caveStone;
+  caveStone = { stone: stoneMaterial(), dark: kitRockMaterial() };
+  return caveStone;
+}
+
 export function createMineEntrance(
   scene: THREE.Scene,
   world: RAPIER.World,
@@ -228,6 +242,7 @@ export function createMineEntrance(
     boardGroup.add(board);
   }
   group.add(boardGroup);
+  addMineWorks(group, config.displayName);
 
   // ---- Cave interior (always visible through the gaps in the boards) ----
   // Coordinates relative to the group; positive Z is "into the hill".
@@ -245,16 +260,8 @@ export function createMineEntrance(
   // through. Kept from F3.
   const WALL_HALF_T = 0.4;
 
-  const stoneMat = new THREE.MeshStandardMaterial({
-    color: 0x35332f,
-    flatShading: true,
-    roughness: 0.97,
-  });
-  const stoneDarkMat = new THREE.MeshStandardMaterial({
-    color: 0x222220,
-    flatShading: true,
-    roughness: 0.98,
-  });
+  const stoneMat = caveStoneMaterials().stone;
+  const stoneDarkMat = caveStoneMaterials().dark;
 
   // Floor
   const caveFloor = new THREE.Mesh(

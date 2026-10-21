@@ -40,7 +40,7 @@ export interface MountedMinimap {
 const STYLE = `
   .hud-minimap {
     position: fixed;
-    top: 220px;
+    bottom: 16px;
     right: 12px;
     width: ${SIZE_PX}px;
     height: ${SIZE_PX}px;
@@ -56,6 +56,16 @@ const STYLE = `
     width: 100%;
     height: 100%;
     image-rendering: pixelated;
+  }
+  body[data-map='1'] .hud-minimap {
+    top: 50%;
+    left: 50%;
+    right: auto;
+    bottom: auto;
+    transform: translate(-50%, -50%);
+    width: 440px;
+    height: 440px;
+    z-index: 32;
   }
   .hud-minimap .mm-label {
     position: absolute;

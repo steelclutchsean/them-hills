@@ -45,7 +45,10 @@ import {
   updateToolBounce,
   updateToolSwing,
 } from '@/game/minigames/tool-models';
-import { scatterAssets } from '@/game/scatter';
+import { scatterAssets, updateScatterWind } from '@/game/scatter';
+import { createMotes } from '@/game/motes';
+import { createLightShafts } from '@/game/shafts';
+import { emitGameplay, bindGameplayAudio } from '@/game/events';
 import { SKY_SECONDS_PER_DAY, createSkyController, formatClock, getSkyHour } from '@/game/sky';
 import {
   createStream,
@@ -70,8 +73,25 @@ import { mountMinimap, type MinimapLandmark, type MinimapStream } from '@/ui/min
 import { createSettingsPanel } from '@/ui/settings';
 import { defaultSettings } from '@/save/schema';
 import { createAudioSystem } from '@/audio/system';
+import {
+  glRendererString,
+  getQualityName,
+  initQuality,
+  RENDER_QUALITY,
+  setQuality,
+} from '@/engine/quality';
+import { readReviewOverride, reviewShot, reviewWorldTime, setReviewPose } from '@/dev/review-shots';
+import { setFoliageWindTime } from '@/render/painterly';
+import { createSmokePilot } from '@/dev/smoke-pilot';
+import { mountOverlays, reportBoot } from '@/ui/overlays';
+import { presentProspectFind, presentToolImpact } from '@/game/presentation';
 
 async function bootstrap(): Promise<void> {
+  const params = new URLSearchParams(window.location.search);
+  if (params.has('debug')) document.body.dataset.debug = '1';
+  const skipIntro = params.get('smoke') === '1' || params.has('shot') || params.has('hour');
+  await reportBoot(6, 'Checking your claim…');
+
   const canvas = document.getElementById('game-canvas') as HTMLCanvasElement | null;
   const hudEl = document.getElementById('hud') as HTMLElement | null;
   if (!canvas || !hudEl) {
@@ -111,13 +131,27 @@ async function bootstrap(): Promise<void> {
 
   // ---- Renderer ----
   const renderer = createRenderer(canvas);
+  if (params.has('shot')) setQuality('high');
+  else initQuality(glRendererString(renderer.renderer.getContext()));
+  renderer.applyGraphics();
+  const motes = createMotes(110);
+  motes.resize();
+  renderer.scene.add(motes.points);
+  const shafts = createLightShafts();
+  renderer.scene.add(shafts.group);
 
   // ---- Sky / day-night ----
   const sky = createSkyController({
     scene: renderer.scene,
+    camera: renderer.camera,
     ambient: renderer.ambient,
+    hemi: renderer.hemi,
     sun: renderer.sun,
     renderer: renderer.renderer,
+    onGrade: (grade) => {
+      // PMREM rebuild is a hitch. Let the first frames present without it.
+      if (presentedFrames >= 2) renderer.updateEnvironment(grade);
+    },
   });
 
   // ---- Weather ----
@@ -170,6 +204,8 @@ async function bootstrap(): Promise<void> {
     depth: 1.2,
   }));
 
+  await reportBoot(28, 'Shaping the ground…');
+
   // ---- Terrain ----
   const terrain = createTerrain(physics.rapier, CHANNEL_CONFIGS);
   renderer.scene.add(terrain.mesh);
@@ -187,14 +223,21 @@ async function bootstrap(): Promise<void> {
   let currentDay = Math.floor(gameStore.getState().save.world.gameTime / SKY_SECONDS_PER_DAY);
   streams.setEpoch(currentDay);
 
-  // ---- Grass field (instanced blades) ----
-  const grass = createGrassField(terrain, {
-    count: 5000,
-    extent: 95,
-    reject: (x, z) => streams.isInStreamZone(x, z, 0.5),
-    seed: 0xa9,
-  });
-  renderer.scene.add(grass.mesh);
+  // Grass is built after the first frames so its shader and the 5k
+  // instances don't sit on the critical path to the first picture.
+  let grass: ReturnType<typeof createGrassField> | null = null;
+  function spawnGrass(): void {
+    if (grass) return;
+    grass = createGrassField(terrain, {
+      count: RENDER_QUALITY.grassTall,
+      extent: 95,
+      reject: (x, z) => streams.isInStreamZone(x, z, 0.5),
+      seed: 0xa9,
+      baseColor: { r: [0.22, 0.32], g: [0.28, 0.36], b: [0.08, 0.12] },
+      tipColor: { r: [0.82, 0.94], g: [0.68, 0.8], b: [0.22, 0.32] },
+    });
+    renderer.scene.add(grass.mesh);
+  }
 
   // Ground-cover grass layer is created AFTER the scatter promises settle
   // (since it needs every placement's exclusion radius). The array starts
@@ -227,9 +270,9 @@ async function bootstrap(): Promise<void> {
   // the south mine well south of the Buckeye corridor.
   const MINE_CONFIGS: readonly MineConfig[] = [
     { id: 'north', displayName: 'North Mine', x: -45, z: -45, yieldBonus: 3.0, unlockTier: 3 },
-    { id: 'south', displayName: 'South Mine', x:  40, z: -78, yieldBonus: 4.0, unlockTier: 3 },
-    { id: 'east',  displayName: 'East Mine',  x:  65, z:  20, yieldBonus: 5.0, unlockTier: 3 },
-    { id: 'west',  displayName: 'West Mine',  x: -55, z:  35, yieldBonus: 3.5, unlockTier: 3 },
+    { id: 'south', displayName: 'South Mine', x: 40, z: -78, yieldBonus: 4.0, unlockTier: 3 },
+    { id: 'east', displayName: 'East Mine', x: 65, z: 20, yieldBonus: 5.0, unlockTier: 3 },
+    { id: 'west', displayName: 'West Mine', x: -55, z: 35, yieldBonus: 3.5, unlockTier: 3 },
   ];
   const mines: MineInfo[] = MINE_CONFIGS.map((cfg) =>
     createMineEntrance(renderer.scene, physics.rapier, (x, z) => terrain.getHeightAt(x, z), cfg),
@@ -245,7 +288,7 @@ async function bootstrap(): Promise<void> {
     scene: renderer.scene,
     terrain,
     streams: STREAM_CONFIGS,
-    minePos: mines[0]!.position,
+    minePositions: mines.map((m) => m.position),
     seed: 0xb0,
   });
   console.log(`[boulders] placed ${boulders.count} boulders`);
@@ -277,7 +320,7 @@ async function bootstrap(): Promise<void> {
       renderer.scene,
       terrain,
       {
-        count: 140,
+        count: Math.round(140 * RENDER_QUALITY.scatter),
         models: [
           ...ASSETS.trees.common,
           ...ASSETS.trees.pine,
@@ -295,7 +338,7 @@ async function bootstrap(): Promise<void> {
       renderer.scene,
       terrain,
       {
-        count: 70,
+        count: Math.round(70 * RENDER_QUALITY.scatter),
         models: ASSETS.rocks.medium,
         scale: { min: 0.6, max: 1.6 },
         yOffset: -0.05,
@@ -309,7 +352,7 @@ async function bootstrap(): Promise<void> {
       renderer.scene,
       terrain,
       {
-        count: 40,
+        count: Math.round(40 * RENDER_QUALITY.scatter),
         models: [...ASSETS.rocks.pebbleRound, ...ASSETS.rocks.pebbleSquare],
         scale: { min: 0.5, max: 1.1 },
         yOffset: -0.02,
@@ -327,7 +370,7 @@ async function bootstrap(): Promise<void> {
       renderer.scene,
       terrain,
       {
-        count: 220,
+        count: Math.round(220 * RENDER_QUALITY.scatter),
         models: ASSETS.vegetation.grass,
         scale: { min: 0.6, max: 1.2 },
         reject,
@@ -339,7 +382,7 @@ async function bootstrap(): Promise<void> {
       renderer.scene,
       terrain,
       {
-        count: 90,
+        count: Math.round(90 * RENDER_QUALITY.scatter),
         models: [
           ...ASSETS.vegetation.bushes,
           ...ASSETS.vegetation.ferns,
@@ -356,7 +399,7 @@ async function bootstrap(): Promise<void> {
       renderer.scene,
       terrain,
       {
-        count: 110,
+        count: Math.round(110 * RENDER_QUALITY.scatter),
         models: [...ASSETS.vegetation.flowers, ...ASSETS.vegetation.mushrooms],
         scale: { min: 0.7, max: 1.3 },
         reject,
@@ -375,7 +418,7 @@ async function bootstrap(): Promise<void> {
       const allPositions = results.flatMap((r) => r.positions);
       const exclusion = buildExclusionGrid(allPositions);
       const grassCover = createGrassField(terrain, {
-        count: 28000,
+        count: RENDER_QUALITY.grassCover,
         extent: 95,
         seed: 0xb1,
         bladeHeight: 0.11,
@@ -385,8 +428,8 @@ async function bootstrap(): Promise<void> {
         // Ground-cover blades are short, so go a bit darker / less vivid
         // than the tall layer — they read as moss/lawn underlayer rather
         // than fresh prairie growth.
-        baseColor: { r: [0.1, 0.16], g: [0.26, 0.38], b: [0.07, 0.12] },
-        tipColor: { r: [0.36, 0.46], g: [0.5, 0.62], b: [0.16, 0.22] },
+        baseColor: { r: [0.2, 0.3], g: [0.26, 0.34], b: [0.08, 0.12] },
+        tipColor: { r: [0.78, 0.9], g: [0.64, 0.76], b: [0.2, 0.3] },
         reject: (x, z) => streams.isInStreamZone(x, z, 0.5) || exclusion.isExcluded(x, z),
       });
       renderer.scene.add(grassCover.mesh);
@@ -395,15 +438,20 @@ async function bootstrap(): Promise<void> {
     })
     .catch((err) => console.error('[scatter] failed', err));
 
+  await reportBoot(62, 'Calling the prospector…');
+
   // ---- Character ----
-  const spawnX = persistedPlayer.position.x;
-  const spawnZ = persistedPlayer.position.z;
+  const review = readReviewOverride();
+  if (review) console.log('[review] shot override', review);
+  const spawnX = review?.x ?? persistedPlayer.position.x;
+  const spawnZ = review?.z ?? persistedPlayer.position.z;
+  const spawnYaw = review?.yaw ?? persistedPlayer.rotation.yaw;
   const groundY = terrain.getHeightAt(spawnX, spawnZ);
   const spawnY = Math.max(persistedPlayer.position.y, groundY + 1.5);
   const character = await createCharacter({
     world: physics.rapier,
     initialPosition: { x: spawnX, y: spawnY, z: spawnZ },
-    initialYaw: persistedPlayer.rotation.yaw,
+    initialYaw: spawnYaw,
     initialStamina: persistedPlayer.meters.stamina,
   });
   renderer.scene.add(character.group);
@@ -415,9 +463,11 @@ async function bootstrap(): Promise<void> {
   // ---- Camera rig ----
   const cameraRig = createCameraRig({
     camera: renderer.camera,
-    initialYaw: persistedPlayer.rotation.yaw,
-    initialPitch: 0.25,
+    initialYaw: spawnYaw,
+    initialPitch: review?.pitch ?? 0.25,
   });
+  if (review?.arm) cameraRig.setArmLength(review.arm);
+  if (review?.pose) setReviewPose(review.pose);
 
   // ---- Prospect first-person camera + tool mount ----
   // The prospect lifecycle swaps the third-person rig out for a fixed
@@ -461,6 +511,7 @@ async function bootstrap(): Promise<void> {
   // frame AFTER cameraMode positions it.
   const fx = createEffectSystem();
   renderer.camera.add(fx.particlesGroup);
+  renderer.scene.add(fx.worldGroup);
   // Per-stage swing trackers — tool meshes animate on rising-edge
   // detection of `lastSwingFlashSec` (a value that drops to ~0 on each
   // fresh swing). Initial value > 0 ensures the first frame doesn't
@@ -468,6 +519,7 @@ async function bootstrap(): Promise<void> {
   let lastDigSwingFlash = 999;
   let lastClassifyTapFlash = 999;
   let lastStrikeSwingFlash = 999;
+  let lastPanSwirls = 0;
   let prospectWasActive = false;
 
   // ---- Audio system ----
@@ -475,7 +527,7 @@ async function bootstrap(): Promise<void> {
   // produce sound, so we wire tryEnable() into the existing canvas click
   // handler (and the first keydown) — first interaction unlocks audio
   // for the rest of the session.
-  const audio = createAudioSystem();
+  const audio = bindGameplayAudio(createAudioSystem());
   let audioEnabledOnce = false;
   function nudgeAudioEnabled(): void {
     audio.tryEnable();
@@ -489,7 +541,7 @@ async function bootstrap(): Promise<void> {
   canvas.addEventListener('click', () => {
     nudgeAudioEnabled();
     if (document.pointerLockElement !== canvas) {
-      canvas.requestPointerLock?.();
+      void Promise.resolve(canvas.requestPointerLock?.()).catch(() => undefined);
     }
   });
 
@@ -564,7 +616,7 @@ async function bootstrap(): Promise<void> {
   const prospect = createProspectingController({
     audio,
     effects: {
-      burst: (origin, color, count = 12) => fx.burst({ origin, color, count }),
+      burst: (origin, color, count = 12, style) => fx.burst({ origin, color, count, style }),
       shake: (intensity, durationSec) => fx.shake(intensity, durationSec),
     },
   });
@@ -572,7 +624,16 @@ async function bootstrap(): Promise<void> {
   // Edge-detection state (input manager doesn't expose just-pressed; tracked here).
   let interactWasDown = false;
   let pauseWasDown = false;
-  let worldTime = gameStore.getState().save.world.gameTime;
+  let helpWasDown = false;
+  let mapWasDown = false;
+  let inventoryWasDown = false;
+  let useToolWasDown = false;
+  let digWasDown = false;
+  let panWasDown = false;
+  let hintText = '';
+  let hintUntil = 0;
+  let worldTime =
+    review?.hour != null ? reviewWorldTime(review.hour) : gameStore.getState().save.world.gameTime;
   let footstepTimer = 0;
 
   // Active vendor session (mutually exclusive with prospecting). When non-null,
@@ -618,13 +679,119 @@ async function bootstrap(): Promise<void> {
     };
   }
 
+  // ---- Playtest pilot (`?smoke=1`) ----
+  const smoke = createSmokePilot();
+  const smokeSite = (() => {
+    for (const stream of streams.streams) {
+      const site = stream.sites[0];
+      if (site) return { x: site.position.x, z: site.position.z };
+    }
+    return null;
+  })();
+  const assayer = vendors.vendors.find((v) => v.id === 'assayer');
+  const smokeVendor = {
+    x: assayer?.position.x ?? -15,
+    z: assayer?.position.z ?? 0,
+  };
+  let frameLuma = 0;
+
+  function publishProbe(): void {
+    const save = gameStore.getState().save;
+    const gold = save.inventory.carry.gold;
+    const pos = character.getPosition();
+    const view = smoke.view();
+    const previous = window.__themHills;
+    window.__themHills = {
+      ready: true,
+      phase: view.phase,
+      position: { x: pos.x, y: pos.y, z: pos.z },
+      carryGrams: gold.flake_g + gold.picker_g + gold.nugget_g,
+      wallet: save.wallet.balance,
+      saveCount: save.metadata.saveCount,
+      loopComplete: view.loopComplete,
+      error: view.error,
+      frameLuma,
+      peakCarryGrams: view.peakCarryGrams,
+      save: async () => {
+        await saveCurrentState(buildSaveSnapshot());
+        publishProbe();
+      },
+      graphics: getQualityName(),
+      applyShot: (name: string) => {
+        const shot = reviewShot(name);
+        if (!shot) return false;
+        const y = terrain.getHeightAt(shot.x, shot.z) + 1.5;
+        character.placeAt(shot.x, y, shot.z);
+        cameraRig.setYawPitch(shot.yaw, shot.pitch);
+        cameraRig.setArmLength(shot.arm);
+        setReviewPose(shot.pose);
+        worldTime = reviewWorldTime(shot.hour);
+        return true;
+      },
+    };
+    if (previous) previous.frameLuma = frameLuma;
+  }
+
+  const beaconMat = new THREE.MeshBasicMaterial({
+    color: 0xffd56a,
+    transparent: true,
+    opacity: 0.32,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const beacon = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 26, 10, 1, true), beaconMat);
+  beacon.name = 'guide-beacon';
+  beacon.frustumCulled = false;
+  beacon.visible = false;
+  renderer.scene.add(beacon);
+
+  let simRunning = skipIntro;
+  let presentedFrames = 0;
+  const overlays = mountOverlays({
+    onResume: () => {
+      void Promise.resolve(canvas.requestPointerLock?.()).catch(() => undefined);
+    },
+    onSettings: () => settings.open(),
+    onQuality: (name) => {
+      setQuality(name);
+      publishProbe();
+      requestAnimationFrame(() => {
+        renderer.applyGraphics();
+        grass?.setCount(RENDER_QUALITY.grassTall);
+        for (const cover of grassCovers) cover.setCount(RENDER_QUALITY.grassCover);
+        motes.resize();
+      });
+    },
+  });
+
   // ---- Game loop ----
   const loop = createGameLoop({
+    // Shader compile on a software GPU can stall a frame for seconds.
+    // The playtest pilot needs that stall to still advance the sim, or
+    // the 6s pan and 9s collect never finish inside the test budget.
+    maxFrameDt: smoke.active ? 1 : 0.25,
     update: (dt) => {
-      worldTime += dt;
       input.poll();
+      if (!simRunning) {
+        publishProbe();
+        return;
+      }
+      worldTime += dt;
 
-      const interactDown = input.isActive('INTERACT');
+      const carried = gameStore.getState().save.inventory.carry.gold;
+      const drive = smoke.drive(dt, {
+        carryGrams: carried.flake_g + carried.picker_g + carried.nugget_g,
+        wallet: gameStore.getState().save.wallet.balance,
+        prospect: prospect.getSnapshot(),
+        vendorOpen: activeVendor !== null,
+        placeAt: (x, y, z) => character.placeAt(x, y, z),
+        groundY: (x, z) => terrain.getHeightAt(x, z),
+        site: smokeSite,
+        vendor: smokeVendor,
+      });
+
+      const interactDown = input.isActive('INTERACT') || drive.interact;
+      const useToolDown = input.isActive('USE_TOOL') || drive.useTool;
       const interactJustPressed = interactDown && !interactWasDown;
       interactWasDown = interactDown;
 
@@ -636,9 +803,10 @@ async function bootstrap(): Promise<void> {
       // applied to the rig when no prospect minigame is active and the
       // settings panel isn't open (in both cases we don't want mouse
       // motion to turn the world view).
-      const lookDelta = input.getLookDelta(dt);
+      const rawLook = input.getLookDelta(dt);
+      const lookDelta = drive.look ?? rawLook;
       const prospectingNow = prospect.isActive();
-      if (!prospectingNow && !settings.isOpen()) {
+      if (!prospectingNow && !settings.isOpen() && !overlays.isBlocking()) {
         cameraRig.applyLook(lookDelta);
       }
 
@@ -652,19 +820,40 @@ async function bootstrap(): Promise<void> {
       // Settings panel: PAUSE toggles open/close from the in-world state.
       // While the panel is open the player can't move and the press is
       // consumed so the downstream session handlers don't double-fire.
+      const helpJust = input.isActive('HELP') && !helpWasDown;
+      helpWasDown = input.isActive('HELP');
+      const mapJust = input.isActive('MAP') && !mapWasDown;
+      mapWasDown = input.isActive('MAP');
+      const inventoryJust = input.isActive('INVENTORY') && !inventoryWasDown;
+      inventoryWasDown = input.isActive('INVENTORY');
+      if (!inSession) {
+        if (helpJust) overlays.toggle('help');
+        if (mapJust) overlays.toggle('map');
+        if (inventoryJust) overlays.toggle('inventory');
+      }
+
       if (pauseJustPressed) {
         if (settings.isOpen()) {
           settings.close();
           pauseJustPressed = false;
+        } else if (overlays.current() !== 'none') {
+          overlays.close();
+          pauseJustPressed = false;
         } else if (!inSession) {
-          settings.open();
+          overlays.toggle('pause');
           pauseJustPressed = false;
         }
       }
       const settingsOpen = settings.isOpen();
-      const moveInput = inSession || settingsOpen ? { x: 0, y: 0 } : input.getMoveInput();
-      const jumpDown = inSession || settingsOpen ? false : input.isActive('JUMP');
-      const sprintDown = inSession || settingsOpen ? false : input.isActive('SPRINT');
+      const uiBlocked = settingsOpen || overlays.isBlocking();
+      const moveInput =
+        !inSession && !uiBlocked && drive.move
+          ? drive.move
+          : inSession || uiBlocked
+            ? { x: 0, y: 0 }
+            : input.getMoveInput();
+      const jumpDown = inSession || uiBlocked ? false : input.isActive('JUMP');
+      const sprintDown = inSession || uiBlocked ? false : input.isActive('SPRINT');
 
       // Edge-detection for store-cycle inputs (only used inside store session)
       const toolNextDown = input.isActive('TOOL_NEXT');
@@ -743,6 +932,7 @@ async function bootstrap(): Promise<void> {
             // Rising-edge: lastSwingFlashSec drops on a new swing.
             if (v.lastSwingFlashSec < lastDigSwingFlash) {
               triggerToolSwing(usePickaxe ? pickaxeMesh : shovelMesh);
+              presentToolImpact(fx, charPosForCamera, 0x8a6240, 12, 'dirt');
             }
             lastDigSwingFlash = v.lastSwingFlashSec;
           } else if (v?.kind === 'classify') {
@@ -760,6 +950,10 @@ async function bootstrap(): Promise<void> {
           } else if (v?.kind === 'pan') {
             panView.update(v);
             panView.setVisible(true);
+            if (v.swirlCount > lastPanSwirls) {
+              presentToolImpact(fx, charPosForCamera, 0xb7d4e2, 10, 'droplet');
+            }
+            lastPanSwirls = v.swirlCount;
           } else if (v?.kind === 'collect') {
             collectView.update(v);
             collectView.setVisible(true);
@@ -782,7 +976,7 @@ async function bootstrap(): Promise<void> {
           }
         }
       } else {
-        cameraRig.placeCamera(charPosForCamera, physics.rapier, character.getColliderHandle());
+        cameraRig.placeCamera(charPosForCamera, physics.rapier, character.getColliderHandle(), dt);
       }
 
       // 7. Proximity: precedence is vendor > general store > inn > Pete > mine > camp > site.
@@ -864,7 +1058,11 @@ async function bootstrap(): Promise<void> {
 
       // 8. Survival meter drain + daily site respawn + audio ambient
       const inStreamWater = streams.isPlayerInAnyStream(charPos);
-      gameStore.getState().tickMeters(dt, inStreamWater);
+      // Hunger and thirst wait until the player has actually started a
+      // prospect. Wandering while lost shouldn't empty the meters.
+      if (gameStore.getState().save.progression.stats.totalPansPerformed > 0) {
+        gameStore.getState().tickMeters(dt, inStreamWater);
+      }
       // Midnight respawn: when the in-game day index advances, regenerate
       // every stream's sites at fresh positions with a new maxDigs roll.
       // Tied to worldTime (in-game seconds, not IRL clock).
@@ -931,17 +1129,19 @@ async function bootstrap(): Promise<void> {
           break;
         }
       }
-      if (inCave) renderer.ambient.intensity = 0.06;
+      if (inCave) {
+        renderer.ambient.intensity = 0.04;
+        renderer.hemi.intensity = 0.015;
+      }
 
-      // Capture world-space sun direction BEFORE we offset the light for
-      // shadow-follow. terrain/grass lambert math needs the original
-      // direction; the light's *position* is then translated to keep the
-      // shadow camera frustum centered on the player.
-      const sunDirWorld = renderer.sun.position.clone().normalize();
-      renderer.sun.position.x += charPos.x;
-      renderer.sun.position.z += charPos.z;
-      renderer.sun.target.position.set(charPos.x, 0, charPos.z);
-      renderer.sun.target.updateMatrixWorld();
+      // Sky wrote the sun's arc position. Slide the shadow frustum onto the
+      // player, then publish one lighting block for every custom shader.
+      const sunDirWorld = renderer.followSun(charPos);
+      renderer.syncFrame(worldTime, sunDirWorld);
+      updateScatterWind(worldTime, charPos);
+      setFoliageWindTime(worldTime);
+      shafts.update(sunDirWorld, charPos, true);
+      motes.update(worldTime, charPos, sunDirWorld.y);
 
       headlamp.update({
         playerPos: charPos,
@@ -957,22 +1157,8 @@ async function bootstrap(): Promise<void> {
         ambientColor: renderer.ambient.color,
         ambientIntensity: renderer.ambient.intensity,
       };
-      grass.update(grassLight);
+      grass?.update(grassLight);
       for (const cover of grassCovers) cover.update(grassLight);
-      terrain.updateLighting({
-        sunDirection: sunDirWorld,
-        sunColor: renderer.sun.color,
-        sunIntensity: renderer.sun.intensity,
-        ambientColor: renderer.ambient.color,
-        ambientIntensity: renderer.ambient.intensity,
-      });
-      streams.updateLighting({
-        sunDirection: sunDirWorld,
-        sunColor: renderer.sun.color,
-        sunIntensity: renderer.sun.intensity,
-        ambientColor: renderer.ambient.color,
-        ambientIntensity: renderer.ambient.intensity,
-      });
 
       // 10. Session state machine — dialogue → store → vendor → prospecting → camp → idle.
       if (inDialogueSession) {
@@ -1095,6 +1281,8 @@ async function bootstrap(): Promise<void> {
                 gameStore.getState().save.economy.spotPrice.current,
                 worldTime,
               );
+            gameStore.getState().markFirstSale();
+            emitGameplay('sell', { vendorId: activeVendor!.id, earned: result.earned });
             console.log(
               `[vendor] sold ${totalG.toFixed(3)}g at ${activeVendor!.id} for $${result.earned.toFixed(2)}`,
             );
@@ -1108,7 +1296,7 @@ async function bootstrap(): Promise<void> {
         } else {
           const result = prospect.update(dt, {
             interactDown,
-            useToolDown: input.isActive('USE_TOOL'),
+            useToolDown,
             axes: lookDelta,
           });
           if (result) {
@@ -1116,6 +1304,13 @@ async function bootstrap(): Promise<void> {
             gameStore.getState().applyGoldToQuests(result.reward);
             gameStore.getState().touchSite(result.siteId, worldTime);
             const totalG = result.reward.flake_g + result.reward.picker_g + result.reward.nugget_g;
+            presentProspectFind({
+              audio,
+              effects: fx,
+              position: character.getPosition(),
+              grams: totalG,
+            });
+            gameStore.getState().markTutorialComplete();
             const scoreFmt = result.stageScores.map((s) => s.toFixed(2)).join(' / ');
             console.log(
               `[prospect] reward at ${result.siteId}: ${totalG.toFixed(3)}g ` +
@@ -1169,7 +1364,9 @@ async function bootstrap(): Promise<void> {
           // M6: only Gear is the "global" tool multiplier now — the rest
           // (pan/shovel/classifier/snuffer/detector) apply per-stage
           // inside the prospect controller.
-          const globalMult = getGlobalYieldMultiplier(gameStore.getState().save.equipment.ownedTiers);
+          const globalMult = getGlobalYieldMultiplier(
+            gameStore.getState().save.equipment.ownedTiers,
+          );
           const survivalMult = computeSurvivalYieldFactor(gameStore.getState().save.player.meters);
           const siteBonus = nearestSite.site.bonusYield ?? 1.0;
           const yieldMultiplier = globalMult * survivalMult * siteBonus;
@@ -1184,6 +1381,7 @@ async function bootstrap(): Promise<void> {
             toolTiers: gameStore.getState().save.equipment.ownedTiers,
           });
           audio.playSplash();
+          emitGameplay('prospect-start', { siteId: nearestSite.site.id });
           const bonusTag = siteBonus !== 1 ? ` × site${siteBonus.toFixed(2)}` : '';
           console.log(
             `[prospect] start ${nearestSite.site.id} (digs=${site.digsRemaining}/${site.maxDigs}, firstEver=${firstEver}, yield=${yieldMultiplier.toFixed(2)} = gear${globalMult.toFixed(2)} × survival${survivalMult.toFixed(2)}${bonusTag})`,
@@ -1220,6 +1418,70 @@ async function bootstrap(): Promise<void> {
                     : nearestSite
                       ? { text: 'Prospect', glyph: interactGlyph }
                       : null;
+
+      const digDown = input.isActive('DIG');
+      const digJust = digDown && !digWasDown;
+      digWasDown = digDown;
+      const panDown = input.isActive('PAN');
+      const panJust = panDown && !panWasDown;
+      panWasDown = panDown;
+      const useJust = useToolDown && !useToolWasDown;
+      useToolWasDown = useToolDown;
+      if (!inSession && !promptInfo && (interactJustPressed || useJust || digJust || panJust)) {
+        hintText = streams.isInStreamZone(charPos.x, charPos.z, 6)
+          ? 'Nothing to work here. Follow the creek to a gold ring, then press E.'
+          : 'Nothing here. Coyote Creek is east — follow the gold beam.';
+        hintUntil = worldTime + 3.5;
+      }
+      const shownPrompt =
+        promptInfo ?? (hintText && worldTime < hintUntil ? { text: hintText, glyph: '…' } : null);
+
+      const carryGramsNow =
+        save.inventory.carry.gold.flake_g +
+        save.inventory.carry.gold.picker_g +
+        save.inventory.carry.gold.nugget_g;
+      const progress = save.progression;
+      let guide: { title: string; detail: string } | null = null;
+      let beam: { x: number; z: number } | null = null;
+      if (!progress.firstSaleCompleted && !params.has('shot')) {
+        if (progress.stats.totalPansPerformed === 0) {
+          guide = {
+            title: 'First claim',
+            detail:
+              'Walk east to the gold beam in Coyote Creek. Stand on the ring and press E. Shift sprints.',
+          };
+          const coyote = streams.streams.find((s) => s.id === 'coyote_creek');
+          let bestD = Infinity;
+          for (const site of coyote?.sites ?? []) {
+            const d = Math.hypot(site.position.x - charPos.x, site.position.z - charPos.z);
+            if (d < bestD) {
+              bestD = d;
+              beam = { x: site.position.x, z: site.position.z };
+            }
+          }
+        } else if (carryGramsNow > 1e-4) {
+          guide = {
+            title: 'Cash it in',
+            detail: 'Walk west to the Town Assayer (gold sign) and press E to sell.',
+          };
+          beam = { x: smokeVendor.x, z: smokeVendor.z };
+        }
+      }
+      if (beam) {
+        beacon.visible = true;
+        beacon.position.set(beam.x, terrain.getHeightAt(beam.x, beam.z) + 13, beam.z);
+      } else {
+        beacon.visible = false;
+      }
+      if (overlays.current() === 'inventory') {
+        const g = save.inventory.carry.gold;
+        overlays.setInventory([
+          `Flake ${g.flake_g.toFixed(3)} g · Picker ${g.picker_g.toFixed(3)} g · Nugget ${g.nugget_g.toFixed(3)} g`,
+          `Wallet $${save.wallet.balance.toFixed(2)}`,
+          `Shovel T${save.equipment.ownedTiers.shovel} · Pan T${save.equipment.ownedTiers.pan} · Classifier T${save.equipment.ownedTiers.classifier} · Snuffer T${save.equipment.ownedTiers.snuffer}`,
+          'Tools are used at a gold ring. Press E there to dig.',
+        ]);
+      }
 
       let vendorOverlay: ReturnType<typeof buildVendorOverlay> | null = null;
       if (activeVendor) {
@@ -1266,16 +1528,37 @@ async function bootstrap(): Promise<void> {
         spotPricePerOzt: save.economy.spotPrice.current,
         spotPriceSource: save.economy.spotPrice.source,
         bearingDeg: bearingFromYaw(cameraRig.getYaw()),
-        prompt: promptInfo,
+        prompt: shownPrompt,
+        guide,
+        toolsLabel: `Shovel T${save.equipment.ownedTiers.shovel} · Pan T${save.equipment.ownedTiers.pan}`,
         vendor: vendorOverlay,
         store: storeOverlay,
         dialogue: dialogueOverlay,
         questTracker,
         prospect: prospect.getSnapshot(),
       });
+      publishProbe();
     },
-    render: () => renderer.render(),
+    render: () => {
+      renderer.render();
+      presentedFrames += 1;
+      if (presentedFrames === 2) spawnGrass();
+      frameLuma = samplePresentedLuma(renderer.renderer);
+      if (window.__themHills) window.__themHills.frameLuma = frameLuma;
+    },
   });
+  publishProbe();
+
+  await reportBoot(90, 'Compiling the view…');
+  if (skipIntro) {
+    overlays.hide();
+  } else {
+    overlays.showTitle(() => {
+      simRunning = true;
+      overlays.hide();
+      void Promise.resolve(canvas.requestPointerLock?.()).catch(() => undefined);
+    });
+  }
   loop.start();
 
   // ---- Persistence ----
@@ -1288,7 +1571,7 @@ async function bootstrap(): Promise<void> {
     saveCurrentState(buildSaveSnapshot()).catch(() => undefined);
   });
 
-  console.log('[bootstrap] Them Hills ready (Phase 9a — Two streams)');
+  console.log('[bootstrap] Them Hills ready (overhaul phase 1 — lighting pipeline)');
   console.log(
     '  Coyote Creek runs N-S ~10m east of spawn. Buckeye Run runs E-W ~35m south — greener water.',
   );
@@ -1413,6 +1696,35 @@ function buildExclusionGrid(
 
 // Snapshot of the dialogue UI for the HUD: speaker, body line, and the list
 // of options with enabled state + optional disabled hints.
+function samplePresentedLuma(renderer: THREE.WebGLRenderer): number {
+  const gl = renderer.getContext();
+  const w = gl.drawingBufferWidth;
+  const h = gl.drawingBufferHeight;
+  if (w < 4 || h < 4) return 0;
+  const px = new Uint8Array(4);
+  let max = 0;
+  const samples: ReadonlyArray<readonly [number, number]> = [
+    [0.5, 0.72],
+    [0.5, 0.5],
+    [0.28, 0.4],
+    [0.72, 0.4],
+    [0.5, 0.22],
+  ];
+  for (const [u, v] of samples) {
+    gl.readPixels(
+      Math.floor(u * (w - 1)),
+      Math.floor(v * (h - 1)),
+      1,
+      1,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      px,
+    );
+    max = Math.max(max, (px[0] ?? 0) + (px[1] ?? 0) + (px[2] ?? 0));
+  }
+  return max / 3;
+}
+
 function buildDialogueOverlay(
   session: DialogueSession,
   save: SaveV1,
