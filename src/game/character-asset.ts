@@ -229,25 +229,25 @@ function attachHandTools(hand: THREE.Object3D | undefined): {
   const pan = new THREE.Group();
   pan.name = 'held-pan';
   const bowl = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.16, 0.11, 0.05, 12),
-    new THREE.MeshStandardMaterial({ color: 0x8d7764, metalness: 0.4, roughness: 0.4 }),
+    new THREE.CylinderGeometry(0.2, 0.15, 0.045, 14),
+    new THREE.MeshStandardMaterial({ color: 0x8d7764, metalness: 0.45, roughness: 0.38 }),
   );
-  bowl.rotation.x = Math.PI / 2;
-  bowl.position.y = 0.08;
+  // Opening faces the grip's +Y, which the wrist aims at the camera's look point.
+  bowl.position.y = 0.14;
   pan.add(bowl);
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 7; i++) {
     const flake = new THREE.Mesh(
-      new THREE.SphereGeometry(0.012, 6, 5),
+      new THREE.SphereGeometry(0.018 + (i % 3) * 0.008, 8, 6),
       new THREE.MeshStandardMaterial({
         color: 0xffd56a,
-        emissive: 0xaa7711,
-        emissiveIntensity: 0.55,
-        metalness: 0.65,
-        roughness: 0.28,
+        emissive: 0xffb020,
+        emissiveIntensity: 1.35,
+        metalness: 0.7,
+        roughness: 0.22,
       }),
     );
-    const a = (i / 4) * Math.PI * 2;
-    flake.position.set(Math.cos(a) * 0.06, 0.1, Math.sin(a) * 0.04);
+    const a = (i / 7) * Math.PI * 2;
+    flake.position.set(Math.cos(a) * 0.07, 0.17, Math.sin(a) * 0.05);
     pan.add(flake);
   }
   pan.visible = false;
