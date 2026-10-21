@@ -9,16 +9,24 @@ import * as THREE from 'three';
 // layer 1. Grass, the character, and the water stay on layer 0.
 
 export const REFLECTION_LAYER = 1;
+/** Trees only. The software mirror uses this so the target is trunks, not meadow. */
+export const TREE_MIRROR_LAYER = 2;
 
 export const reflectionUniforms = {
   uReflect: { value: null as THREE.Texture | null },
   uReflProjView: { value: new THREE.Matrix4() },
   uHasReflect: { value: 0 },
+  /** 1 = screen-space flip of a tree prepass. 0 = projective planar mirror. */
+  uMirrorMode: { value: 0 },
+  uHorizon: { value: 0.55 },
+  uResolution: { value: new THREE.Vector2(1280, 720) },
 };
 
 export interface WaterReflection {
   setEnabled(on: boolean): void;
   readonly enabled: boolean;
+  /** Software GL mirrors trees only. A full-scene mirror filled the target with meadow. */
+  setTreesOnly(on: boolean): void;
   setSize(pixels: number): void;
   /** Reuse the last mirror for this many frames. Software GL uses 2. */
   setStride(frames: number): void;
@@ -42,6 +50,21 @@ export function markReflective(root: THREE.Object3D): void {
   });
 }
 
+export function markTreeMirror(root: THREE.Object3D): void {
+  root.traverse((obj) => {
+    obj.layers.enable(TREE_MIRROR_LAYER);
+    const mesh = obj as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const mat of mats) {
+      // One-time. The mirror camera sits under the creek, so front faces
+      // point away from it. DoubleSide compiles once and is the same picture
+      // from outside the trunk.
+      if (mat && mat.side === THREE.FrontSide) mat.side = THREE.DoubleSide;
+    }
+  });
+}
+
 /** Enable layer 1 on everything that should mirror, honoring skipReflection. */
 export function markSceneReflections(scene: THREE.Scene): void {
   scene.traverse((obj) => {
@@ -57,6 +80,7 @@ export function markSceneReflections(scene: THREE.Scene): void {
 export function createWaterReflection(): WaterReflection {
   let size = 160;
   const target = new THREE.WebGLRenderTarget(size, size, {
+    format: THREE.RGBAFormat,
     depthBuffer: true,
     generateMipmaps: false,
     magFilter: THREE.LinearFilter,
@@ -67,6 +91,7 @@ export function createWaterReflection(): WaterReflection {
   const virtual = new THREE.PerspectiveCamera();
   virtual.layers.set(REFLECTION_LAYER);
   let enabled = false;
+  let treesOnly = false;
   let stride = 1;
   let tick = 0;
 
@@ -77,10 +102,6 @@ export function createWaterReflection(): WaterReflection {
   const lookAtPosition = new THREE.Vector3(0, 0, -1);
   const targetPos = new THREE.Vector3();
   const view = new THREE.Vector3();
-  const clipPlane = new THREE.Vector4();
-  const q = new THREE.Vector4();
-  const reflectorPlane = new THREE.Plane();
-  const textureMatrix = new THREE.Matrix4();
   const prevClear = new THREE.Color();
 
   return {
@@ -90,6 +111,10 @@ export function createWaterReflection(): WaterReflection {
     setEnabled(on) {
       enabled = on;
       reflectionUniforms.uHasReflect.value = on ? 1 : 0;
+    },
+    setTreesOnly(on) {
+      treesOnly = on;
+      virtual.layers.set(on ? TREE_MIRROR_LAYER : REFLECTION_LAYER);
     },
     setSize(pixels) {
       const next = Math.max(64, Math.min(256, Math.round(pixels)));
@@ -122,6 +147,8 @@ export function createWaterReflection(): WaterReflection {
       targetPos.reflect(normal).negate();
       targetPos.add(reflectorWorldPosition);
 
+      virtual.layers.set(treesOnly ? TREE_MIRROR_LAYER : REFLECTION_LAYER);
+      reflectionUniforms.uMirrorMode.value = 0;
       virtual.position.copy(view);
       // Match Reflector: camera up, then mirrored. World up alone rolls a pitched view.
       virtual.up.set(0, 1, 0);
@@ -130,52 +157,40 @@ export function createWaterReflection(): WaterReflection {
       virtual.lookAt(targetPos);
       // The opposite bank and the first trees. Farther than this redrew the
       // whole forest and the prospect loop missed its budget on software GL.
-      virtual.far = 64;
+      virtual.far = 120;
       virtual.near = camera.near;
       virtual.fov = camera.fov;
       virtual.aspect = camera.aspect;
       virtual.updateProjectionMatrix();
       virtual.updateMatrixWorld();
+      // No oblique clip. Both signs of it discarded the bank and left the
+      // target the clear color. Trees are on their own layer, so the hill
+      // mesh is not in this pass to hide them.
+      if (treesOnly) {
+        const mirrorW = Math.min(320, Math.max(160, size));
+        const mirrorH = Math.max(90, Math.round(mirrorW / Math.max(camera.aspect, 0.5)));
+        if (target.width !== mirrorW || target.height !== mirrorH) target.setSize(mirrorW, mirrorH);
+      }
 
-      reflectorPlane.setFromNormalAndCoplanarPoint(normal, reflectorWorldPosition);
-      reflectorPlane.applyMatrix4(virtual.matrixWorldInverse);
-      clipPlane.set(
-        reflectorPlane.normal.x,
-        reflectorPlane.normal.y,
-        reflectorPlane.normal.z,
-        reflectorPlane.constant,
+      // Clip space, not the 0.5-biased texture matrix. The water shader applies
+      // that bias once. Applying it here as well pinned every sample on the
+      // sky clear.
+      reflectionUniforms.uReflProjView.value.multiplyMatrices(
+        virtual.projectionMatrix,
+        virtual.matrixWorldInverse,
       );
-      const projectionMatrix = virtual.projectionMatrix;
-      const el = projectionMatrix.elements;
-      q.x = (Math.sign(clipPlane.x) + el[8]!) / el[0]!;
-      q.y = (Math.sign(clipPlane.y) + el[9]!) / el[5]!;
-      q.z = -1;
-      q.w = (1 + el[10]!) / el[14]!;
-      const denom = clipPlane.dot(q);
-      if (Math.abs(denom) > 1e-6) clipPlane.multiplyScalar(2 / denom);
-      el[2] = clipPlane.x;
-      el[6] = clipPlane.y;
-      el[10] = clipPlane.z + 1 - 0.003;
-      el[14] = clipPlane.w;
-
-      // The sample matrix has to use the clipped projection, or the water
-      // reads the fog clear instead of the bank that was just drawn.
-      textureMatrix.set(0.5, 0, 0, 0.5, 0, 0.5, 0, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0, 1);
-      textureMatrix.multiply(virtual.projectionMatrix);
-      textureMatrix.multiply(virtual.matrixWorldInverse);
-      reflectionUniforms.uReflProjView.value.copy(textureMatrix);
 
       const prevTarget = renderer.getRenderTarget();
       const prevShadowAuto = renderer.shadowMap.autoUpdate;
       const prevXr = renderer.xr.enabled;
       renderer.getClearColor(prevClear);
       const prevAlpha = renderer.getClearAlpha();
-      const fog = scene.fog instanceof THREE.FogExp2 ? scene.fog.color : prevClear;
-
       renderer.xr.enabled = false;
       renderer.shadowMap.autoUpdate = false;
       renderer.setRenderTarget(target);
-      renderer.setClearColor(fog, 1);
+      // Alpha 0 means the water shader ignores the sample and uses the
+      // screen-space mirror instead.
+      renderer.setClearColor(0x000000, 0);
       renderer.clear();
       // Full scene fog turns the far bank into a flat wash, so the mirror
       // keeps the trees dark and green instead of the fog color.

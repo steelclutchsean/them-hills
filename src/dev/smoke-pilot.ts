@@ -54,6 +54,8 @@ export interface ThemHillsProbe {
   frameBudget: { frameMs: number; drawCalls: number; triangles: number };
   peakCarryGrams: number;
   graphics: string;
+  mirrorMode?: number;
+  mirrorHorizon?: number;
   saveVersion: number;
   panTier: number;
   claimCount: number;
@@ -75,6 +77,8 @@ export interface ThemHillsProbe {
   spawnJumper: () => boolean;
   /** Teleport to a named review camera. Returns false for an unknown name. */
   applyShot?: (name: string) => boolean;
+  /** Art-review camera nudge. Yaw, pitch, arm. */
+  framePose?: (yaw: number, pitch: number, arm: number) => void;
   /** Open a story card or a world-event preview for capture. */
   previewScene?: (who: string) => boolean;
   /** Walk the player into the north drift and use the interior eye camera. */

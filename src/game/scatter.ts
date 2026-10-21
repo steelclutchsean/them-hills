@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { registerObstacle } from '@/game/obstacles';
-import { markReflective } from '@/render/reflection';
+import { markReflective, markTreeMirror } from '@/render/reflection';
 import { kitRockMaterial, timberDarkMaterial } from '@/render/painterly';
 import { PALETTE } from '@/render/palette';
 import { configureShadows, loadModels } from './assets';
@@ -319,6 +319,7 @@ export async function scatterAssets(
 
   scene.add(root);
   markReflective(root);
+  if (config.lod === 'tree') markTreeMirror(root);
   registerObstacle(root);
   return { placed, skipped, positions };
 }

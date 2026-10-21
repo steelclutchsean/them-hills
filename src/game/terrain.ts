@@ -175,7 +175,10 @@ const TERRAIN_VS = /* glsl */ `
 
     #include <begin_vertex>
     #include <project_vertex>
-    #include <worldpos_vertex>
+    // This Three build's project_vertex does not declare worldPosition.
+    // The shadow chunk still reads that name, and the creek mirror compiles
+    // the material once with the shadow pass paused.
+    vec4 worldPosition = modelMatrix * vec4(transformed, 1.0);
     vWorld = worldPosition.xyz;
     vColor = color;
     vBankMask = aBankMask;

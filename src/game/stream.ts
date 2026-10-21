@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { bindFrameUniforms, FRAME_UNIFORM_GLSL } from '@/render/frame-uniforms';
 import { reflectionUniforms } from '@/render/reflection';
 import { creekProbeUniforms } from '@/render/creek-probe';
+import { sceneGrabUniforms } from '@/engine/post';
 import type { Terrain } from './terrain';
 import { createRng } from './rng';
 import type { Watercourse } from './watercourse';
@@ -35,6 +36,31 @@ export interface StreamConfig {
 }
 
 const SITE_INTERACT_RADIUS = 1.5;
+
+/** Camera matrices for the screen-space creek mirror. Shared by every stream. */
+export const waterViewUniforms = {
+  uProj: { value: new THREE.Matrix4() },
+  uView: { value: new THREE.Matrix4() },
+};
+
+const horizonUp = new THREE.Vector3();
+const horizonDir = new THREE.Vector4();
+
+export function syncWaterMatrices(camera: THREE.Camera, renderer?: THREE.WebGLRenderer): void {
+  waterViewUniforms.uProj.value.copy(camera.projectionMatrix);
+  waterViewUniforms.uView.value.copy(camera.matrixWorldInverse);
+  if (renderer) renderer.getDrawingBufferSize(reflectionUniforms.uResolution.value);
+  // Screen y of the water plane's vanishing line. The software mirror flips
+  // the frame across it, which is where the far-bank trunks land in the creek.
+  horizonUp.set(0, 1, 0).transformDirection(camera.matrixWorldInverse);
+  const uy = Math.abs(horizonUp.y) < 1e-4 ? 1e-4 : horizonUp.y;
+  horizonDir.set(0, horizonUp.z / uy, -1, 0).applyMatrix4(camera.projectionMatrix);
+  const horizon =
+    Math.abs(horizonDir.w) > 1e-5
+      ? THREE.MathUtils.clamp((horizonDir.y / horizonDir.w) * 0.5 + 0.5, 0.02, 0.98)
+      : 0.5;
+  reflectionUniforms.uHorizon.value = horizon;
+}
 
 const DEFAULT_SHALLOW = 0xe0a85a;
 const DEFAULT_DEEP = 0x1e7c78;
@@ -126,8 +152,17 @@ const FRAG_SHADER = /* glsl */ `
   uniform sampler2D uReflect;
   uniform mat4 uReflProjView;
   uniform float uHasReflect;
+  uniform float uMirrorMode;
+  uniform float uHorizon;
+  uniform vec2 uResolution;
   uniform samplerCube uProbe;
   uniform float uHasProbe;
+  uniform sampler2D uScene;
+  uniform sampler2D uSceneDepth;
+  uniform float uHasScene;
+  uniform sampler2D uFlowMap;
+  uniform mat4 uProj;
+  uniform mat4 uView;
   varying vec3 vWorld;
   varying vec3 vViewDir;
   varying vec2 vFlow;
@@ -189,6 +224,7 @@ const FRAG_SHADER = /* glsl */ `
     foamMask = max(foamMask, riffle * smoothstep(0.48, 0.8, streak) * 0.8);
 
     float wake = 0.0;
+    float lip = 0.0;
     for (int i = 0; i < 8; i++) {
       float radius = uRocks[i].z;
       if (radius < 0.05) continue;
@@ -200,15 +236,29 @@ const FRAG_SHADER = /* glsl */ `
       float trail = smoothstep(-0.1, 0.45, ahead)
                   * (1.0 - smoothstep(0.2, 6.4, ahead))
                   * (1.0 - smoothstep(radius * 0.2, radius * 2.8, side));
+      // A bright line peeling off each shoulder of the rock, then a tail.
+      float shoulder = exp(-abs(side - radius * 0.7) * 4.0)
+                     * smoothstep(-0.05, 0.35, ahead)
+                     * (1.0 - smoothstep(0.6, 5.2, ahead));
       wake = max(wake, max(body, trail));
+      lip = max(lip, shoulder);
     }
-    foamMask = max(foamMask, wake);
+    foamMask = max(foamMask, max(wake, lip));
     base = mix(base, uFoam, clamp(foamMask, 0.0, 1.0));
+    base = mix(base, vec3(0.97, 0.95, 0.88), clamp(lip, 0.0, 0.9));
 
     float h0 = n1;
     float h1 = noise(flowUv + vec2(0.16, 0.0) - flow * phase * 3.2);
     float h2 = noise(flowUv + vec2(0.0, 0.16) - flow * phase * 3.2);
-    vec3 surfNormal = normalize(vec3((h0 - h1) * 7.5, 1.0, (h0 - h2) * 7.5));
+    vec2 sideDir = vec2(-flow.y, flow.x);
+    vec2 flowUvN = vec2(dot(worldXZ, flow), dot(worldXZ, sideDir));
+    vec3 mapA = texture2D(uFlowMap, flowUvN * 0.38 - vec2(uTime * uFlowSpeed * 0.32, 0.0)).xyz * 2.0 - 1.0;
+    vec3 mapB = texture2D(uFlowMap, flowUvN * 0.71 + vec2(0.17, uTime * uFlowSpeed * 0.2)).xyz * 2.0 - 1.0;
+    vec3 surfNormal = normalize(vec3(
+      (h0 - h1) * 7.5 + (mapA.x + mapB.x) * 0.9,
+      1.0,
+      (h0 - h2) * 7.5 + (mapA.y + mapB.y) * 0.9
+    ));
     vec3 viewDir = normalize(vViewDir);
     vec3 sunDir = normalize(uSunDir);
     vec3 reflectDir = reflect(-sunDir, surfNormal);
@@ -217,42 +267,45 @@ const FRAG_SHADER = /* glsl */ `
 
     float fres = pow(1.0 - max(dot(viewDir, surfNormal), 0.0), 2.1);
     vec3 reflected = mix(uHemiSky, uFoam, 0.22);
-    float treeAmt = 0.0;
-    if (uHasProbe > 0.5) {
-      vec3 refl = reflect(-viewDir, surfNormal);
-      // Fan across the banks. A single ray from the channel hits sky; the
-      // greenest tap in the fan is the timber actually in the cube.
-      float sweep = along * 0.17;
-      vec3 mirror = textureCube(uProbe, refl).rgb;
-      float best = mirror.g - max(mirror.r, mirror.b);
-      for (int i = 0; i < 5; i++) {
-        float ang = sweep + float(i) * 1.05;
-        vec3 dir = normalize(vec3(cos(ang), 0.42, sin(ang)));
-        vec3 tap = textureCube(uProbe, dir).rgb;
-        float score = tap.g - max(tap.r, tap.b);
-        if (score > best) {
-          best = score;
-          mirror = tap;
-        }
-      }
-      float rl = dot(mirror, vec3(0.2126, 0.7152, 0.0722));
-      reflected = mix(vec3(rl), mirror, 2.4);
-      treeAmt = smoothstep(0.0, 0.08, best);
-    } else if (uHasReflect > 0.5) {
+    float mirrorHit = 0.0;
+    // Planar mirror of the trees, when the under-creek camera actually drew
+    // one. Alpha 0 is the clear color and falls through to the screen flip.
+    if (uHasReflect > 0.5) {
       vec4 clip = uReflProjView * vec4(vWorld, 1.0);
       if (clip.w > 0.0) {
-        vec2 uv = clamp(clip.xy / clip.w * 0.5 + 0.5, 0.0, 1.0);
-        uv.y = 1.0 - uv.y;
-        vec3 mirror = texture2D(uReflect, uv).rgb;
-        float rl = dot(mirror, vec3(0.25, 0.6, 0.15));
-        reflected = mix(vec3(rl), mirror, 1.7);
+        vec2 uv = clip.xy / clip.w * 0.5 + 0.5;
+        uv += surfNormal.xz * 0.02;
+        if (uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0) {
+          vec4 samp = texture2D(uReflect, uv);
+          if (samp.a > 0.45) {
+            reflected = samp.rgb;
+            mirrorHit = 1.0;
+          }
+        }
       }
     }
-    float hasMirror = max(uHasProbe, uHasReflect);
-    // Shallows stay amber over the gravel. A tap that actually hit timber
-    // is allowed to cover more of the water than open sky.
-    float reflectAmt = hasMirror > 0.5 ? mix(0.22, 0.5, fres) * mix(0.55, 1.0, depthFactor) : fres * 0.2;
-    reflectAmt = mix(reflectAmt, max(reflectAmt, 0.74), treeAmt);
+    // Screen-space mirror. Flip the frame across the horizon so trunks above
+    // that line land in the creek. Off-screen samples stay the sky tint.
+    if (mirrorHit < 0.5 && uHasScene > 0.5) {
+      vec2 uv = gl_FragCoord.xy / max(uResolution, vec2(1.0));
+      vec2 mir = vec2(uv.x, 2.0 * uHorizon - uv.y);
+      mir += surfNormal.xz * 0.02;
+      if (mir.x > 0.0 && mir.x < 1.0 && mir.y > 0.0 && mir.y < 1.0) {
+        reflected = texture2D(uScene, mir).rgb;
+        mirrorHit = 1.0;
+      }
+    } else if (mirrorHit < 0.5 && uHasProbe > 0.5) {
+      vec3 refl = reflect(-viewDir, surfNormal);
+      vec3 mirror = textureCube(uProbe, refl).rgb;
+      float rl = dot(mirror, vec3(0.2126, 0.7152, 0.0722));
+      reflected = mix(vec3(rl), mirror, 1.6);
+      mirrorHit = 0.35;
+    }
+    // Looking down the bed stays amber. A grazing view is the mirror, so
+    // trunks on the bank read in the water instead of a flat tint.
+    float reflectAmt = mix(0.16, 0.96, smoothstep(0.04, 0.42, fres));
+    if (mirrorHit > 0.5) reflectAmt = max(reflectAmt, 0.72);
+    else reflectAmt *= 0.35;
     base = mix(base, reflected, reflectAmt);
 
     float cau = noise(worldXZ * 3.4 - scroll * 1.5) * noise(worldXZ * 6.2 + scroll * 0.6);
@@ -287,6 +340,53 @@ const FRAG_SHADER = /* glsl */ `
     #endif
   }
 `;
+
+let flowMapTex: THREE.CanvasTexture | null = null;
+
+/** Streaks that run along U, which the shader scrolls in the flow direction. */
+function flowNormalMap(): THREE.CanvasTexture {
+  if (flowMapTex) return flowMapTex;
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('[stream] canvas 2d unavailable');
+  const height = new Float32Array(size * size);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const u = x / size;
+      const v = y / size;
+      height[y * size + x] =
+        Math.sin((u * 3.0 + v * 14.0) * Math.PI * 2) * 0.55 +
+        Math.sin((u * 1.2 - v * 6.0) * Math.PI * 2) * 0.3 +
+        Math.sin((v * 22.0 + u * 0.4) * Math.PI * 2) * 0.15;
+    }
+  }
+  const image = ctx.createImageData(size, size);
+  const at = (x: number, y: number) => height[((y + size) % size) * size + ((x + size) % size)] ?? 0;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = at(x + 1, y) - at(x - 1, y);
+      const dy = at(x, y + 1) - at(x, y - 1);
+      const nx = -dx * 2.4;
+      const ny = -dy * 2.4;
+      const nz = 1;
+      const len = Math.hypot(nx, ny, nz);
+      const i = (y * size + x) * 4;
+      image.data[i] = Math.round((nx / len) * 127 + 128);
+      image.data[i + 1] = Math.round((ny / len) * 127 + 128);
+      image.data[i + 2] = Math.round((nz / len) * 127 + 128);
+      image.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+  flowMapTex = new THREE.CanvasTexture(canvas);
+  flowMapTex.wrapS = THREE.RepeatWrapping;
+  flowMapTex.wrapT = THREE.RepeatWrapping;
+  flowMapTex.colorSpace = THREE.NoColorSpace;
+  return flowMapTex;
+}
 
 let gravelMat: THREE.MeshStandardMaterial | null = null;
 
@@ -404,8 +504,17 @@ export function createStream(terrain: Terrain, cfg: StreamConfig, course: Waterc
   uniforms.uReflect = reflectionUniforms.uReflect;
   uniforms.uReflProjView = reflectionUniforms.uReflProjView;
   uniforms.uHasReflect = reflectionUniforms.uHasReflect;
+  uniforms.uMirrorMode = reflectionUniforms.uMirrorMode;
+  uniforms.uHorizon = reflectionUniforms.uHorizon;
+  uniforms.uResolution = reflectionUniforms.uResolution;
   uniforms.uProbe = creekProbeUniforms.uProbe;
   uniforms.uHasProbe = creekProbeUniforms.uHasProbe;
+  uniforms.uScene = sceneGrabUniforms.uScene;
+  uniforms.uSceneDepth = sceneGrabUniforms.uSceneDepth;
+  uniforms.uHasScene = sceneGrabUniforms.uHasScene;
+  uniforms.uFlowMap = { value: flowNormalMap() };
+  uniforms.uProj = waterViewUniforms.uProj;
+  uniforms.uView = waterViewUniforms.uView;
   bindFrameUniforms(uniforms);
 
   const waterMat = new THREE.ShaderMaterial({

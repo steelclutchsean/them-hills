@@ -6,6 +6,16 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { RENDER_QUALITY } from '@/engine/quality';
+import { Pass, FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
+
+// The water shader reads this on the next frame. It is the HDR scene, before
+// grade and bloom, so a screen-space reflection stays in the same space as
+// the creek. Software GL uses it because the planar mirror does not.
+export const sceneGrabUniforms = {
+  uScene: { value: null as THREE.Texture | null },
+  uSceneDepth: { value: null as THREE.Texture | null },
+  uHasScene: { value: 0 },
+};
 
 // HDR chain: scene → grade (saturation + vignette) → bloom → OutputPass
 // (tone map + sRGB). Materials skip tone mapping while rendering into the
@@ -62,6 +72,9 @@ const GodrayShader = {
   name: 'Godrays',
   uniforms: {
     tDiffuse: { value: null as THREE.Texture | null },
+    tDepth: {
+      value: new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1) as THREE.Texture,
+    },
     uSun: { value: new THREE.Vector2(0.5, 0.8) },
     uIntensity: { value: 0.22 },
   },
@@ -74,6 +87,7 @@ const GodrayShader = {
   `,
   fragmentShader: /* glsl */ `
     uniform sampler2D tDiffuse;
+    uniform sampler2D tDepth;
     uniform vec2 uSun;
     uniform float uIntensity;
     varying vec2 vUv;
@@ -81,28 +95,37 @@ const GodrayShader = {
       vec3 col = texture2D(tDiffuse, vUv).rgb;
       vec2 toSun = uSun - vUv;
       float span = length(toSun);
-      vec2 step = toSun / 24.0;
-      float illum = 0.0;
-      float transmit = 1.0;
-      vec2 p = vUv;
-      for (int i = 0; i < 24; i++) {
-        p += step;
-        vec2 q = clamp(p, 0.0, 1.0);
-        float l = dot(texture2D(tDiffuse, q).rgb, vec3(0.2126, 0.7152, 0.0722));
-        float sunDisc = smoothstep(0.028, 0.0, length(q - uSun));
-        float hot = smoothstep(2.4, 5.0, l);
-        float source = max(sunDisc, hot);
-        float blocked = smoothstep(0.85, 0.22, l) * (1.0 - source);
-        illum += source * transmit;
-        transmit *= mix(1.0, 0.45, blocked);
-      }
-      illum /= 4.0;
+      // Far from the sun the cool corner stays the grade it already has.
+      float sunSide = 1.0 - smoothstep(0.2, 0.58, span);
       float onScreen = smoothstep(-0.2, 0.02, uSun.x) * smoothstep(1.2, 0.98, uSun.x)
                      * smoothstep(-0.25, 0.0, uSun.y) * smoothstep(1.2, 0.98, uSun.y);
-      float here = dot(col, vec3(0.2126, 0.7152, 0.0722));
-      float shade = 1.0 - smoothstep(0.35, 1.15, here);
-      float reach = smoothstep(0.0, 0.08, span);
-      col += vec3(1.08, 0.64, 0.24) * illum * uIntensity * onScreen * shade * reach * 2.2;
+      if (sunSide < 0.001 || onScreen < 0.001 || uIntensity < 0.001) {
+        gl_FragColor = vec4(col, 1.0);
+        return;
+      }
+      // March from this pixel to the sun. Sky (depth at the far plane, or a
+      // bright dawn sample) carries the shaft. A tree or the ridge is darker
+      // and closer, and it cuts the rest of the march so the gaps stay bright.
+      vec2 sunUv = clamp(uSun, vec2(0.02), vec2(0.98));
+      float sunLum = dot(texture2D(tDiffuse, sunUv).rgb, vec3(0.2126, 0.7152, 0.0722));
+      float gate = max(0.45, sunLum * 0.38);
+      vec2 delta = toSun / 24.0;
+      vec2 p = vUv;
+      float illum = 0.0;
+      float energy = 1.0;
+      for (int i = 0; i < 24; i++) {
+        p += delta;
+        if (p.x < -0.02 || p.x > 1.02 || p.y < -0.02 || p.y > 1.02) break;
+        vec2 q = clamp(p, vec2(0.0), vec2(1.0));
+        float dep = texture2D(tDepth, q).r;
+        float lum = dot(texture2D(tDiffuse, q).rgb, vec3(0.2126, 0.7152, 0.0722));
+        float sky = max(smoothstep(0.992, 0.9992, dep), smoothstep(gate * 0.5, gate, lum));
+        illum += sky * energy;
+        energy *= mix(0.02, 0.97, sky);
+      }
+      illum /= 8.0;
+      float shafts = smoothstep(0.28, 1.05, illum);
+      col += vec3(1.22, 0.74, 0.32) * shafts * uIntensity * onScreen * sunSide * 2.4;
       gl_FragColor = vec4(col, 1.0);
     }
   `,
@@ -135,7 +158,27 @@ export function createPostPipeline(
     console.log('[post] MSAA off (software WebGL)');
   }
 
-  composer.addPass(new RenderPass(scene, camera));
+  const renderPass = new RenderPass(scene, camera);
+  composer.addPass(renderPass);
+  attachDepth(composer.renderTarget1);
+  attachDepth(composer.renderTarget2);
+
+  const sceneGrab = new THREE.WebGLRenderTarget(640, 360, {
+    type: THREE.HalfFloatType,
+    depthBuffer: false,
+    magFilter: THREE.LinearFilter,
+    minFilter: THREE.LinearFilter,
+  });
+  sceneGrabUniforms.uScene.value = sceneGrab.texture;
+  const sceneDepth = new THREE.WebGLRenderTarget(640, 360, {
+    type: THREE.HalfFloatType,
+    depthBuffer: false,
+    magFilter: THREE.NearestFilter,
+    minFilter: THREE.NearestFilter,
+  });
+  sceneGrabUniforms.uSceneDepth.value = sceneDepth.texture;
+  const grab = new SceneGrabPass(sceneGrab, sceneDepth);
+  composer.addPass(grab);
 
   const gtao = new GTAOPass(
     scene,
@@ -178,6 +221,13 @@ export function createPostPipeline(
 
   const godrays = new ShaderPass(GodrayShader);
   godrays.enabled = false;
+  const renderGodrays = godrays.render.bind(godrays);
+  godrays.render = (renderer, writeBuffer, readBuffer, deltaTime, maskActive) => {
+    const depth = godrays.uniforms.tDepth;
+    // The grab copied the beauty depth before GTAO replaced the buffer.
+    if (depth) depth.value = sceneGrabUniforms.uSceneDepth.value ?? readBuffer.depthTexture ?? depth.value;
+    renderGodrays(renderer, writeBuffer, readBuffer, deltaTime, maskActive);
+  };
   composer.addPass(godrays);
   const grade = new ShaderPass(GradeShader);
   composer.addPass(grade);
@@ -196,6 +246,12 @@ export function createPostPipeline(
     bloom,
     setSize(width, height) {
       composer.setSize(width, height);
+      attachDepth(composer.renderTarget1);
+      attachDepth(composer.renderTarget2);
+      const grabW = Math.max(320, width >> 1);
+      const grabH = Math.max(180, height >> 1);
+      sceneGrab.setSize(grabW, grabH);
+      sceneDepth.setSize(grabW, grabH);
       const shift = softwareGl ? 3 : 2;
       gtao.setSize(Math.max(1, width >> shift), Math.max(1, height >> shift));
     },
@@ -227,6 +283,79 @@ export function createPostPipeline(
       if (amt) amt.value = amount;
     },
   };
+}
+
+function attachDepth(target: THREE.WebGLRenderTarget): void {
+  if (target.depthTexture && target.depthTexture.image.width === target.width) return;
+  target.depthTexture = new THREE.DepthTexture(target.width, target.height);
+}
+
+/** Copy the HDR scene into a texture the creek can read next frame. No swap. */
+class SceneGrabPass extends Pass {
+  private quad: FullScreenQuad;
+  private colorMaterial: THREE.ShaderMaterial;
+  private depthMaterial: THREE.ShaderMaterial;
+
+  constructor(
+    private readonly target: THREE.WebGLRenderTarget,
+    private readonly depthTarget: THREE.WebGLRenderTarget,
+  ) {
+    super();
+    this.needsSwap = false;
+    const vertexShader = /* glsl */ `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `;
+    this.colorMaterial = new THREE.ShaderMaterial({
+      uniforms: { tDiffuse: { value: null } },
+      vertexShader,
+      fragmentShader: /* glsl */ `
+        uniform sampler2D tDiffuse;
+        varying vec2 vUv;
+        void main() {
+          gl_FragColor = texture2D(tDiffuse, vUv);
+        }
+      `,
+    });
+    this.depthMaterial = new THREE.ShaderMaterial({
+      uniforms: { tDepth: { value: null } },
+      vertexShader,
+      fragmentShader: /* glsl */ `
+        uniform sampler2D tDepth;
+        varying vec2 vUv;
+        void main() {
+          float d = texture2D(tDepth, vUv).r;
+          gl_FragColor = vec4(d, d, d, 1.0);
+        }
+      `,
+    });
+    this.quad = new FullScreenQuad(this.colorMaterial);
+  }
+
+  override render(renderer: THREE.WebGLRenderer, _write: THREE.WebGLRenderTarget, read: THREE.WebGLRenderTarget): void {
+    this.colorMaterial.uniforms.tDiffuse!.value = read.texture;
+    this.quad.material = this.colorMaterial;
+    renderer.setRenderTarget(this.target);
+    this.quad.render(renderer);
+    if (read.depthTexture) {
+      this.depthMaterial.uniforms.tDepth!.value = read.depthTexture;
+      this.quad.material = this.depthMaterial;
+      renderer.setRenderTarget(this.depthTarget);
+      this.quad.render(renderer);
+    }
+    sceneGrabUniforms.uHasScene.value = 1;
+  }
+
+  override dispose(): void {
+    this.colorMaterial.dispose();
+    this.depthMaterial.dispose();
+    this.quad.dispose();
+    this.target.dispose();
+    this.depthTarget.dispose();
+  }
 }
 
 function rendererIsSoftware(renderer: THREE.WebGLRenderer): boolean {

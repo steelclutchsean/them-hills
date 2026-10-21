@@ -172,6 +172,8 @@ function endGrain(): THREE.CanvasTexture {
 const endGrainMat = (): THREE.MeshStandardMaterial =>
   new THREE.MeshStandardMaterial({ map: endGrain(), roughness: 0.8 });
 
+let logSerial = 0;
+
 function addLog(
   parent: THREE.Object3D,
   x: number,
@@ -181,23 +183,99 @@ function addLog(
   axis: 'x' | 'z',
   caps: boolean,
 ): void {
-  const geom = new THREE.CylinderGeometry(0.105, 0.098, length, 8);
+  logSerial += 1;
+  const n = Math.abs(Math.sin(logSerial * 12.9898));
+  const n2 = Math.abs(Math.sin(logSerial * 78.233 + 1.7));
+  const n3 = Math.abs(Math.sin(logSerial * 39.425 + 4.2));
+  const radius = 0.062 + n * 0.078;
+  const len = length * (0.82 + n2 * 0.22);
+  const geom = new THREE.CylinderGeometry(radius, radius * (0.86 + n * 0.16), len, 7);
+  const pos = geom.attributes.position;
+  if (!pos) return;
+  const bow = (n - 0.5) * 0.16;
+  for (let i = 0; i < pos.count; i++) {
+    const along = (pos.getY(i) + len * 0.5) / Math.max(len, 0.01);
+    pos.setX(i, pos.getX(i) + Math.sin(along * Math.PI) * bow);
+  }
+  pos.needsUpdate = true;
+  const uv = geom.attributes.uv;
+  if (uv) {
+    for (let i = 0; i < uv.count; i++) {
+      uv.setXY(i, uv.getX(i) * 0.62 + n * 0.34, uv.getY(i) * 0.7 + n2 * 0.22);
+    }
+    uv.needsUpdate = true;
+  }
+  const ground = y < 0.75;
+  const eaves = y > 2.05;
+  const grime = ground ? 0.46 : eaves ? 0.68 : 1;
+  const tint = 0.62 + n * 0.55;
+  const colors = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    const shade = grime * tint * (0.82 + (i % 5) * 0.045);
+    colors[i * 3] = shade * (ground ? 0.82 : eaves ? 0.9 : 1);
+    colors[i * 3 + 1] = shade * (ground ? 0.9 : 0.9);
+    colors[i * 3 + 2] = shade * (ground ? 0.62 : eaves ? 0.98 : 0.78);
+  }
+  geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   if (axis === 'x') geom.rotateZ(Math.PI / 2);
   else geom.rotateX(Math.PI / 2);
-  parent.add(mesh(geom, y < 1.05 ? innTimber(true) : innTimber(false), x, y, z));
+  const mat = (y < 1.05 ? innTimber(true) : innTimber(false)).clone();
+  mat.vertexColors = true;
+  const log = mesh(geom, mat, x, y, z);
+  const slide = (n2 - 0.5) * 0.14;
+  if (axis === 'x') log.position.x += slide;
+  else log.position.z += slide;
+  log.rotation.y += (n3 - 0.5) * 0.08;
+  log.rotation.z += (n - 0.5) * 0.05;
+  parent.add(log);
+  if (n > 0.48) {
+    const knotMat = innTimber(true).clone();
+    knotMat.color.setRGB(0.28, 0.16, 0.08);
+    knotMat.vertexColors = false;
+    const knot = mesh(new THREE.SphereGeometry(0.03 + n * 0.02, 6, 5), knotMat, x, y, z);
+    const alongK = (n2 - 0.5) * len * 0.55;
+    if (axis === 'x') {
+      knot.position.x += alongK;
+      knot.position.z += radius * 0.85;
+    } else {
+      knot.position.z += alongK;
+      knot.position.x += radius * 0.85;
+    }
+    parent.add(knot);
+  }
+  if (n2 > 0.38) {
+    const crackMat = innTimber(true).clone();
+    crackMat.color.setRGB(0.12, 0.07, 0.04);
+    crackMat.vertexColors = false;
+    const check = mesh(
+      new THREE.BoxGeometry(
+        axis === 'x' ? len * (0.35 + n3 * 0.4) : 0.018,
+        0.016,
+        axis === 'z' ? len * (0.35 + n3 * 0.4) : 0.018,
+      ),
+      crackMat,
+      x,
+      y + radius * 0.72,
+      z,
+    );
+    if (axis === 'x') check.position.x += slide * 0.4;
+    else check.position.z += slide * 0.4;
+    parent.add(check);
+  }
   if (!caps) return;
-  const capGeom = new THREE.CircleGeometry(0.09, 8);
-  const mat = endGrainMat();
-  const left = new THREE.Mesh(capGeom, mat);
-  const right = new THREE.Mesh(capGeom, mat);
+  const capGeom = new THREE.CircleGeometry(radius * 0.92, 8);
+  const capMat = endGrainMat();
+  const left = new THREE.Mesh(capGeom, capMat);
+  const right = new THREE.Mesh(capGeom, capMat);
+  const half = len / 2;
   if (axis === 'x') {
-    left.position.set(x - length / 2, y, z);
+    left.position.set(log.position.x - half, y, z);
     left.rotation.y = -Math.PI / 2;
-    right.position.set(x + length / 2, y, z);
+    right.position.set(log.position.x + half, y, z);
     right.rotation.y = Math.PI / 2;
   } else {
-    left.position.set(x, y, z - length / 2);
-    right.position.set(x, y, z + length / 2);
+    left.position.set(x, y, log.position.z - half);
+    right.position.set(x, y, log.position.z + half);
     right.rotation.y = Math.PI;
   }
   left.castShadow = true;
@@ -351,7 +429,7 @@ function addChimneySmoke(parent: THREE.Object3D, x: number, y: number, z: number
     side: THREE.DoubleSide,
   });
   for (let i = 0; i < 4; i++) {
-    const card = new THREE.Mesh(new THREE.PlaneGeometry(0.38 + i * 0.08, 0.42), mat.clone());
+    const card = new THREE.Mesh(new THREE.PlaneGeometry(0.55 + i * 0.16, 0.62), mat.clone());
     card.position.set(x, y + i * 0.32, z);
     card.castShadow = false;
     parent.add(card);
@@ -574,12 +652,18 @@ export function buildCabin(opts: {
   addChimneySmoke(root, -hx + 0.15, 3.7, -0.15);
 
   const sign = new THREE.Mesh(
-    new THREE.PlaneGeometry(1.55, 0.64),
+    new THREE.BoxGeometry(1.55, 0.62, 0.06),
     new THREE.MeshStandardMaterial({ map: paintSign(opts.sign, opts.accent), roughness: 0.72 }),
   );
-  sign.position.set(0, 2.2, hz + 1.22);
+  sign.position.set(0, 2.02, hz + 1.32);
+  sign.rotation.z = -0.03;
   sign.castShadow = true;
   root.add(sign);
+  for (const sx of [-0.62, 0.62]) {
+    const rope = mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.48, 4), dark, sx, 2.36, hz + 1.32);
+    rope.rotation.z = sx < 0 ? 0.08 : -0.08;
+    root.add(rope);
+  }
 
   addBarrel(root, hx + 0.2, hz - 0.15);
   addBarrel(root, -hx - 0.15, hz + 0.35);

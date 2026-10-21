@@ -10,7 +10,13 @@ import { buildTrackerView } from '@/quests/quests';
 import { ASSETS } from '@/game/assets';
 import { placeBoulders } from '@/game/boulders';
 import { buildWatercourses, courseById, nearestWaterPoint } from '@/game/watercourse';
-import { createWaterReflection, markSceneReflections, skipReflection } from '@/render/reflection';
+import {
+  createWaterReflection,
+  markSceneReflections,
+  markTreeMirror,
+  reflectionUniforms,
+  skipReflection,
+} from '@/render/reflection';
 import { dressTown, seatBarrels, updateTownDressing, updateTownLights } from '@/game/structures';
 import { bearingFromYaw, createCameraRig } from '@/game/camera-rig';
 import { createCamp } from '@/game/camp';
@@ -107,6 +113,7 @@ import {
 import {
   createStream,
   createStreamRegistry,
+  syncWaterMatrices,
   type PanningSite,
   type StreamConfig,
 } from '@/game/stream';
@@ -309,13 +316,14 @@ async function bootstrap(): Promise<void> {
   const softwareGl = /swiftshader|llvmpipe|softpipe/i.test(
     glRendererString(renderer.renderer.getContext()),
   );
-  // The cube probe is the reflection on every tier, including software GL.
-  // The planar pass photographed the near meadow and came back gray, and a
-  // second full-scene render blows the software frame budget.
+  // Trees only, and only while reflections are on. The full scene filled the
+  // target with meadow and blew the medium budget. The water falls back to
+  // the screen-space horizon flip when this target is empty.
   const mirror = mirrorBudget(softwareGl);
   waterReflection.setSize(mirror.size);
   waterReflection.setStride(mirror.stride);
-  waterReflection.setEnabled(false);
+  waterReflection.setTreesOnly(true);
+  waterReflection.setEnabled(RENDER_QUALITY.reflections);
   const probe = probeBudget(softwareGl);
   creekProbe.setSize(probe.size);
   creekProbe.setStride(probe.stride);
@@ -406,6 +414,7 @@ async function bootstrap(): Promise<void> {
     minePositions: mines.map((m) => m.position),
     seed: 0xb0,
   });
+  markTreeMirror(boulders.group);
   for (const s of streamList) {
     s.setRocks(boulders.wakes.filter((w) => w.streamId === s.id).map((w) => w.rock));
   }
@@ -824,7 +833,8 @@ async function bootstrap(): Promise<void> {
           const mirrorMenu = mirrorBudget(softwareGl);
           waterReflection.setSize(mirrorMenu.size);
           waterReflection.setStride(mirrorMenu.stride);
-          waterReflection.setEnabled(false);
+          waterReflection.setTreesOnly(true);
+          waterReflection.setEnabled(RENDER_QUALITY.reflections);
           const probeMenu = probeBudget(softwareGl);
           creekProbe.setSize(probeMenu.size);
           creekProbe.setStride(probeMenu.stride);
@@ -1069,6 +1079,8 @@ async function bootstrap(): Promise<void> {
         publishProbe();
       },
       graphics: getQualityName(),
+      mirrorMode: reflectionUniforms.uMirrorMode.value,
+      mirrorHorizon: reflectionUniforms.uHorizon.value,
       saveVersion: save.version,
       panTier: save.equipment.ownedTiers.pan,
       claimCount: save.fieldwork.claims.length,
@@ -1257,6 +1269,11 @@ async function bootstrap(): Promise<void> {
         }
         return true;
       },
+      framePose: (yaw: number, pitch: number, arm: number) => {
+        cameraRig.setAvoidance(false);
+        cameraRig.setYawPitch(yaw, pitch);
+        cameraRig.setArmLength(arm);
+      },
       applyShot: (name: string) => {
         const shot = reviewShot(name);
         if (!shot) return false;
@@ -1434,7 +1451,8 @@ async function bootstrap(): Promise<void> {
         const mirrorNow = mirrorBudget(softwareGl);
         waterReflection.setSize(mirrorNow.size);
         waterReflection.setStride(mirrorNow.stride);
-        waterReflection.setEnabled(false);
+        waterReflection.setTreesOnly(true);
+        waterReflection.setEnabled(RENDER_QUALITY.reflections);
         const probeNow = probeBudget(softwareGl);
         creekProbe.setSize(probeNow.size);
         creekProbe.setStride(probeNow.stride);
@@ -1583,6 +1601,7 @@ async function bootstrap(): Promise<void> {
       renderer.camera.position.x,
       renderer.camera.position.z,
     );
+    syncWaterMatrices(renderer.camera, renderer.renderer);
     creekProbe.update(renderer.renderer, renderer.scene, titleWater.x, titleWater.y, titleWater.z);
     waterReflection.update(renderer.renderer, renderer.scene, renderer.camera, titleWater.y);
   }
@@ -3129,6 +3148,7 @@ async function bootstrap(): Promise<void> {
         renderer.camera.position.x,
         renderer.camera.position.z,
       );
+      syncWaterMatrices(renderer.camera, renderer.renderer);
       creekProbe.update(renderer.renderer, renderer.scene, waterSpot.x, waterSpot.y, waterSpot.z);
       waterReflection.update(renderer.renderer, renderer.scene, renderer.camera, waterSpot.y);
       publishProbe();
@@ -3161,6 +3181,8 @@ async function bootstrap(): Promise<void> {
         window.__themHills.frameBudget = frameBudget();
         window.__themHills.waterRise = waterRise;
         window.__themHills.blackRatio = blackRatio;
+        window.__themHills.mirrorMode = reflectionUniforms.uMirrorMode.value;
+        window.__themHills.mirrorHorizon = reflectionUniforms.uHorizon.value;
       }
     },
   });
