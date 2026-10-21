@@ -1006,7 +1006,7 @@ export function batchStaticProps(root: THREE.Object3D): number {
     const baked = obj.geometry.clone();
     baked.applyMatrix4(obj.matrixWorld);
     baked.applyMatrix4(inv);
-    const key = `${materialKey(mat)}|${attributeKey(baked)}`;
+    const key = `${materialKey(mat)}|${attributeKey(baked)}|${baked.index ? 'idx' : 'no'}`;
     let bucket = buckets.get(key);
     if (!bucket) {
       bucket = { mat, geoms: [], meshes: [] };
