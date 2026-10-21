@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { registerObstacle } from '@/game/obstacles';
 import { configureShadows, loadModels } from './assets';
 import { createRng, type Rng } from './rng';
 import type { Terrain } from './terrain';
@@ -104,5 +105,6 @@ export async function scatterAssets(
   }
 
   scene.add(root);
+  registerObstacle(root);
   return { placed, skipped, positions };
 }

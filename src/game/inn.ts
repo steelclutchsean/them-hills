@@ -8,6 +8,32 @@ import * as THREE from 'three';
 
 const INN_INTERACT_RADIUS = 2.4;
 
+function makeWoodTexture(base: string, grain: string): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('[inn] canvas 2d unavailable');
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, 128, 128);
+  ctx.strokeStyle = grain;
+  for (let i = 0; i < 16; i++) {
+    ctx.globalAlpha = 0.35;
+    ctx.beginPath();
+    ctx.moveTo(0, i * 8);
+    ctx.lineTo(128, i * 8 + 3);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(2, 1.2);
+  tex.anisotropy = 8;
+  return tex;
+}
+
 export interface InnInfo {
   group: THREE.Group;
   position: THREE.Vector3;
@@ -26,10 +52,11 @@ export function createInn(
   group.name = 'inn';
   group.position.copy(position);
 
+  const wallTex = makeWoodTexture('#6b4226', '#3a2414');
   const wallMat = new THREE.MeshStandardMaterial({
-    color: 0x6b4a2a,
-    flatShading: true,
-    roughness: 0.92,
+    map: wallTex,
+    color: 0xffffff,
+    roughness: 0.9,
   });
   const walls = new THREE.Mesh(new THREE.BoxGeometry(3.4, 2.2, 2.6), wallMat);
   walls.position.y = 1.1;
@@ -38,8 +65,8 @@ export function createInn(
   group.add(walls);
 
   const roofMat = new THREE.MeshStandardMaterial({
-    color: 0x4a2818,
-    flatShading: true,
+    map: makeWoodTexture('#4a2818', '#2a140c'),
+    color: 0xffffff,
     roughness: 0.88,
   });
   const roof = new THREE.Mesh(new THREE.CylinderGeometry(0, 1.95, 1.1, 4, 1), roofMat);
@@ -50,9 +77,9 @@ export function createInn(
   group.add(roof);
 
   const doorMat = new THREE.MeshStandardMaterial({
-    color: 0x2a1a08,
-    flatShading: true,
-    roughness: 0.9,
+    map: makeWoodTexture('#3a2412', '#1c1008'),
+    color: 0xffffff,
+    roughness: 0.86,
   });
   const door = new THREE.Mesh(new THREE.BoxGeometry(0.75, 1.5, 0.06), doorMat);
   door.position.set(0, 0.75, 1.31);

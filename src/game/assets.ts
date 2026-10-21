@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { upgradeLoadedMaterials } from '@/render/materials';
 
 // glTF asset cache + a typed registry of available models.
 //
@@ -19,7 +20,10 @@ export function loadModel(url: string): Promise<THREE.Group> {
     p = new Promise<THREE.Group>((resolve, reject) => {
       loader.load(
         url,
-        (gltf) => resolve(gltf.scene),
+        (gltf) => {
+          upgradeLoadedMaterials(gltf.scene);
+          resolve(gltf.scene);
+        },
         undefined,
         (err) => reject(err instanceof Error ? err : new Error(String(err))),
       );

@@ -7,6 +7,9 @@ dist/
 .vscode/
 .idea/
 coverage/
+test-results/
+playwright-report/
+blob-report/
 
 # Claude Code local settings (per-user/per-machine)
 .claude/settings.local.json

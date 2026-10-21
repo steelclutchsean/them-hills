@@ -49,6 +49,8 @@ export interface Character {
   /** activity overrides movement animation when non-null (e.g. during prospecting). */
   postStep(dt: number, time: number, activity: ProspectingActivity | null): void;
   getPosition(): THREE.Vector3;
+  /** Teleport the kinematic body. Used by the playtest pilot to reach a site. */
+  placeAt(x: number, y: number, z: number): void;
   getYaw(): number;
   getState(): CharacterState;
   getStamina(): number;
@@ -108,6 +110,9 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
   let verticalVelocity = 0;
   let grounded = false;
   let wasGrounded = false;
+  // Rapier drops grounded for a single step on flat ground. Keep the
+  // animation planted unless we're actually falling.
+  let groundedGrace = 0;
   let wasJumpDown = false;
   let state: CharacterState = 'idle';
   let landedTimer = 0;
@@ -167,6 +172,9 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
 
     wasGrounded = grounded;
     grounded = controller.computedGrounded();
+    if (grounded) groundedGrace = 0.18;
+    else groundedGrace = Math.max(0, groundedGrace - dt);
+    const supported = grounded || (groundedGrace > 0 && verticalVelocity > -2);
 
     if (sprinting) {
       stamina = Math.max(0, stamina - STAMINA_DRAIN_PER_SEC * dt);
@@ -177,7 +185,7 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
     }
 
     let next: CharacterState = state;
-    if (!grounded) {
+    if (!supported) {
       next = verticalVelocity > 0 ? 'jumping' : 'falling';
     } else if (!wasGrounded && (state === 'falling' || state === 'jumping')) {
       next = 'landed';
@@ -249,6 +257,13 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
     getPosition: () => {
       const t = body.translation();
       return new THREE.Vector3(t.x, t.y, t.z);
+    },
+    placeAt(x, y, z) {
+      body.setTranslation(new RAPIER.Vector3(x, y, z), true);
+      body.setNextKinematicTranslation(new RAPIER.Vector3(x, y, z));
+      group.position.set(x, y, z);
+      verticalVelocity = 0;
+      grounded = false;
     },
     getYaw: () => yaw,
     getState: () => state,

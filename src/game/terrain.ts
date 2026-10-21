@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { RAPIER } from '@/physics/world';
+import { bindFrameUniforms, FRAME_UNIFORM_GLSL } from '@/render/frame-uniforms';
 
 // 200m × 200m heightmap with deterministic rolling-hills generator.
 // Flattens a ~30m radius around the origin so the spawn area is gentle.
@@ -42,21 +43,11 @@ export interface ChannelConfig {
   depth: number;
 }
 
-export interface TerrainLightingState {
-  sunDirection: THREE.Vector3;
-  sunColor: THREE.Color;
-  sunIntensity: number;
-  ambientColor: THREE.Color;
-  ambientIntensity: number;
-}
-
 export interface Terrain {
   mesh: THREE.Mesh;
   collider: RAPIER.Collider;
   /** Ground height at world (x, z), bilinear interpolated. Matches the Rapier collider. */
   getHeightAt(x: number, z: number): number;
-  /** Push the latest sun + ambient lighting to the terrain shader uniforms. */
-  updateLighting(state: TerrainLightingState): void;
 }
 
 /** Column-major index: heights[i + j * nrows] where i = row (Z), j = col (X). */
@@ -145,19 +136,32 @@ function generateHeights(channels: readonly ChannelConfig[]): Float32Array {
 }
 
 const TERRAIN_VS = /* glsl */ `
-  attribute vec3 color;
   attribute float aBankMask;
   varying vec3 vWorld;
   varying vec3 vNormal;
   varying vec3 vColor;
   varying float vBankMask;
+
+  #include <common>
+  #include <shadowmap_pars_vertex>
+  #include <fog_pars_vertex>
+
   void main() {
-    vec4 worldPos = modelMatrix * vec4(position, 1.0);
-    vWorld = worldPos.xyz;
-    vNormal = normalize(normalMatrix * normal);
+    #include <beginnormal_vertex>
+    #include <defaultnormal_vertex>
+    // World-space normal. The previous shader dotted a view-space normal
+    // against a world-space sun, so the hills relit as the camera orbited.
+    vNormal = normalize(mat3(modelMatrix) * objectNormal);
+
+    #include <begin_vertex>
+    #include <project_vertex>
+    #include <worldpos_vertex>
+    vWorld = worldPosition.xyz;
     vColor = color;
     vBankMask = aBankMask;
-    gl_Position = projectionMatrix * viewMatrix * worldPos;
+
+    #include <shadowmap_vertex>
+    #include <fog_vertex>
   }
 `;
 
@@ -167,18 +171,20 @@ const TERRAIN_VS = /* glsl */ `
 // the rising banks. Both are sampled at two scales and mixed by a slow
 // noise so the player doesn't see a visible repeating grid.
 const TERRAIN_FS = /* glsl */ `
-  uniform vec3 uSunDir;
-  uniform vec3 uSunColor;
-  uniform float uSunIntensity;
-  uniform vec3 uAmbientColor;
-  uniform float uAmbientIntensity;
+  ${FRAME_UNIFORM_GLSL}
   uniform sampler2D uDiffuseGround;
   uniform sampler2D uDiffuseRocks;
+  uniform sampler2D uRoughGround;
   uniform float uTileScale;
   varying vec3 vWorld;
   varying vec3 vNormal;
   varying vec3 vColor;
   varying float vBankMask;
+
+  #include <common>
+  #include <packing>
+  #include <fog_pars_fragment>
+  #include <shadowmap_pars_fragment>
 
   float hash(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -215,18 +221,58 @@ const TERRAIN_FS = /* glsl */ `
     float maskShaped = smoothstep(0.05, 0.95, vBankMask);
     vec3 tex = mix(ground, rocks, maskShaped);
 
-    // Tint by per-vertex color (meadow / hill / cliff / sand). vColor sits
-    // roughly in (0.3..0.6) per channel so multiplying by 2.1 puts neutral
-    // around 1.0; sand/cliff vertices pull the texture warmer or browner.
-    vec3 base = tex * vColor * 2.1;
+    // Vertex color is a biome tint in ~0.3..0.6. Scale it so a meadow
+    // vertex sits near a neutral albedo after the sRGB output pass.
+    vec3 albedo = tex * vColor * 1.55;
+    float macro = noise(worldXZ * 0.012);
+    albedo *= mix(0.86, 1.08, macro);
 
-    float upDot = clamp(vNormal.y, 0.0, 1.0);
-    base *= mix(0.55, 1.0, upDot);
+    float roughTex = texture2D(uRoughGround, worldXZ * uTileScale).r;
+    float roughRocks = mix(0.55, 0.86, noise(worldXZ * 0.4));
+    float rough = mix(roughTex, roughRocks, maskShaped);
 
-    float lambert = max(0.0, dot(vNormal, uSunDir));
-    vec3 lit = base * (uAmbientColor * uAmbientIntensity + uSunColor * uSunIntensity * lambert * 0.85);
+    // Detail normal from the same hash noise, added in world XZ so lighting
+    // breaks up the heightfield's large facets without extra vertices.
+    float e = 0.42;
+    float h0 = noise(worldXZ * 1.8);
+    float hx = noise((worldXZ + vec2(e, 0.0)) * 1.8);
+    float hz = noise((worldXZ + vec2(0.0, e)) * 1.8);
+    vec3 n = normalize(vNormal + vec3((h0 - hx) * 2.4, 0.0, (h0 - hz) * 2.4));
+
+    float shadow = 1.0;
+    #ifdef USE_SHADOWMAP
+      #if NUM_DIR_LIGHT_SHADOWS > 0
+        shadow = getShadow(
+          directionalShadowMap[0],
+          directionalLightShadows[0].shadowMapSize,
+          directionalLightShadows[0].shadowIntensity,
+          directionalLightShadows[0].shadowBias,
+          directionalLightShadows[0].shadowRadius,
+          vDirectionalShadowCoord[0]
+        );
+      #endif
+    #endif
+    // Keep a readable floor. Pitch-black shade fights the stylized kit.
+    shadow = mix(0.38, 1.0, shadow);
+
+    vec3 sunDir = normalize(uSunDir);
+    float wrap = clamp(dot(n, sunDir) * 0.62 + 0.38, 0.0, 1.0);
+    float hemiW = clamp(n.y * 0.5 + 0.5, 0.0, 1.0);
+    vec3 gi = uAmbientColor * (uAmbientIntensity * 0.65)
+            + mix(uHemiGround, uHemiSky, hemiW) * uHemiIntensity;
+    float cavity = mix(0.74, 1.0, smoothstep(0.02, 0.85, n.y));
+    vec3 lit = albedo * cavity * (gi + uSunColor * uSunIntensity * wrap * shadow);
+
+    vec3 viewDir = normalize(cameraPosition - vWorld);
+    vec3 halfDir = normalize(sunDir + viewDir);
+    float specPow = mix(12.0, 72.0, clamp(1.0 - rough, 0.0, 1.0));
+    float spec = pow(max(dot(n, halfDir), 0.0), specPow) * (1.0 - rough);
+    // Banks read wet; open ground stays matte.
+    spec *= shadow * mix(0.03, 0.32, maskShaped);
+    lit += uSunColor * spec * uSunIntensity;
 
     gl_FragColor = vec4(lit, 1.0);
+    #include <fog_fragment>
   }
 `;
 
@@ -367,21 +413,33 @@ export function createTerrain(world: RAPIER.World, channels: readonly ChannelCon
   rocksTex.wrapT = THREE.RepeatWrapping;
   rocksTex.colorSpace = THREE.SRGBColorSpace;
   rocksTex.anisotropy = 8;
+  const groundRough = textureLoader.load('assets/textures/forrest_ground_01_rough_4k.jpg');
+  groundRough.wrapS = THREE.RepeatWrapping;
+  groundRough.wrapT = THREE.RepeatWrapping;
+  groundRough.colorSpace = THREE.LinearSRGBColorSpace;
+  groundRough.anisotropy = 8;
 
-  const terrainMat = new THREE.ShaderMaterial({
-    uniforms: {
-      uSunDir: { value: new THREE.Vector3(0.5, 1, 0.3).normalize() },
-      uSunColor: { value: new THREE.Color(0xffffff) },
-      uSunIntensity: { value: 1.0 },
-      uAmbientColor: { value: new THREE.Color(0xffffff) },
-      uAmbientIntensity: { value: 0.5 },
+  const uniforms = THREE.UniformsUtils.merge([
+    THREE.UniformsLib.fog,
+    THREE.UniformsLib.lights,
+    {
       uDiffuseGround: { value: groundTex },
       uDiffuseRocks: { value: rocksTex },
-      // 0.25 = one tile per 4 world meters.
-      uTileScale: { value: 0.25 },
+      uRoughGround: { value: groundRough },
+      // 0.22 = one tile per ~4.5 world meters.
+      uTileScale: { value: 0.22 },
     },
+  ]);
+  bindFrameUniforms(uniforms);
+
+  const terrainMat = new THREE.ShaderMaterial({
+    name: 'Terrain',
+    uniforms,
     vertexShader: TERRAIN_VS,
     fragmentShader: TERRAIN_FS,
+    lights: true,
+    fog: true,
+    vertexColors: true,
   });
   const mesh = new THREE.Mesh(geom, terrainMat);
   mesh.receiveShadow = true;
@@ -412,13 +470,6 @@ export function createTerrain(world: RAPIER.World, channels: readonly ChannelCon
       const h0 = h00 + (h10 - h00) * tx;
       const h1 = h01 + (h11 - h01) * tx;
       return (h0 + (h1 - h0) * tz) * HEIGHT_SCALE;
-    },
-    updateLighting(state) {
-      (terrainMat.uniforms.uSunDir!.value as THREE.Vector3).copy(state.sunDirection);
-      (terrainMat.uniforms.uSunColor!.value as THREE.Color).copy(state.sunColor);
-      terrainMat.uniforms.uSunIntensity!.value = state.sunIntensity;
-      (terrainMat.uniforms.uAmbientColor!.value as THREE.Color).copy(state.ambientColor);
-      terrainMat.uniforms.uAmbientIntensity!.value = state.ambientIntensity;
     },
   };
 }

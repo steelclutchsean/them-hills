@@ -127,6 +127,11 @@ export interface GameStateStore {
    * tweens live in memory between saves).
    */
   setWeather(state: WeatherState, intensity: number, gameTime: number): void;
+
+  /** First prospect finished. Hunger and thirst stay full until this. */
+  markTutorialComplete(): void;
+  /** First gold was sold. Clears the opening objective. */
+  markFirstSale(): void;
 }
 
 export const gameStore = createStore<GameStateStore>((set, get) => ({
@@ -250,6 +255,30 @@ export const gameStore = createStore<GameStateStore>((set, get) => ({
         save: {
           ...state.save,
           settings: { ...base, [key]: { ...base[key], ...patch } },
+        },
+      };
+    });
+  },
+
+  markTutorialComplete() {
+    set((state) => {
+      if (state.save.progression.tutorialCompleted) return state;
+      return {
+        save: {
+          ...state.save,
+          progression: { ...state.save.progression, tutorialCompleted: true },
+        },
+      };
+    });
+  },
+
+  markFirstSale() {
+    set((state) => {
+      if (state.save.progression.firstSaleCompleted) return state;
+      return {
+        save: {
+          ...state.save,
+          progression: { ...state.save.progression, firstSaleCompleted: true },
         },
       };
     });

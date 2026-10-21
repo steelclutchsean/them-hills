@@ -88,11 +88,7 @@ export function createClassifyMinigame(): Minigame {
         audio.playClassifyBeat(quality);
         // Dust puff at the classifier rim — off-white, count scales with
         // tap quality. The classifier sits lower-center of the view.
-        effects.burst(
-          { x: 0, y: -0.32, z: -0.5 },
-          0xd5d2c4,
-          Math.round(4 + quality * 8),
-        );
+        effects.burst({ x: 0, y: -0.32, z: -0.5 }, 0xd5d2c4, Math.round(5 + quality * 8), 'dirt');
         // Subtle screen shake on near-perfect taps only.
         if (quality > 0.6) {
           effects.shake(0.008 + quality * 0.008, 0.1);
@@ -120,11 +116,7 @@ export function createClassifyMinigame(): Minigame {
       };
 
       const layerLabel =
-        profile.layerCount === 1
-          ? ''
-          : currentLayer === 0
-            ? ' (upper sieve)'
-            : ' (lower sieve)';
+        profile.layerCount === 1 ? '' : currentLayer === 0 ? ' (upper sieve)' : ' (lower sieve)';
       const message = `TAP on the beat${layerLabel} — ${tapsRemaining} left`;
       const reported = {
         progress: tapsDone / profile.tapsTotal,

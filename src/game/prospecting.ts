@@ -188,9 +188,7 @@ export function createProspectingController(
     // visibly lifts the pan-stage contribution to the final yield, not
     // a vague overall-pool number like the old geometric-mean model.
     const mults = session.stageTierMults;
-    const stageScoresAdjusted = session.stageScores.map(
-      (s, i) => s * (mults[i] ?? 1),
-    );
+    const stageScoresAdjusted = session.stageScores.map((s, i) => s * (mults[i] ?? 1));
     const skillBonus = combineStageScores(stageScoresAdjusted);
     // Per-dig falloff: a fresh site yields 1.0× of base; the last
     // available dig yields ~0.4× so late digs still feel like the seam
@@ -335,9 +333,7 @@ export function createProspectingController(
         session.stageScores.push(upd.score);
         opts.audio.playStageComplete(completedStageIdx);
         const finishedStep = session.steps[completedStageIdx]!;
-        console.log(
-          `[prospect] ${finishedStep} → score ${upd.score.toFixed(2)}`,
-        );
+        console.log(`[prospect] ${finishedStep} → score ${upd.score.toFixed(2)}`);
         // Don't advance immediately — gate behind a player confirmation
         // press so they see the multiplier they earned for this stage.
         session.pendingConfirm = { stageIdx: completedStageIdx, score: upd.score };

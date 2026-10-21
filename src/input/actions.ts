@@ -15,6 +15,7 @@ export type ActionId =
   | 'INVENTORY'
   | 'MAP'
   | 'PAUSE'
+  | 'HELP'
   | 'TOOL_NEXT'
   | 'TOOL_PREV';
 
@@ -32,6 +33,7 @@ export const ALL_ACTIONS: readonly ActionId[] = [
   'INVENTORY',
   'MAP',
   'PAUSE',
+  'HELP',
   'TOOL_NEXT',
   'TOOL_PREV',
 ];
@@ -53,6 +55,7 @@ export const DEFAULT_KEYBOARD_BINDINGS: Record<ActionId, string> = {
   INVENTORY: 'Tab',
   MAP: 'KeyM',
   PAUSE: 'Escape',
+  HELP: 'KeyH',
   TOOL_NEXT: 'BracketRight',
   TOOL_PREV: 'BracketLeft',
 };
@@ -77,6 +80,7 @@ export const DEFAULT_GAMEPAD_BINDINGS: Record<ActionId, number> = {
   INVENTORY: 8, // View / Share
   MAP: 8, // View (hold) — same as inventory; resolved by hold detection in later phases
   PAUSE: 9, // Menu / Options
+  HELP: -1,
   TOOL_NEXT: 5, // RB / R1
   TOOL_PREV: 4, // LB / L1
 };

@@ -60,10 +60,7 @@ export function createDigMinigame(): Minigame {
       SCORE_FLOOR,
       SCORE_CENTER - SCORE_DROP_PER_HALFWIDTH * (distanceFromCenter / profile.sweetHalfWidth),
     );
-    if (
-      profile.isPickaxe &&
-      distanceFromCenter < profile.sweetHalfWidth * PICKAXE_CRIT_FRACTION
-    ) {
+    if (profile.isPickaxe && distanceFromCenter < profile.sweetHalfWidth * PICKAXE_CRIT_FRACTION) {
       return Math.min(PICKAXE_SCORE_CAP, base * PICKAXE_CRIT_MULTIPLIER);
     }
     return base;
@@ -100,8 +97,9 @@ export function createDigMinigame(): Minigame {
         const meterX = (indicator - 0.5) * 0.36;
         effects.burst(
           { x: meterX, y: 0.08, z: -0.55 },
-          0xffc35a,
-          Math.round(6 + quality * 10),
+          0xc4a06a,
+          Math.round(8 + quality * 12),
+          'dirt',
         );
         // Subtle screen shake — proportional to how good the swing was.
         if (quality > 0.3) {

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { bindFrameUniforms, FRAME_UNIFORM_GLSL } from '@/render/frame-uniforms';
 import type { Terrain } from './terrain';
 import { createRng } from './rng';
 
@@ -22,41 +23,43 @@ const BASE_VS = /* glsl */ `
   attribute float aScale;
   attribute vec3 aColorBase;
   attribute vec3 aColorTip;
-  uniform float uTime;
-  uniform vec3 uSunColor;
-  uniform float uSunIntensity;
-  uniform vec3 uAmbientColor;
-  uniform float uAmbientIntensity;
+  ${FRAME_UNIFORM_GLSL}
   uniform float uBladeHeight;
   uniform float uWindAmp;
   varying vec3 vColor;
+  #include <fog_pars_vertex>
 
   void main() {
-    // Local position scaled by per-instance scale.
     vec3 pos = position * aScale;
-    // Wind sway: more displacement at the tip than the root.
     float tipBias = clamp(pos.y / uBladeHeight, 0.0, 1.0);
     float wind = sin(uTime * 1.4 + aPhase) * uWindAmp * tipBias * tipBias;
     float gust = sin(uTime * 0.7 + aPhase * 0.6) * (uWindAmp * 0.6) * tipBias;
     pos.x += wind;
     pos.z += gust;
-    // Rotate around Y by per-instance angle.
     float c = cos(aRotY);
     float s = sin(aRotY);
     vec3 rotated = vec3(c * pos.x + s * pos.z, pos.y, -s * pos.x + c * pos.z);
     vec3 worldPos = aOffset + rotated;
-    // Per-vertex color comes from base/tip blend by Y; light weighted by sun.
     vec3 baseCol = mix(aColorBase, aColorTip, tipBias);
-    vec3 lit = baseCol * (uAmbientColor * uAmbientIntensity + uSunColor * uSunIntensity * 0.6);
+    float hemiW = mix(0.45, 0.92, tipBias);
+    vec3 gi = uAmbientColor * (uAmbientIntensity * 0.7)
+            + mix(uHemiGround, uHemiSky, hemiW) * uHemiIntensity;
+    // Cheap subsurface: tips catch the sun even when the blade faces away.
+    vec3 lit = baseCol * (gi + uSunColor * uSunIntensity * 0.5);
+    lit += baseCol * uSunColor * uSunIntensity * tipBias * 0.22;
     vColor = lit;
-    gl_Position = projectionMatrix * viewMatrix * vec4(worldPos, 1.0);
+    vec4 mvPosition = viewMatrix * vec4(worldPos, 1.0);
+    gl_Position = projectionMatrix * mvPosition;
+    #include <fog_vertex>
   }
 `;
 
 const BASE_FS = /* glsl */ `
   varying vec3 vColor;
+  #include <fog_pars_fragment>
   void main() {
     gl_FragColor = vec4(vColor, 1.0);
+    #include <fog_fragment>
   }
 `;
 
@@ -169,19 +172,21 @@ export function createGrassField(terrain: Terrain, opts: GrassFieldOpts): GrassF
   // since per-instance offsets aren't part of the local geometry bounds.
   instGeom.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), extent * 1.5);
 
+  const uniforms = THREE.UniformsUtils.clone(THREE.UniformsLib.fog) as Record<
+    string,
+    THREE.IUniform
+  >;
+  uniforms.uBladeHeight = { value: bladeHeight };
+  uniforms.uWindAmp = { value: windAmplitude };
+  bindFrameUniforms(uniforms);
+
   const material = new THREE.ShaderMaterial({
-    uniforms: {
-      uTime: { value: 0 },
-      uSunColor: { value: new THREE.Color(0xffffff) },
-      uSunIntensity: { value: 1.0 },
-      uAmbientColor: { value: new THREE.Color(0xffffff) },
-      uAmbientIntensity: { value: 0.5 },
-      uBladeHeight: { value: bladeHeight },
-      uWindAmp: { value: windAmplitude },
-    },
+    name: 'GrassField',
+    uniforms,
     vertexShader: BASE_VS,
     fragmentShader: BASE_FS,
     side: THREE.DoubleSide,
+    fog: true,
   });
 
   const mesh = new THREE.Mesh(instGeom, material);
@@ -191,12 +196,8 @@ export function createGrassField(terrain: Terrain, opts: GrassFieldOpts): GrassF
 
   return {
     mesh,
-    update(state) {
-      material.uniforms.uTime!.value = state.time;
-      (material.uniforms.uSunColor!.value as THREE.Color).copy(state.sunColor);
-      material.uniforms.uSunIntensity!.value = state.sunIntensity;
-      (material.uniforms.uAmbientColor!.value as THREE.Color).copy(state.ambientColor);
-      material.uniforms.uAmbientIntensity!.value = state.ambientIntensity;
+    update(_state) {
+      // Sun, hemisphere, and time are the shared frame uniform block.
     },
   };
 }

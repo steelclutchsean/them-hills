@@ -105,11 +105,9 @@ export function createPanMinigame(): Minigame {
 
       // Detect one completed swirl (absolute angular distance ≥ 2π).
       while (Math.abs(angularDistance) >= 2 * Math.PI && radiusSamples.length >= 4) {
-        const mean =
-          radiusSamples.reduce((a, b) => a + b, 0) / radiusSamples.length;
+        const mean = radiusSamples.reduce((a, b) => a + b, 0) / radiusSamples.length;
         const variance =
-          radiusSamples.reduce((a, b) => a + (b - mean) ** 2, 0) /
-          radiusSamples.length;
+          radiusSamples.reduce((a, b) => a + (b - mean) ** 2, 0) / radiusSamples.length;
         const stdDev = Math.sqrt(variance);
         const circ = Math.max(0, Math.min(1, 1 - stdDev / profile.radiusTolerance));
         circularitySamples.push(circ);
@@ -119,13 +117,12 @@ export function createPanMinigame(): Minigame {
         // revolution. Pan mounts at (0, -0.34, -0.5); fire the burst
         // a little above the bowl so particles read as "rising."
         const burstCount = 6 + Math.round(circ * 8);
-        effects.burst({ x: 0, y: -0.3, z: -0.5 }, 0xffd96a, burstCount);
+        effects.burst({ x: 0, y: -0.3, z: -0.5 }, 0xc5dde8, burstCount, 'droplet');
+        effects.burst({ x: 0, y: -0.22, z: -0.48 }, 0xffd96a, Math.round(3 + circ * 7), 'spark');
         effects.shake(0.01, 0.12);
         // Wrap remaining angular travel into the next swirl.
         angularDistance =
-          angularDistance > 0
-            ? angularDistance - 2 * Math.PI
-            : angularDistance + 2 * Math.PI;
+          angularDistance > 0 ? angularDistance - 2 * Math.PI : angularDistance + 2 * Math.PI;
         radiusSamples = [];
       }
 

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { upgradeLoadedMaterials } from '@/render/materials';
 import type { Terrain } from './terrain';
 import type { StreamConfig } from './stream';
 import { createRng } from './rng';
@@ -68,7 +69,8 @@ interface PlaceBouldersOpts {
   scene: THREE.Scene;
   terrain: Terrain;
   streams: readonly StreamConfig[];
-  minePos: THREE.Vector3;
+  /** Mine mouths. Boulders are kept out of the approach so the door reads. */
+  minePositions: readonly THREE.Vector3[];
   /** Seed for the placement RNG. Default 0xb0. */
   seed?: number;
 }
@@ -86,7 +88,7 @@ export interface BoulderField {
 }
 
 export function placeBoulders(opts: PlaceBouldersOpts): BoulderField {
-  const { scene, terrain, streams, minePos, seed = 0xb0 } = opts;
+  const { scene, terrain, streams, minePositions, seed = 0xb0 } = opts;
   const rng = createRng(seed);
 
   // Load each diffuse once; share the texture across all instances that
@@ -115,7 +117,19 @@ export function placeBoulders(opts: PlaceBouldersOpts): BoulderField {
   let placed = 0;
   const colliders: BoulderCollider[] = [];
 
+  function blocksEntrance(x: number, z: number): boolean {
+    for (const mine of minePositions) {
+      const dx = x - mine.x;
+      const dz = z - mine.z;
+      // Door faces +Z. Keep the mouth and the walk-up clear.
+      if (dx * dx + dz * dz < 3.4 * 3.4) return true;
+      if (Math.abs(dx) < 2.6 && dz > -1.4 && dz < 8) return true;
+    }
+    return false;
+  }
+
   function placeOne(x: number, z: number, scaleRange: [number, number], submerge: number): void {
+    if (blocksEntrance(x, z)) return;
     const scale = scaleRange[0] + rng.next() * (scaleRange[1] - scaleRange[0]);
     const matIdx = rng.int(0, variantMaterials.length);
     const material = variantMaterials[matIdx];
@@ -181,13 +195,16 @@ export function placeBoulders(opts: PlaceBouldersOpts): BoulderField {
 
   // Mine-entrance ring — looks like rocks dislodged from carving the
   // entrance, scattered around the timber archway.
-  for (let i = 0; i < 6; i++) {
-    const angle = rng.range(0, Math.PI * 2);
-    const dist = rng.range(2.4, 5.5);
-    const x = minePos.x + Math.cos(angle) * dist;
-    const z = minePos.z + Math.sin(angle) * dist;
-    placeOne(x, z, [0.7, 1.6], 0);
+  for (const mine of minePositions) {
+    for (let i = 0; i < 6; i++) {
+      const angle = rng.range(0, Math.PI * 2);
+      const dist = rng.range(4.2, 7.2);
+      const x = mine.x + Math.cos(angle) * dist;
+      const z = mine.z + Math.sin(angle) * dist;
+      placeOne(x, z, [0.7, 1.6], 0);
+    }
   }
 
+  upgradeLoadedMaterials(root);
   return { group: root, count: placed, colliders };
 }

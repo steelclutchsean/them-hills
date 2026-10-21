@@ -158,6 +158,31 @@ function ensureWoodTextures(): { beam: THREE.CanvasTexture; aged: THREE.CanvasTe
   return { beam: beamWoodTex, aged: agedWoodTex };
 }
 
+let caveStone: { stone: THREE.MeshStandardMaterial; dark: THREE.MeshStandardMaterial } | null =
+  null;
+
+function caveStoneMaterials(): {
+  stone: THREE.MeshStandardMaterial;
+  dark: THREE.MeshStandardMaterial;
+} {
+  if (caveStone) return caveStone;
+  const loader = new THREE.TextureLoader();
+  const rockTex = loader.load('assets/textures/namaqualand_boulder_02_diff_4k.jpg');
+  rockTex.colorSpace = THREE.SRGBColorSpace;
+  rockTex.wrapS = THREE.RepeatWrapping;
+  rockTex.wrapT = THREE.RepeatWrapping;
+  rockTex.anisotropy = 8;
+  rockTex.repeat.set(2.2, 1.2);
+  const rockDark = rockTex.clone();
+  rockDark.needsUpdate = true;
+  rockDark.repeat.set(1.6, 1.1);
+  caveStone = {
+    stone: new THREE.MeshStandardMaterial({ map: rockTex, color: 0xc8c2b8, roughness: 0.92 }),
+    dark: new THREE.MeshStandardMaterial({ map: rockDark, color: 0x8a8680, roughness: 0.96 }),
+  };
+  return caveStone;
+}
+
 export function createMineEntrance(
   scene: THREE.Scene,
   world: RAPIER.World,
@@ -245,16 +270,8 @@ export function createMineEntrance(
   // through. Kept from F3.
   const WALL_HALF_T = 0.4;
 
-  const stoneMat = new THREE.MeshStandardMaterial({
-    color: 0x35332f,
-    flatShading: true,
-    roughness: 0.97,
-  });
-  const stoneDarkMat = new THREE.MeshStandardMaterial({
-    color: 0x222220,
-    flatShading: true,
-    roughness: 0.98,
-  });
+  const stoneMat = caveStoneMaterials().stone;
+  const stoneDarkMat = caveStoneMaterials().dark;
 
   // Floor
   const caveFloor = new THREE.Mesh(

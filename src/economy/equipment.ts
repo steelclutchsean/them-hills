@@ -149,9 +149,7 @@ export const EQUIPMENT: Record<EquipmentCategory, CategoryInfo> = {
   headlamp: {
     category: 'headlamp',
     displayName: 'Headlamp',
-    upgrades: [
-      { fromTier: 1, toTier: 2, cost: 150, label: 'See in the dark' },
-    ],
+    upgrades: [{ fromTier: 1, toTier: 2, cost: 150, label: 'See in the dark' }],
   },
   dredge: {
     category: 'dredge',

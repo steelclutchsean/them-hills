@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { upgradeLoadedMaterials } from '@/render/materials';
 
 // Loads a single Quaternius glTF (Modular Outfits — Ranger) and treats it as the
 // character. Procedural head + hat are parented to the Head bone.
@@ -90,6 +91,7 @@ export async function loadCharacter(): Promise<CharacterRig> {
     }
   });
 
+  upgradeLoadedMaterials(outfit.scene);
   wrapper.add(outfit.scene);
 
   // Locate skeleton bones.

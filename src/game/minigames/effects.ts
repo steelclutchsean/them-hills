@@ -1,18 +1,16 @@
 import * as THREE from 'three';
+import type { BurstStyle } from './types';
 
-// Reusable minigame effects: pooled particle bursts + camera shake.
+// Two particle pools:
+//   - camera-local motes for the first-person minigames
+//   - world-space bursts so a find or a dig still reads after the camera
+//     leaves the prospect view
 //
-// The particle system is a single pool of camera-child meshes (small
-// spheres) reused across all minigame stages. burst() activates a batch
-// of them at the requested camera-local offset; update(dt) advances
-// their position/lifetime; expired particles get returned to the pool.
-//
-// Camera shake is a short per-frame offset overlay. main.ts is expected
-// to call `applyShakeTo(camera)` AFTER camera-modes.ts has positioned
-// the camera, so the shake rides on top of the base transform without
-// fighting the prospect-mode placement.
+// Styles change gravity, blending, and size. The pools themselves are
+// allocated once.
 
-const MAX_PARTICLES = 96;
+const CAMERA_POOL = 96;
+const WORLD_POOL = 80;
 const SHAKE_FREQ_HZ = 38;
 
 export interface BurstOpts {
@@ -28,21 +26,40 @@ export interface BurstOpts {
   lifetimeSec?: number;
   /** Particle radius. Defaults to a small mote (0.012). */
   radius?: number;
+  style?: BurstStyle;
 }
 
 export interface EffectSystem {
-  /** Group parented to the camera — add to scene at boot. */
+  /** Group parented to the camera — add to the camera at boot. */
   particlesGroup: THREE.Group;
-  /** Trigger a particle burst at a camera-local position. */
+  /** Group parented to the scene — world-space celebratory bursts. */
+  worldGroup: THREE.Group;
   burst(opts: BurstOpts): void;
-  /** Trigger a short camera shake. */
+  burstWorld(
+    origin: { x: number; y: number; z: number },
+    color: number,
+    count?: number,
+    style?: BurstStyle,
+  ): void;
   shake(intensity: number, durationSec?: number): void;
-  /** Per-frame tick — advances particles and shake decay. */
   update(dt: number): void;
-  /** Apply the current shake offset to a camera. Call AFTER its base
-   *  transform has been set this frame. */
   applyShakeTo(camera: THREE.PerspectiveCamera): void;
 }
+
+interface StylePreset {
+  gravity: number;
+  speed: number;
+  life: number;
+  radius: number;
+  additive: boolean;
+}
+
+const STYLES: Record<BurstStyle, StylePreset> = {
+  mote: { gravity: 1.8, speed: 1.2, life: 0.5, radius: 0.012, additive: false },
+  dirt: { gravity: 4.8, speed: 1.7, life: 0.55, radius: 0.02, additive: false },
+  spark: { gravity: -0.4, speed: 0.95, life: 0.72, radius: 0.01, additive: true },
+  droplet: { gravity: 3.4, speed: 1.35, life: 0.42, radius: 0.014, additive: true },
+};
 
 interface Particle {
   mesh: THREE.Mesh;
@@ -52,29 +69,30 @@ interface Particle {
   vz: number;
   ageSec: number;
   lifetimeSec: number;
+  gravity: number;
+  baseRadius: number;
+  style: BurstStyle;
+  spin: number;
   active: boolean;
 }
 
-export function createEffectSystem(): EffectSystem {
-  const particlesGroup = new THREE.Group();
-  particlesGroup.name = 'fx_particles';
-  particlesGroup.renderOrder = 999;
-
-  // Build the pool up front so emission costs nothing per-burst.
+function makePool(count: number, depthTest: boolean): { group: THREE.Group; pool: Particle[] } {
+  const group = new THREE.Group();
+  group.frustumCulled = false;
   const pool: Particle[] = [];
   const sphereGeom = new THREE.SphereGeometry(1, 6, 5);
-  for (let i = 0; i < MAX_PARTICLES; i++) {
+  for (let i = 0; i < count; i++) {
     const mat = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
       opacity: 0,
-      depthTest: false,
+      depthTest,
       depthWrite: false,
     });
     const mesh = new THREE.Mesh(sphereGeom, mat);
-    mesh.renderOrder = 999;
+    mesh.frustumCulled = false;
     mesh.visible = false;
-    particlesGroup.add(mesh);
+    group.add(mesh);
     pool.push({
       mesh,
       mat,
@@ -83,56 +101,107 @@ export function createEffectSystem(): EffectSystem {
       vz: 0,
       ageSec: 0,
       lifetimeSec: 0,
+      gravity: 1.8,
+      baseRadius: 0.012,
+      style: 'mote',
+      spin: Math.random() * 6,
       active: false,
     });
   }
+  return { group, pool };
+}
+
+function spawn(
+  pool: Particle[],
+  origin: { x: number; y: number; z: number },
+  color: number,
+  count: number,
+  style: BurstStyle,
+  radiusScale: number,
+): void {
+  const preset = STYLES[style];
+  const n = Math.min(count, pool.length);
+  let spawned = 0;
+  for (const p of pool) {
+    if (p.active) continue;
+    if (spawned >= n) break;
+    spawned += 1;
+    p.active = true;
+    p.style = style;
+    p.gravity = preset.gravity;
+    p.ageSec = 0;
+    p.lifetimeSec = preset.life * (0.75 + Math.random() * 0.5);
+    p.baseRadius = preset.radius * radiusScale * (0.7 + Math.random() * 0.6);
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    const dx = Math.sin(phi) * Math.cos(theta);
+    const dy = Math.abs(Math.cos(phi)) * 0.85 + 0.25;
+    const dz = Math.sin(phi) * Math.sin(theta);
+    const v = preset.speed * (0.65 + Math.random() * 0.7);
+    p.vx = dx * v;
+    p.vy = dy * v;
+    p.vz = dz * v;
+    p.mesh.position.set(origin.x, origin.y, origin.z);
+    p.mesh.scale.setScalar(p.baseRadius);
+    p.mesh.visible = true;
+    p.mat.color.setHex(color);
+    p.mat.opacity = 1;
+    p.mat.blending = preset.additive ? THREE.AdditiveBlending : THREE.NormalBlending;
+    p.mat.depthTest = p.mesh.parent === null ? true : p.mat.depthTest;
+  }
+}
+
+function advance(pool: Particle[], dt: number): void {
+  for (const p of pool) {
+    if (!p.active) continue;
+    p.ageSec += dt;
+    if (p.ageSec >= p.lifetimeSec) {
+      p.active = false;
+      p.mesh.visible = false;
+      continue;
+    }
+    p.vy -= p.gravity * dt;
+    p.mesh.position.x += p.vx * dt;
+    p.mesh.position.y += p.vy * dt;
+    p.mesh.position.z += p.vz * dt;
+    const lifeFrac = p.ageSec / p.lifetimeSec;
+    const twinkle = p.style === 'spark' ? 0.55 + 0.45 * Math.sin(p.ageSec * 28 + p.spin) : 1;
+    p.mat.opacity = (1 - lifeFrac) * twinkle;
+    const shrink = p.style === 'dirt' ? 1 - lifeFrac * 0.55 : 1 - lifeFrac * 0.2;
+    p.mesh.scale.setScalar(p.baseRadius * Math.max(0.2, shrink));
+  }
+}
+
+export function createEffectSystem(): EffectSystem {
+  const cameraPool = makePool(CAMERA_POOL, false);
+  cameraPool.group.name = 'fx_particles';
+  cameraPool.group.renderOrder = 999;
+  const worldPool = makePool(WORLD_POOL, true);
+  worldPool.group.name = 'fx_world';
 
   let shakeT = 0;
   let shakeDuration = 0;
   let shakeIntensity = 0;
   let shakePhase = Math.random() * 10;
 
-  function spawnFromPool(): Particle | null {
-    for (const p of pool) {
-      if (!p.active) return p;
-    }
-    return null;
-  }
-
   return {
-    particlesGroup,
+    particlesGroup: cameraPool.group,
+    worldGroup: worldPool.group,
     burst(opts) {
-      const count = Math.min(opts.count, MAX_PARTICLES);
-      const speed = opts.speed ?? 1.2;
-      const lifetimeSec = opts.lifetimeSec ?? 0.5;
-      const radius = opts.radius ?? 0.012;
-      const color = opts.color;
-      for (let i = 0; i < count; i++) {
-        const p = spawnFromPool();
-        if (!p) break;
-        p.active = true;
-        p.ageSec = 0;
-        p.lifetimeSec = lifetimeSec * (0.8 + Math.random() * 0.4);
-        // Random unit direction.
-        const theta = Math.random() * Math.PI * 2;
-        const phi = Math.acos(2 * Math.random() - 1);
-        const dx = Math.sin(phi) * Math.cos(theta);
-        const dy = Math.cos(phi) * 0.6 + 0.3; // bias up a touch
-        const dz = Math.sin(phi) * Math.sin(theta);
-        const v = speed * (0.7 + Math.random() * 0.6);
-        p.vx = dx * v;
-        p.vy = dy * v;
-        p.vz = dz * v;
-        p.mesh.position.set(opts.origin.x, opts.origin.y, opts.origin.z);
-        p.mesh.scale.setScalar(radius);
-        p.mesh.visible = true;
-        p.mat.color.setHex(color);
-        p.mat.opacity = 1;
-      }
+      spawn(
+        cameraPool.pool,
+        opts.origin,
+        opts.color,
+        opts.count,
+        opts.style ?? 'mote',
+        opts.radius != null ? opts.radius / (STYLES[opts.style ?? 'mote'].radius || 0.012) : 1,
+      );
+    },
+    burstWorld(origin, color, count = 12, style = 'spark') {
+      // World units are ~5× the viewmodel scale, so motes read at arm's length.
+      spawn(worldPool.pool, origin, color, count, style, 3.2);
     },
     shake(intensity, durationSec = 0.18) {
-      // Take the max of current + new shake so multiple triggers don't
-      // cancel each other; instead the bigger one wins.
       if (intensity * durationSec > shakeIntensity * (shakeDuration - shakeT)) {
         shakeIntensity = intensity;
         shakeDuration = durationSec;
@@ -140,26 +209,8 @@ export function createEffectSystem(): EffectSystem {
       }
     },
     update(dt) {
-      // Advance particles.
-      for (const p of pool) {
-        if (!p.active) continue;
-        p.ageSec += dt;
-        if (p.ageSec >= p.lifetimeSec) {
-          p.active = false;
-          p.mesh.visible = false;
-          continue;
-        }
-        // Simple ballistic motion with light "gravity" pulling things
-        // back toward the camera-local origin so bursts feel grounded.
-        p.vy -= 1.8 * dt;
-        p.mesh.position.x += p.vx * dt;
-        p.mesh.position.y += p.vy * dt;
-        p.mesh.position.z += p.vz * dt;
-        // Fade out toward end of life.
-        const lifeFrac = p.ageSec / p.lifetimeSec;
-        p.mat.opacity = 1 - lifeFrac;
-      }
-      // Decay shake.
+      advance(cameraPool.pool, dt);
+      advance(worldPool.pool, dt);
       if (shakeT < shakeDuration) {
         shakeT += dt;
         shakePhase += dt * SHAKE_FREQ_HZ * Math.PI * 2;
@@ -167,9 +218,8 @@ export function createEffectSystem(): EffectSystem {
     },
     applyShakeTo(camera) {
       if (shakeT >= shakeDuration) return;
-      const t = 1 - shakeT / shakeDuration; // 1 → 0 across the shake
+      const t = 1 - shakeT / shakeDuration;
       const amp = shakeIntensity * t;
-      // Bounded sinusoidal jitter on position. Cheap, no allocation.
       camera.position.x += Math.sin(shakePhase) * amp;
       camera.position.y += Math.cos(shakePhase * 1.3) * amp * 0.7;
     },
