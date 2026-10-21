@@ -24,7 +24,7 @@ export interface Foley {
   close(): void;
   confirm(): void;
   pluck(rate: number): void;
-  /** Gameplay-event one-shots. Clips are the Kenney beds already in the bank. */
+  /** Gameplay-event one-shots. Clips are the sampled beds already in the bank. */
   world(name: WorldCue, rate?: number): void;
 }
 

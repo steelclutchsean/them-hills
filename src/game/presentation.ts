@@ -22,6 +22,7 @@ export function presentProspectFind(opts: {
   position: { x: number; y: number; z: number };
   grams: number;
   nuggetGrams?: number;
+  firstFind?: boolean;
 }): void {
   const nugget = (opts.nuggetGrams ?? 0) >= 0.05;
   const big = opts.grams >= 0.25 || nugget;
@@ -44,5 +45,8 @@ export function presentProspectFind(opts: {
     opts.effects.rumble(nugget ? 180 : 120, nugget ? 0.8 : 0.4, nugget ? 0.55 : 0.25);
   }
   if (nugget) opts.effects.hitStop(0.16);
-  opts.audio.playFind(opts.grams);
+  opts.audio.playFind(opts.grams, {
+    nuggetGrams: opts.nuggetGrams,
+    firstFind: opts.firstFind,
+  });
 }

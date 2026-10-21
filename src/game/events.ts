@@ -1,14 +1,13 @@
 import type { AudioSystem } from '@/audio/system';
 
-// Gameplay events for the audio pass. This module does not play sound.
-// Subscribers (the audio agent) listen here. The wrapper below still
-// forwards into the existing synth so current cues keep working.
+// Gameplay events for the audio pass. The wrapper forwards each cue into
+// the audio system and publishes the same moment for other subscribers.
 
 export interface GameplayEvents {
   'ui-tap': Record<string, never>;
   confirm: Record<string, never>;
   'quest-chime': Record<string, never>;
-  footstep: { surface: 'grass' | 'water' };
+  footstep: { surface: 'grass' | 'water' | 'walk' | 'run' };
   splash: Record<string, never>;
   'dig-swing': { quality: number };
   'classify-beat': { quality: number };
@@ -83,9 +82,9 @@ export function bindGameplayAudio(audio: AudioSystem): AudioSystem {
       audio.playQuestChime();
       emitGameplay('quest-chime', EMPTY);
     },
-    playFootstep(kind = 'walk') {
-      audio.playFootstep(kind);
-      emitGameplay('footstep', { surface: kind === 'water' ? 'water' : 'grass' });
+    playFootstep(surface = 'walk') {
+      audio.playFootstep(surface);
+      emitGameplay('footstep', { surface });
     },
     playSplash() {
       audio.playSplash();
@@ -111,8 +110,8 @@ export function bindGameplayAudio(audio: AudioSystem): AudioSystem {
       audio.playStageComplete(stageIndex);
       emitGameplay('stage-complete', { stageIndex });
     },
-    playFind(grams) {
-      audio.playFind(grams);
+    playFind(grams, detail) {
+      audio.playFind(grams, detail);
       emitGameplay('find', { grams });
     },
   };

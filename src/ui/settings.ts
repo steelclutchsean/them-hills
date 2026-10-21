@@ -1,8 +1,4 @@
-import {
-  ALL_ACTIONS,
-  DEFAULT_KEYBOARD_BINDINGS,
-  type ActionId,
-} from '@/input/actions';
+import { ALL_ACTIONS, DEFAULT_KEYBOARD_BINDINGS, type ActionId } from '@/input/actions';
 import type { SettingsState } from '@/save/schema';
 
 // Frontier-paper settings. Keyboard arrows and the controller D-pad move
@@ -286,22 +282,58 @@ export function createSettingsPanel(opts: SettingsPanelOpts): SettingsPanel {
   }
 
   heading('Audio');
-  addSlider('Master', 0, 1, 0.01, opts.initial.audio.master, (v) => `${Math.round(v * 100)}%`, 'master', (v) => {
-    opts.updateSetting('audio', { master: v });
-    opts.apply.masterVolume(v);
-  });
-  addSlider('Music', 0, 1, 0.01, opts.initial.audio.music ?? 0.85, (v) => `${Math.round(v * 100)}%`, 'music', (v) => {
-    opts.updateSetting('audio', { music: v });
-    opts.apply.musicVolume(v);
-  });
-  addSlider('Ambience', 0, 1, 0.01, opts.initial.audio.ambient, (v) => `${Math.round(v * 100)}%`, 'ambient', (v) => {
-    opts.updateSetting('audio', { ambient: v });
-    opts.apply.ambientVolume(v);
-  });
-  addSlider('Effects', 0, 1, 0.01, opts.initial.audio.sfx, (v) => `${Math.round(v * 100)}%`, 'sfx', (v) => {
-    opts.updateSetting('audio', { sfx: v });
-    opts.apply.sfxVolume(v);
-  });
+  addSlider(
+    'Master',
+    0,
+    1,
+    0.01,
+    opts.initial.audio.master,
+    (v) => `${Math.round(v * 100)}%`,
+    'master',
+    (v) => {
+      opts.updateSetting('audio', { master: v });
+      opts.apply.masterVolume(v);
+    },
+  );
+  addSlider(
+    'Music',
+    0,
+    1,
+    0.01,
+    opts.initial.audio.music ?? 0.85,
+    (v) => `${Math.round(v * 100)}%`,
+    'music',
+    (v) => {
+      opts.updateSetting('audio', { music: v });
+      opts.apply.musicVolume(v);
+    },
+  );
+  addSlider(
+    'Ambience',
+    0,
+    1,
+    0.01,
+    opts.initial.audio.ambient,
+    (v) => `${Math.round(v * 100)}%`,
+    'ambient',
+    (v) => {
+      opts.updateSetting('audio', { ambient: v });
+      opts.apply.ambientVolume(v);
+    },
+  );
+  addSlider(
+    'Effects',
+    0,
+    1,
+    0.01,
+    opts.initial.audio.sfx,
+    (v) => `${Math.round(v * 100)}%`,
+    'sfx',
+    (v) => {
+      opts.updateSetting('audio', { sfx: v });
+      opts.apply.sfxVolume(v);
+    },
+  );
 
   heading('Look');
   addSlider(
@@ -366,20 +398,38 @@ export function createSettingsPanel(opts: SettingsPanelOpts): SettingsPanel {
     onActivate: () => presetButtons[presetFocus]?.click(),
   });
 
-  addSlider('Field of view', 50, 90, 1, opts.initial.graphics.fovDegrees, (v) => `${Math.round(v)}°`, undefined, (v) => {
-    opts.updateSetting('graphics', { fovDegrees: v });
-    opts.apply.fov(v);
-  });
+  addSlider(
+    'Field of view',
+    50,
+    90,
+    1,
+    opts.initial.graphics.fovDegrees,
+    (v) => `${Math.round(v)}°`,
+    undefined,
+    (v) => {
+      opts.updateSetting('graphics', { fovDegrees: v });
+      opts.apply.fov(v);
+    },
+  );
   addToggle('Sun shadows', opts.initial.graphics.shadowsEnabled, (v) => {
     opts.updateSetting('graphics', { shadowsEnabled: v });
     opts.apply.shadowsEnabled(v);
   });
 
   heading('Reading');
-  addSlider('Text size', 0.85, 1.4, 0.05, opts.initial.textScale ?? 1, (v) => `${Math.round(v * 100)}%`, undefined, (v) => {
-    opts.setSettings({ textScale: v });
-    opts.apply.textScale(v);
-  });
+  addSlider(
+    'Text size',
+    0.85,
+    1.4,
+    0.05,
+    opts.initial.textScale ?? 1,
+    (v) => `${Math.round(v * 100)}%`,
+    undefined,
+    (v) => {
+      opts.setSettings({ textScale: v });
+      opts.apply.textScale(v);
+    },
+  );
   addToggle('Subtitles', opts.initial.subtitles === true, (v) => {
     opts.setSettings({ subtitles: v });
     opts.apply.subtitles(v);
@@ -442,48 +492,52 @@ export function createSettingsPanel(opts: SettingsPanelOpts): SettingsPanel {
 
   let open = false;
 
-  window.addEventListener('keydown', (event) => {
-    if (!open) return;
-    if (capturing) {
-      event.preventDefault();
-      event.stopPropagation();
-      if (event.code === 'Escape') {
-        capturing = null;
-        root.querySelectorAll('.bind-row button').forEach((node, index) => {
-          const act = ALL_ACTIONS[index];
-          if (!act) return;
-          node.classList.remove('capturing');
-          node.textContent = prettyKey(bindings[act] ?? '');
-        });
+  window.addEventListener(
+    'keydown',
+    (event) => {
+      if (!open) return;
+      if (capturing) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.code === 'Escape') {
+          capturing = null;
+          root.querySelectorAll('.bind-row button').forEach((node, index) => {
+            const act = ALL_ACTIONS[index];
+            if (!act) return;
+            node.classList.remove('capturing');
+            node.textContent = prettyKey(bindings[act] ?? '');
+          });
+          return;
+        }
+        finishCapture(event.code);
         return;
       }
-      finishCapture(event.code);
-      return;
-    }
-    if (event.code === 'Escape') {
-      event.preventDefault();
-      event.stopPropagation();
-      open = false;
-      root.hidden = true;
-      return;
-    }
-    if (event.code === 'ArrowUp') {
-      event.preventDefault();
-      move(-1);
-    } else if (event.code === 'ArrowDown') {
-      event.preventDefault();
-      move(1);
-    } else if (event.code === 'ArrowLeft') {
-      event.preventDefault();
-      nudge(-1);
-    } else if (event.code === 'ArrowRight') {
-      event.preventDefault();
-      nudge(1);
-    } else if (event.code === 'Enter' || event.code === 'Space') {
-      event.preventDefault();
-      activate();
-    }
-  }, true);
+      if (event.code === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        open = false;
+        root.hidden = true;
+        return;
+      }
+      if (event.code === 'ArrowUp') {
+        event.preventDefault();
+        move(-1);
+      } else if (event.code === 'ArrowDown') {
+        event.preventDefault();
+        move(1);
+      } else if (event.code === 'ArrowLeft') {
+        event.preventDefault();
+        nudge(-1);
+      } else if (event.code === 'ArrowRight') {
+        event.preventDefault();
+        nudge(1);
+      } else if (event.code === 'Enter' || event.code === 'Space') {
+        event.preventDefault();
+        activate();
+      }
+    },
+    true,
+  );
 
   function move(delta: number): void {
     if (rows.length === 0) return;

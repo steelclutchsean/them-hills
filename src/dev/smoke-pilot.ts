@@ -109,6 +109,16 @@ export interface ThemHillsProbe {
   hatFit?: () => { checked: number; floating: string[] };
   /** Live clip. `bind` is true only when an arm is back in the T-pose. */
   playerPose: { clip: string; bind: boolean };
+  audio?: {
+    context: string;
+    buses: { master: boolean; music: boolean; sfx: boolean; ambience: boolean };
+    master: number;
+    music: number;
+    sfx: number;
+    ambient: number;
+    cue: string;
+    surface: string;
+  };
 }
 
 declare global {

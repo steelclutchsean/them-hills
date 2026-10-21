@@ -59,7 +59,7 @@ export interface SettingsState {
      * are unrelated and stay on the v6 migration.
      */
     music?: number;
-    /** 0..1 — creek, wind, weather, town. */
+    /** 0..1 — creek, wind, weather, creatures, town murmur. */
     ambient: number;
     /** 0..1 — footsteps, tools, gold, UI. */
     sfx: number;

@@ -846,12 +846,25 @@ async function bootstrap(): Promise<void> {
     }
   }
   window.addEventListener('keydown', nudgeAudioEnabled, { once: false });
+  const listenerForward = new THREE.Vector3();
+  const listenerUp = new THREE.Vector3();
 
   canvas.addEventListener('click', () => {
     nudgeAudioEnabled();
     if (document.pointerLockElement !== canvas) {
       void Promise.resolve(canvas.requestPointerLock?.()).catch(() => undefined);
     }
+  });
+  document.body.addEventListener('pointerdown', (event) => {
+    const target = event.target;
+    if (!(target instanceof Element) || !target.closest('button')) return;
+    nudgeAudioEnabled();
+    audio.playUITap();
+  });
+  document.body.addEventListener('pointerover', (event) => {
+    const target = event.target;
+    if (!(target instanceof Element) || !target.closest('button, input[type="range"]')) return;
+    audio.playUIHover();
   });
 
   // ---- HUD ----
@@ -915,7 +928,15 @@ async function bootstrap(): Promise<void> {
   // ---- Settings panel ----
   // Apply persisted settings to the live runtime at boot so the player
   // doesn't have to open + tweak the panel on every load.
-  const initialSettings = gameStore.getState().save.settings ?? defaultSettings();
+  const savedSettings = gameStore.getState().save.settings ?? defaultSettings();
+  const defaults = defaultSettings();
+  const initialSettings = {
+    ...defaults,
+    ...savedSettings,
+    audio: { ...defaults.audio, ...savedSettings.audio },
+    look: { ...defaults.look, ...savedSettings.look },
+    graphics: { ...defaults.graphics, ...savedSettings.graphics },
+  };
   audio.setMasterVolume(initialSettings.audio.master);
   audio.setMusicVolume(initialSettings.audio.music ?? 0.85);
   audio.setAmbientVolume(initialSettings.audio.ambient);
@@ -1017,6 +1038,8 @@ async function bootstrap(): Promise<void> {
   let worldTime =
     review?.hour != null ? reviewWorldTime(review.hour) : gameStore.getState().save.world.gameTime;
   let footstepTimer = 0;
+  let prevCharState = '';
+  let lastUi: 'boot' | 'game' | 'menu' | 'settings' = skipIntro ? 'game' : 'boot';
 
   // Active vendor session (mutually exclusive with prospecting). When non-null,
   // the player is at a vendor's sale screen — movement frozen, INTERACT confirms
@@ -1437,6 +1460,7 @@ async function bootstrap(): Promise<void> {
       frameMs,
       frameBudget: frameBudget(),
       peakCarryGrams: view.peakCarryGrams,
+      audio: audio.debug(),
       save: async () => {
         await saveCurrentState(buildSaveSnapshot());
         publishProbe();
@@ -2052,7 +2076,6 @@ async function bootstrap(): Promise<void> {
   }
 
   const sunNdc = new THREE.Vector3();
-  const _audioForward = new THREE.Vector3();
   const focusNdc = new THREE.Vector3();
   let panMounted: 'camera' | 'world' = 'camera';
   function mountPan(mode: 'camera' | 'world'): void {
@@ -2743,8 +2766,10 @@ async function bootstrap(): Promise<void> {
           `[sites] respawned at in-game midnight (day ${currentDay}, worldTime=${worldTime.toFixed(1)}s, hour=${hour.toFixed(2)})`,
         );
       }
-      // Distance to the nearest stream water rectangle; 0 if standing in water.
+      // Distance to the nearest stream. The box is the fallback source;
+      // a course sample replaces it when the meander is closer.
       let nearestStreamDist = Infinity;
+      let streamPoint = { x: charPos.x, y: charPos.y, z: charPos.z };
       for (const sCfg of STREAM_CONFIGS) {
         const dCross =
           sCfg.orientation === 'NS'
@@ -2757,9 +2782,20 @@ async function bootstrap(): Promise<void> {
         const dx = Math.max(0, dCross - sCfg.halfWidth);
         const dz = Math.max(0, dAlong - sCfg.halfLength);
         const d = Math.hypot(dx, dz);
-        if (d < nearestStreamDist) nearestStreamDist = d;
+        if (d < nearestStreamDist) {
+          nearestStreamDist = d;
+          const ns = sCfg.orientation === 'NS';
+          const minX = sCfg.centerX - (ns ? sCfg.halfWidth : sCfg.halfLength);
+          const maxX = sCfg.centerX + (ns ? sCfg.halfWidth : sCfg.halfLength);
+          const minZ = sCfg.centerZ - (ns ? sCfg.halfLength : sCfg.halfWidth);
+          const maxZ = sCfg.centerZ + (ns ? sCfg.halfLength : sCfg.halfWidth);
+          streamPoint = {
+            x: Math.min(maxX, Math.max(minX, charPos.x)),
+            y: charPos.y,
+            z: Math.min(maxZ, Math.max(minZ, charPos.z)),
+          };
+        }
       }
-      let streamPoint = { x: charPos.x, y: charPos.y, z: charPos.z };
       let courseDist = Infinity;
       for (const course of courses) {
         const q = course.nearest(charPos.x, charPos.z);
@@ -2777,7 +2813,8 @@ async function bootstrap(): Promise<void> {
         }
       }
       const cam = renderer.camera;
-      const ear = cam.getWorldDirection(_audioForward);
+      cam.getWorldDirection(listenerForward);
+      listenerUp.set(0, 1, 0).applyQuaternion(cam.quaternion);
       const uiOpen =
         inDialogueSession ||
         inVendorSession ||
@@ -2798,20 +2835,19 @@ async function bootstrap(): Promise<void> {
           x: cam.position.x,
           y: cam.position.y,
           z: cam.position.z,
-          fx: ear.x,
-          fy: ear.y,
-          fz: ear.z,
-          ux: 0,
-          uy: 1,
-          uz: 0,
+          fx: listenerForward.x,
+          fy: listenerForward.y,
+          fz: listenerForward.z,
+          ux: listenerUp.x,
+          uy: listenerUp.y,
+          uz: listenerUp.z,
         },
         attention: inDialogueSession ? 'dialogue' : uiOpen ? 'menu' : 'world',
       });
 
-      // 8b. Footstep cadence — gated on movement state and surface. Wading
-      // footsteps when the player is inside a stream rectangle; grass tone
-      // everywhere else. Surface treats "anywhere on the map outside a
-      // stream" as grass for now; biome-aware footsteps can come later.
+      // Footsteps follow the surface under the player (grass, dirt, gravel,
+      // the inn floor, stream water). Jump and land are edges of the
+      // existing character state, so the controller itself stays untouched.
       const charState = character.getState();
       const playerMoving = charState === 'walking' || charState === 'running';
       footstepTimer += dt;
@@ -2821,6 +2857,22 @@ async function bootstrap(): Promise<void> {
         footstepTimer = 0;
       } else if (!playerMoving) {
         footstepTimer = 0;
+      }
+      if (charState === 'jumping' && prevCharState !== 'jumping' && prevCharState !== 'falling') {
+        audio.playJump();
+      }
+      if (charState === 'landed' && (prevCharState === 'jumping' || prevCharState === 'falling')) {
+        audio.playLand();
+      }
+      prevCharState = charState;
+
+      const uiNow = settings.isOpen() ? 'settings' : overlays.isBlocking() ? 'menu' : 'game';
+      if (uiNow !== lastUi) {
+        if (lastUi !== 'boot') {
+          if (uiNow === 'game') audio.playUIClose();
+          else audio.playUIOpen();
+        }
+        lastUi = uiNow;
       }
 
       // 9. Weather + sky + headlamp + grass + shadows. Sites no longer
@@ -3198,7 +3250,7 @@ async function bootstrap(): Promise<void> {
           const carry = gameStore.getState().save.inventory.carry.gold;
           const totalG = carry.flake_g + carry.picker_g + carry.nugget_g;
           if (totalG > 1e-6) {
-            audio.playConfirm();
+            audio.playSale();
             const result = gameStore
               .getState()
               .sellAllCarry(
@@ -3254,6 +3306,7 @@ async function bootstrap(): Promise<void> {
               position: character.getPosition(),
               grams: totalG,
               nuggetGrams: result.reward.nugget_g,
+              firstFind: !gameStore.getState().save.progression.tutorialCompleted,
             });
             gameStore.getState().markTutorialComplete();
             if (
@@ -3928,6 +3981,7 @@ async function bootstrap(): Promise<void> {
     });
   }
   function startPlaying(): void {
+    nudgeAudioEnabled();
     simRunning = true;
     document.body.dataset.sim = '1';
     delete document.body.dataset.cinema;

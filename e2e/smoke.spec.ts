@@ -31,6 +31,16 @@ interface Probe {
   sceneView?: (need: string[]) => { black: number; present: string[]; missing: string[] };
   waterRise?: number;
   blackRatio?: number;
+  audio?: {
+    context: string;
+    buses: { master: boolean; music: boolean; sfx: boolean; ambience: boolean };
+    master: number;
+    music: number;
+    sfx: number;
+    ambient: number;
+    cue: string;
+    surface: string;
+  };
 }
 
 declare global {
@@ -305,29 +315,35 @@ test('migrates a v4 save, buys a tool, and stakes a claim', async ({ page }) => 
   expect(panPrice).not.toBeNull();
   const price = panPrice ?? 0;
   const headroom = 80;
-  await page.evaluate(async ({ price, headroom }) => {
-    const legacy = window.__themHills?.exportLegacyV4() as { wallet?: { balance?: number } } | undefined;
-    if (!legacy?.wallet || typeof legacy.wallet.balance !== 'number') throw new Error('no legacy snapshot');
-    legacy.wallet.balance = price + headroom;
-    await new Promise<void>((resolve, reject) => {
-      const open = indexedDB.open('keyval-store');
-      open.onupgradeneeded = () => {
-        const db = open.result;
-        if (!db.objectStoreNames.contains('keyval')) db.createObjectStore('keyval');
-      };
-      open.onerror = () => reject(open.error ?? new Error('indexedDB open failed'));
-      open.onsuccess = () => {
-        const db = open.result;
-        const tx = db.transaction('keyval', 'readwrite');
-        tx.objectStore('keyval').put(legacy, 'themhills:save:slot1');
-        tx.oncomplete = () => {
-          db.close();
-          resolve();
+  await page.evaluate(
+    async ({ price, headroom }) => {
+      const legacy = window.__themHills?.exportLegacyV4() as
+        | { wallet?: { balance?: number } }
+        | undefined;
+      if (!legacy?.wallet || typeof legacy.wallet.balance !== 'number')
+        throw new Error('no legacy snapshot');
+      legacy.wallet.balance = price + headroom;
+      await new Promise<void>((resolve, reject) => {
+        const open = indexedDB.open('keyval-store');
+        open.onupgradeneeded = () => {
+          const db = open.result;
+          if (!db.objectStoreNames.contains('keyval')) db.createObjectStore('keyval');
         };
-        tx.onerror = () => reject(tx.error ?? new Error('indexedDB write failed'));
-      };
-    });
-  }, { price, headroom });
+        open.onerror = () => reject(open.error ?? new Error('indexedDB open failed'));
+        open.onsuccess = () => {
+          const db = open.result;
+          const tx = db.transaction('keyval', 'readwrite');
+          tx.objectStore('keyval').put(legacy, 'themhills:save:slot1');
+          tx.oncomplete = () => {
+            db.close();
+            resolve();
+          };
+          tx.onerror = () => reject(tx.error ?? new Error('indexedDB write failed'));
+        };
+      });
+    },
+    { price, headroom },
+  );
 
   await page.goto('/');
   await page.waitForSelector('#boot-start', { timeout: 120_000 });
@@ -478,7 +494,9 @@ test('drift, blast, cave-in, flood, and fire stay in frame', async ({ page }) =>
     { timeout: 20_000 },
   );
 
-  expect(await page.evaluate(() => window.__themHills?.previewScene?.('blast') ?? false)).toBe(true);
+  expect(await page.evaluate(() => window.__themHills?.previewScene?.('blast') ?? false)).toBe(
+    true,
+  );
   await page.waitForFunction(
     () => {
       const view = window.__themHills?.sceneView?.(['drift-shell', 'fuse-sparks']);
@@ -504,13 +522,22 @@ test('drift, blast, cave-in, flood, and fire stay in frame', async ({ page }) =>
     { timeout: 40_000 },
   );
 
-  expect(await page.evaluate(() => window.__themHills?.previewScene?.('cavein') ?? false)).toBe(true);
+  expect(await page.evaluate(() => window.__themHills?.previewScene?.('cavein') ?? false)).toBe(
+    true,
+  );
   await page.waitForFunction(
     () => {
       const phase = window.__themHills?.driftPhase?.();
       const clock = window.__themHills?.driftClock?.() ?? 0;
       const view = window.__themHills?.sceneView?.(['drift-shell', 'drift-rubble']);
-      return phase === 'cave' && clock > 0.25 && clock < 1.15 && !!view && view.black < 0.9 && view.missing.length === 0;
+      return (
+        phase === 'cave' &&
+        clock > 0.25 &&
+        clock < 1.15 &&
+        !!view &&
+        view.black < 0.9 &&
+        view.missing.length === 0
+      );
     },
     undefined,
     { timeout: 30_000 },
@@ -539,7 +566,9 @@ test('drift, blast, cave-in, flood, and fire stay in frame', async ({ page }) =>
   expect(portalSide.missing).toEqual([]);
 
   for (let i = 0; i < 4; i++) {
-    expect(await page.evaluate(() => window.__themHills?.previewScene?.('dig') ?? false)).toBe(true);
+    expect(await page.evaluate(() => window.__themHills?.previewScene?.('dig') ?? false)).toBe(
+      true,
+    );
   }
   await page.waitForFunction(() => window.__themHills?.driftPhase?.() === 'idle', undefined, {
     timeout: 10_000,
@@ -549,7 +578,9 @@ test('drift, blast, cave-in, flood, and fire stay in frame', async ({ page }) =>
   const faceSide = await page.evaluate(() => window.__themHills?.driftLocalZ?.() ?? 0);
   expect(faceSide).toBeLessThan(-5.6);
 
-  expect(await page.evaluate(() => window.__themHills?.previewScene?.('flood') ?? false)).toBe(true);
+  expect(await page.evaluate(() => window.__themHills?.previewScene?.('flood') ?? false)).toBe(
+    true,
+  );
   await page.waitForFunction(
     () => {
       const rise = window.__themHills?.waterRise ?? 0;
@@ -563,7 +594,11 @@ test('drift, blast, cave-in, flood, and fire stay in frame', async ({ page }) =>
   expect(await page.evaluate(() => window.__themHills?.previewScene?.('rush') ?? false)).toBe(true);
   await page.waitForFunction(
     () => {
-      const view = window.__themHills?.sceneView?.(['rush-tent', 'rush-prospector', 'general_store']);
+      const view = window.__themHills?.sceneView?.([
+        'rush-tent',
+        'rush-prospector',
+        'general_store',
+      ]);
       if (!view || view.black >= 0.9) return false;
       const tents = view.present.includes('rush-tent') && view.present.includes('rush-prospector');
       const storeOut = !view.present.includes('general_store');
@@ -583,15 +618,85 @@ test('drift, blast, cave-in, flood, and fire stay in frame', async ({ page }) =>
     { timeout: 20_000 },
   );
 
-  expect(await page.evaluate(() => window.__themHills?.previewScene?.('quench') ?? false)).toBe(true);
+  expect(await page.evaluate(() => window.__themHills?.previewScene?.('quench') ?? false)).toBe(
+    true,
+  );
   await page.waitForFunction(
     () => {
       const view = window.__themHills?.sceneView?.(['fire-shed', 'fire-flame']);
-      return !!view && view.black < 0.9 && view.present.includes('fire-shed') && view.missing.includes('fire-flame');
+      return (
+        !!view &&
+        view.black < 0.9 &&
+        view.present.includes('fire-shed') &&
+        view.missing.includes('fire-flame')
+      );
     },
     undefined,
     { timeout: 20_000 },
   );
 
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+test('audio system initializes and mix settings persist', async ({ page }) => {
+  test.setTimeout(180_000);
+  const errors = trackErrors(page);
+  await page.goto('/');
+  await page.waitForSelector('#boot-start', { timeout: 90_000 });
+  await page.locator('#boot-start').click();
+  await page.waitForFunction(
+    () => {
+      const audio = window.__themHills?.audio;
+      return (
+        audio?.context === 'running' &&
+        audio?.buses.master &&
+        audio?.buses.music &&
+        audio?.buses.sfx &&
+        audio?.buses.ambience
+      );
+    },
+    undefined,
+    { timeout: 15_000 },
+  );
+
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.panel-card h2')).toHaveText('Paused');
+  await page
+    .locator('.panel-actions button', { hasText: 'Settings' })
+    .evaluate((el: HTMLButtonElement) => {
+      el.click();
+    });
+  const music = page.locator('input[data-audio="music"]');
+  await expect(page.locator('.settings-panel')).toBeVisible();
+  await music.evaluate((el) => {
+    const input = el as HTMLInputElement;
+    input.value = '0.25';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await expect(music).toHaveValue('0.25');
+  await page.evaluate(async () => {
+    await window.__themHills?.save();
+  });
+
+  await page.reload();
+  await page.waitForSelector('#boot-start', { timeout: 90_000 });
+  await page.locator('#boot-start').click();
+  await page.waitForFunction(
+    () =>
+      window.__themHills?.audio?.context === 'running' && window.__themHills.audio.music === 0.25,
+    undefined,
+    { timeout: 15_000 },
+  );
+  await page.keyboard.press('Escape');
+  await page
+    .locator('.panel-actions button', { hasText: 'Settings' })
+    .evaluate((el: HTMLButtonElement) => {
+      el.click();
+    });
+  await expect(page.locator('.settings-panel')).toBeVisible();
+  await expect(page.locator('input[data-audio="music"]')).toHaveValue('0.25');
+  const restored = await page.evaluate(() => window.__themHills?.audio);
+  expect(restored?.buses).toEqual({ master: true, music: true, sfx: true, ambience: true });
+  expect(restored?.music).toBeCloseTo(0.25, 2);
   expect(errors, errors.join('\n')).toEqual([]);
 });
