@@ -96,6 +96,7 @@ export interface ThemHillsProbe {
   blackRatio?: number;
   /** True once the bucket line has swapped off the proxy heads. */
   crewReady?: () => boolean;
+  scatterCount?: () => number;
   /** Live clip. `bind` is true only when an arm is back in the T-pose. */
   playerPose: { clip: string; bind: boolean };
 }

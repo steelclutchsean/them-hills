@@ -393,6 +393,7 @@ export function fadeFoliageNear(
   camera: THREE.Vector3 | null,
   radius = 2.5,
   look: THREE.Vector3 | null = null,
+  viewDistance = 16,
 ): void {
   for (const mesh of fadedFoliage) {
     const base = mesh.userData.baseMat as THREE.Material | undefined;
@@ -422,8 +423,8 @@ export function fadeFoliageNear(
     const dist = Math.hypot(dx, dy, dz);
     const along = dist > 0.001 ? (dx * aimX + dy * aimY + dz * aimZ) / dist : 0;
     const inLens = dist * dist <= radiusSq;
-    const closeTree = look !== null && node.kind === 'tree' && dist < 14;
-    const inView = look !== null && node.kind === 'tree' && dist > 0.4 && dist < 16 && along > 0.4;
+    const closeTree = look !== null && node.kind === 'tree' && dist < Math.max(14, viewDistance * 0.45);
+    const inView = look !== null && node.kind === 'tree' && dist > 0.4 && dist < viewDistance && along > 0.3;
     if (!inLens && !inView && !closeTree) continue;
     const fade = inView || closeTree || dist < 4.5 ? 1 : 1 - (dist - 4.5) / Math.max(0.2, radius - 4.5);
     node.obj.traverse((obj) => {

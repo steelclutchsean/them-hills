@@ -958,6 +958,7 @@ async function bootstrap(): Promise<void> {
   let waterRise = 0;
   let holdView: { x: number; y: number; z: number; lx: number; ly: number; lz: number } | null = null;
   let foliageLook: THREE.Vector3 | null = null;
+  let hideViewTrees = false;
   const viewFrustum = new THREE.Frustum();
   const viewProj = new THREE.Matrix4();
   const viewBox = new THREE.Box3();
@@ -1437,6 +1438,7 @@ async function bootstrap(): Promise<void> {
         character.group.visible = !hideHero;
         interiorShot = who === 'blast' || who === 'cavein' || who === 'lode';
         holdView = null;
+        hideViewTrees = false;
         if (who !== 'silas' && who !== 'ada' && who !== 'pete' && who !== 'fire') dialogue = null;
         if (who === 'blast' && north) {
           playDriftBlast(north.group, true);
@@ -1479,6 +1481,7 @@ async function bootstrap(): Promise<void> {
           gameStore.getState().hydrate(snap);
           townArc.quench();
           arcBanner = null;
+          hideViewTrees = true;
           holdView = shedView(6.4);
           return true;
         }
@@ -1518,6 +1521,7 @@ async function bootstrap(): Promise<void> {
           scriptEvent('fire');
           dialogue = null;
           arcBanner = 'fire';
+          hideViewTrees = true;
           holdView = shedView(6.4);
         } else if (who === 'overview') {
           scriptEvent('rush');
@@ -1592,6 +1596,8 @@ async function bootstrap(): Promise<void> {
         if (!line || line.children.length === 0) return false;
         return line.children.every((child) => child.userData.hero === true);
       },
+      scatterCount: () =>
+        renderer.scene.children.filter((child) => child.name.startsWith('scatter:')).length,
     };
     if (previous) previous.frameLuma = frameLuma;
   }
@@ -2490,7 +2496,15 @@ async function bootstrap(): Promise<void> {
       const sunDirWorld = renderer.followSun(charPos);
       renderer.syncFrame(worldTime, sunDirWorld);
       updateScatterWind(worldTime, charPos, renderer.camera.position, renderer.sun.intensity);
-      fadeFoliageNear(foliageLook ? renderer.camera.position : null, 12, foliageLook);
+      const treeDistance =
+        foliageLook && renderer.camera.position.y - foliageLook.y > 12
+          ? 9
+          : hideViewTrees || arcBanner === 'fire'
+            ? 42
+            : dialogue?.treeId === 'silas'
+              ? 24
+              : 16;
+      fadeFoliageNear(foliageLook ? renderer.camera.position : null, 12, foliageLook, treeDistance);
       updateTownDressing(worldTime, renderer.camera);
       updateTownLights(sunDirWorld.y);
       setFoliageWindTime(worldTime);
