@@ -35,8 +35,8 @@ export interface StreamConfig {
 
 const SITE_INTERACT_RADIUS = 1.5;
 
-const DEFAULT_SHALLOW = 0x5eb8a8;
-const DEFAULT_DEEP = 0x1c5c62;
+const DEFAULT_SHALLOW = 0x7ecfc0;
+const DEFAULT_DEEP = 0x0e3f4c;
 const DEFAULT_FOAM = 0xf4efe2;
 
 export interface PanningSite {
@@ -165,9 +165,15 @@ const FRAG_SHADER = /* glsl */ `
     float surface = n1 * 0.5 + n2 * 0.32 + n3 * 0.18;
     base = mix(base * 0.84, base * 1.16, smoothstep(0.28, 0.72, surface));
 
-    float edge = smoothstep(0.62, 0.96, t);
+    float edge = smoothstep(0.55, 0.94, t);
     float foamNoise = noise(worldXZ * 3.8 - scroll * 1.3);
-    float foamMask = edge * smoothstep(0.32, 0.78, foamNoise);
+    float foamMask = edge * smoothstep(0.28, 0.72, foamNoise);
+    // Riffles are the shallow runs. Streaks follow the spline tangent.
+    float riffle = smoothstep(0.85, 0.28, vDepth);
+    float across = dot(worldXZ, vec2(flow.y, -flow.x));
+    float along = dot(worldXZ, flow);
+    float streak = noise(vec2(across * 5.5, along * 1.2 - uTime * uFlowSpeed * 3.0));
+    foamMask = max(foamMask, riffle * smoothstep(0.48, 0.8, streak) * 0.8);
 
     float wake = 0.0;
     for (int i = 0; i < 8; i++) {
@@ -205,7 +211,10 @@ const FRAG_SHADER = /* glsl */ `
         reflected = texture2D(uReflect, uv).rgb;
       }
     }
-    base = mix(base, reflected, fres * 0.7);
+    // Without a reflection target, a strong fresnel just paints the creek
+    // the color of the sky and it disappears into the bank.
+    float fresMix = uHasReflect > 0.5 ? 0.72 : 0.2;
+    base = mix(base, reflected, fres * fresMix);
 
     float cau = noise(worldXZ * 3.4 - scroll * 1.5) * noise(worldXZ * 6.2 + scroll * 0.6);
     base += vec3(0.55, 0.95, 0.85) * smoothstep(0.62, 0.9, cau) * (1.0 - depthFactor);
@@ -227,7 +236,7 @@ const FRAG_SHADER = /* glsl */ `
     vec3 lit = base * mix(0.62, 1.0, shadow);
     lit = mix(lit, lit * uSunColor, 0.16 * uSunIntensity * shadow);
 
-    float alpha = mix(0.5, 0.94, depthFactor);
+    float alpha = mix(0.72, 0.96, depthFactor);
     alpha = max(alpha, foamMask * 0.9);
     alpha = mix(alpha, min(1.0, alpha + 0.28), fres);
 

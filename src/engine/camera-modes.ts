@@ -23,6 +23,36 @@ export interface CameraModeController {
   updateProspectView(charPos: THREE.Vector3, step: string | null, focus: THREE.Vector3): void;
 }
 
+/**
+ * Close third-person frame for a dig or pan pose. Used by review shots so
+ * the art pass shows the hands and the gold without entering a minigame.
+ */
+export function frameToolShot(
+  camera: THREE.PerspectiveCamera,
+  charPos: THREE.Vector3,
+  yaw: number,
+  step: string,
+  focus: THREE.Vector3,
+): void {
+  const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+  const right = new THREE.Vector3(-forward.z, 0, forward.x);
+  const pan = step === 'pan';
+  const dist = pan ? 1.7 : 2.05;
+  const side = pan ? 0.55 : 0.48;
+  const height = pan ? 0.42 : 0.55;
+  camera.position.set(
+    focus.x + forward.x * dist + right.x * side,
+    Math.max(focus.y + height, charPos.y + 0.85),
+    focus.z + forward.z * dist + right.z * side,
+  );
+  camera.lookAt(focus);
+  const fov = pan ? 42 : DIG_FOV;
+  if (camera.fov !== fov) {
+    camera.fov = fov;
+    camera.updateProjectionMatrix();
+  }
+}
+
 export function createCameraModeController(camera: THREE.PerspectiveCamera): CameraModeController {
   let inProspect = false;
   let lockedYaw = 0;
