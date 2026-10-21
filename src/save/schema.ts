@@ -538,7 +538,7 @@ export function defaultSettings(): SettingsState {
   return {
     audio: { master: 1.0, music: 0.85, ambient: 1.0, sfx: 1.0 },
     look: { mouseSensitivity: 1.0, invertY: false },
-    graphics: { fovDegrees: 60, shadowsEnabled: true, preset: 'high' },
+    graphics: { fovDegrees: 60, shadowsEnabled: true },
     textScale: 1,
     subtitles: false,
     colorblind: false,

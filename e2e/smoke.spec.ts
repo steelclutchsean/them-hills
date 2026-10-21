@@ -355,15 +355,23 @@ test('places machines on a claim and starts each one', async ({ page }) => {
       longtom: 'shovel',
       monitor: 'aim',
     };
-    // The shovel swing spends part of its cycle near the bind pose. Wait for a frame that has left it.
-    await page.waitForFunction(
-      ({ name, clip }) => {
+    // A full shovel cycle is 1.25s. Every sample in that window has to be the
+    // fitting clip, and none of them may be the bind T.
+    const poses = await page.evaluate(async ({ name, clip }) => {
+      const seen: { clip: string; bind: boolean }[] = [];
+      const start = performance.now();
+      while (performance.now() - start < 1400) {
         const pose = window.__themHills?.playerPose;
-        return window.__themHills?.activeViz === name && pose?.clip === clip && pose.bind === false;
-      },
-      { name: kind, clip: fitting[kind] },
-      { timeout: 8_000 },
-    );
+        if (window.__themHills?.activeViz === name && pose) seen.push({ clip: pose.clip, bind: pose.bind });
+        await new Promise((resolve) => setTimeout(resolve, 120));
+      }
+      return { seen, clip };
+    }, { name: kind, clip: fitting[kind] });
+    expect(poses.seen.length, kind).toBeGreaterThan(4);
+    for (const pose of poses.seen) {
+      expect(pose.bind, `${kind} clip ${pose.clip}`).toBe(false);
+      expect(pose.clip, kind).toBe(poses.clip);
+    }
     await page.evaluate(() => window.__themHills?.cancelProspect?.());
   }
   expect(spot.x + spot.z).not.toBeNaN();

@@ -262,10 +262,10 @@ async function bootstrap(): Promise<void> {
     glRendererString(renderer.renderer.getContext()),
   );
   waterReflection.setSize(softwareGl ? (RENDER_QUALITY.ao ? 112 : 80) : 176);
-  // Software high (the shot pages) was landing the nine frames a few seconds
-  // past the visual budget. Stride 3 keeps the mirror and skips more passes.
   waterReflection.setStride(softwareGl ? (RENDER_QUALITY.ao ? 3 : 4) : 1);
-  waterReflection.setEnabled(RENDER_QUALITY.reflections);
+  // The mirrored pass does not return a frame on SwiftShader (the creekbank
+  // shot hung after the fonts loaded). Real GPUs still get the creek mirror.
+  waterReflection.setEnabled(RENDER_QUALITY.reflections && !softwareGl);
   for (const s of streamList) {
     skipReflection(s.group);
     renderer.scene.add(s.group);
@@ -719,7 +719,13 @@ async function bootstrap(): Promise<void> {
   renderer.sun.castShadow = initialSettings.graphics.shadowsEnabled;
 
   const settings = createSettingsPanel({
-    initial: initialSettings,
+    initial: {
+      ...initialSettings,
+      graphics: {
+        ...initialSettings.graphics,
+        preset: initialSettings.graphics.preset ?? getQualityName(),
+      },
+    },
     updateSetting: (key, patch) => gameStore.getState().updateSettingsSlice(key, patch),
     setSettings: (patch) => gameStore.getState().setSettings(patch),
     apply: {
@@ -1094,7 +1100,7 @@ async function bootstrap(): Promise<void> {
         renderer.applyGraphics();
         waterReflection.setSize(softwareGl ? (RENDER_QUALITY.ao ? 112 : 80) : 176);
         waterReflection.setStride(softwareGl ? (RENDER_QUALITY.ao ? 3 : 4) : 1);
-        waterReflection.setEnabled(RENDER_QUALITY.reflections);
+        waterReflection.setEnabled(RENDER_QUALITY.reflections && !softwareGl);
         setScatterDensity(RENDER_QUALITY.scatter / QUALITY_PRESETS.ultra.scatter);
         grass?.setCount(RENDER_QUALITY.grassTall);
         for (const cover of grassCovers) cover.setCount(RENDER_QUALITY.grassCover);

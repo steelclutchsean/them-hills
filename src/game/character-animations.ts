@@ -83,9 +83,14 @@ function still(): Gesture {
   };
 }
 
+// Shoulder X past about 1.0 unfolds this skeleton back into the bind T.
+const LIFT_MAX = 0.7;
+
 function write(rig: CharacterRig, g: Gesture, smoothing: number): void {
   const t = posedOnce ? smoothing : 1;
   posedOnce = true;
+  g.shLx = Math.max(-0.15, Math.min(LIFT_MAX, g.shLx));
+  g.shRx = Math.max(-0.15, Math.min(LIFT_MAX, g.shRx));
   applyDelta(rig.spine, g.spineX, g.spineY, 0, t);
   applyDelta(rig.head, g.headX, 0, 0, t);
   // Snap. A lerped drop spends frames in the bind T.
