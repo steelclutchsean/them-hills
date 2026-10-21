@@ -4,6 +4,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { RENDER_QUALITY } from '@/engine/quality';
 
 // HDR chain: scene → grade (saturation + vignette) → bloom → OutputPass
@@ -50,12 +51,52 @@ const GradeShader = {
   `,
 };
 
+const GodrayShader = {
+  name: 'Godrays',
+  uniforms: {
+    tDiffuse: { value: null as THREE.Texture | null },
+    uSun: { value: new THREE.Vector2(0.5, 0.8) },
+    uIntensity: { value: 0.22 },
+  },
+  vertexShader: /* glsl */ `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tDiffuse;
+    uniform vec2 uSun;
+    uniform float uIntensity;
+    varying vec2 vUv;
+    void main() {
+      vec3 col = texture2D(tDiffuse, vUv).rgb;
+      vec2 delta = (uSun - vUv) / 10.0;
+      float illum = 0.0;
+      vec2 p = vUv;
+      for (int i = 0; i < 10; i++) {
+        p += delta;
+        float l = dot(texture2D(tDiffuse, clamp(p, 0.0, 1.0)).rgb, vec3(0.25, 0.55, 0.2));
+        illum += l * (1.0 - float(i) / 10.0);
+      }
+      illum /= 10.0;
+      float onScreen = smoothstep(-0.05, 0.08, uSun.x) * smoothstep(1.05, 0.92, uSun.x)
+                     * smoothstep(-0.05, 0.08, uSun.y) * smoothstep(1.05, 0.92, uSun.y);
+      col += vec3(1.0, 0.92, 0.75) * illum * uIntensity * onScreen;
+      gl_FragColor = vec4(col, 1.0);
+    }
+  `,
+};
+
 export interface PostPipeline {
   composer: EffectComposer;
   bloom: UnrealBloomPass;
   setSize(width: number, height: number): void;
   render(): void;
   dispose(): void;
+  applyQuality(): void;
+  setSun(x: number, y: number, elevation: number): void;
 }
 
 export function createPostPipeline(
@@ -75,6 +116,20 @@ export function createPostPipeline(
   }
 
   composer.addPass(new RenderPass(scene, camera));
+
+  const gtao = new GTAOPass(
+    scene,
+    camera,
+    Math.max(1, window.innerWidth >> 2),
+    Math.max(1, window.innerHeight >> 2),
+  );
+  gtao.blendIntensity = 0.55;
+  gtao.enabled = false;
+  composer.addPass(gtao);
+
+  const godrays = new ShaderPass(GodrayShader);
+  godrays.enabled = false;
+  composer.addPass(godrays);
   composer.addPass(new ShaderPass(GradeShader));
 
   const bloom = new UnrealBloomPass(
@@ -91,12 +146,27 @@ export function createPostPipeline(
     bloom,
     setSize(width, height) {
       composer.setSize(width, height);
+      gtao.setSize(Math.max(1, width >> 2), Math.max(1, height >> 2));
     },
     render() {
       composer.render();
     },
     dispose() {
       composer.dispose();
+    },
+    applyQuality() {
+      // GTAO's normal pass is reliable on hardware. Software GL (the smoke
+      // browser) skips it: the extra targets stall the visual pass.
+      const software = rendererIsSoftware(renderer);
+      gtao.enabled = RENDER_QUALITY.ao && !software;
+      godrays.enabled = RENDER_QUALITY.godrays;
+    },
+    setSun(x, y, elevation) {
+      const sun = godrays.uniforms.uSun?.value as THREE.Vector2 | undefined;
+      if (sun) sun.set(x, y);
+      const lift = elevation > 0.05 ? 0.28 : elevation > -0.02 ? 0.12 : 0;
+      const intensity = godrays.uniforms.uIntensity;
+      if (intensity) intensity.value = lift;
     },
   };
 }

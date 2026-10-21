@@ -25,6 +25,8 @@ export interface RendererBundle {
   render(): void;
   /** Re-read RENDER_QUALITY after a preset change. */
   applyGraphics(): void;
+  /** Screen position of the sun for the god-ray pass. */
+  setPostSun(x: number, y: number, elevation: number): void;
   dispose(): void;
 }
 
@@ -139,7 +141,11 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererBundle {
       sun.shadow.intensity = RENDER_QUALITY.shadowIntensity;
       scene.environmentIntensity = RENDER_QUALITY.environmentIntensity;
       post.bloom.strength = RENDER_QUALITY.bloomStrength;
+      post.applyQuality();
       post.setSize(window.innerWidth, window.innerHeight);
+    },
+    setPostSun(x: number, y: number, elevation: number) {
+      post.setSun(x, y, elevation);
     },
     render: () => post.render(),
     dispose: () => {
