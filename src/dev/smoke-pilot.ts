@@ -58,6 +58,7 @@ export interface ThemHillsProbe {
   mirrorHorizon?: number;
   probeReady?: boolean;
   planarMatch?: number;
+  planarContrast?: number;
   rebakeProbes?: () => void;
   saveVersion: number;
   panTier: number;

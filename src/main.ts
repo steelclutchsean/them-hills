@@ -27,7 +27,14 @@ import {
 } from '@/game/structures';
 import { buildTownStreet } from '@/game/town-street';
 import { addLandform } from '@/game/landform';
-import { bankPoint, inStreet, inTownClearing, sampleCreekFringe, sampleRidge, sampleTownEdge } from '@/game/biomes';
+import {
+  bankPoint,
+  inStreet,
+  inTownClearing,
+  sampleCreekFringe,
+  sampleRidge,
+  sampleTownEdge,
+} from '@/game/biomes';
 import { aabbOverlap, channelViolation, sphereAabb, type Aabb } from '@/game/clearance';
 import { bearingFromYaw, createCameraRig } from '@/game/camera-rig';
 import { createCamp } from '@/game/camp';
@@ -1793,7 +1800,15 @@ async function bootstrap(): Promise<void> {
         const overlaps: string[] = [];
         const intruders: string[] = [];
         const channels = courses;
-        const visit = (label: string, x: number, y: number, z: number, radius: number, allowed: boolean, checkOverlap: boolean) => {
+        const visit = (
+          label: string,
+          x: number,
+          y: number,
+          z: number,
+          radius: number,
+          allowed: boolean,
+          checkOverlap: boolean,
+        ) => {
           if (checkOverlap) {
             const box = sphereAabb(x, y, z, radius);
             for (const building of buildings) {
@@ -3734,6 +3749,7 @@ async function bootstrap(): Promise<void> {
         window.__themHills.mirrorHorizon = reflectionUniforms.uHorizon.value;
         window.__themHills.probeReady = creekProbe.ready;
         window.__themHills.planarMatch = creekProbe.planarMatch;
+        window.__themHills.planarContrast = creekProbe.planarContrast;
       }
     },
   });

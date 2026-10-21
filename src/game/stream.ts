@@ -317,24 +317,22 @@ const FRAG_SHADER = /* glsl */ `
         }
       }
     }
+    // The bake is the shape of the bank. The water keeps its own color, so a
+    // sunlit dirt reflection cannot turn the channel amber. Trunks show up
+    // as darker streaks in that color.
+    float reflectAmt = mix(0.04, 0.12, smoothstep(0.15, 0.75, fres));
     if (planarHit > 0.5) {
       float rl = dot(reflected, vec3(0.2126, 0.7152, 0.0722));
-      reflected = mix(vec3(rl), reflected, 1.12);
-      reflected = (reflected - vec3(0.42)) * 1.18 + vec3(0.42);
-      reflected *= vec3(0.84, 0.96, 1.02);
+      rl = smoothstep(0.05, 0.72, rl);
+      reflected = base * mix(0.22, 1.7, rl);
+      reflectAmt = mix(0.78, 0.94, smoothstep(0.02, 0.35, fres));
     } else if (mirrorHit > 0.5) {
       float rl = dot(reflected, vec3(0.2126, 0.7152, 0.0722));
-      reflected = mix(vec3(rl * 0.5), reflected, 0.5);
-      reflected *= vec3(0.4, 0.78, 0.95);
-    }
-    // The mirrored bank is allowed to read clearly. A low-res cube is only
-    // a cool hint, so sunlit dirt cannot paint the channel amber.
-    float reflectAmt = mix(0.05, 0.2, smoothstep(0.12, 0.7, fres));
-    reflectAmt *= mix(1.0, 0.22, depthFactor);
-    if (planarHit > 0.5) {
-      reflectAmt = mix(0.48, 0.82, smoothstep(0.04, 0.4, fres));
-      reflectAmt *= mix(1.0, 0.5, depthFactor);
-    } else if (mirrorHit < 0.5) {
+      rl = smoothstep(0.08, 0.7, rl);
+      reflected = base * mix(0.55, 1.25, rl);
+      reflectAmt = mix(0.08, 0.28, smoothstep(0.12, 0.7, fres));
+      reflectAmt *= mix(1.0, 0.35, depthFactor);
+    } else {
       reflectAmt *= 0.35;
     }
     base = mix(base, reflected, reflectAmt);
@@ -363,7 +361,7 @@ const FRAG_SHADER = /* glsl */ `
     vec3 lit = base * mix(0.62, 1.0, shadow);
     lit = mix(lit, lit * uSunColor, 0.16 * uSunIntensity * shadow);
 
-    float alpha = mix(0.14, 0.94, smoothstep(0.04, 0.72, depthFactor));
+    float alpha = mix(0.18, 0.97, smoothstep(0.02, 0.48, depthFactor));
     alpha = max(alpha, foamMask * 0.92);
     alpha = mix(alpha, min(1.0, alpha + 0.2), fres);
 

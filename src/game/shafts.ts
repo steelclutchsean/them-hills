@@ -140,14 +140,14 @@ export function createLightShafts(): LightShafts {
   const material = new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
-    depthTest: true,
+    depthTest: false,
     side: THREE.DoubleSide,
     blending: THREE.AdditiveBlending,
     fog: false,
     toneMapped: false,
     uniforms: {
       uColor: { value: new THREE.Color(1.12, 0.74, 0.34) },
-      uStrength: { value: 0.7 },
+      uStrength: { value: 1.05 },
       uTime: { value: 0 },
       uNoise: { value: shaftNoise() },
     },
@@ -251,15 +251,16 @@ export function createLightShafts(): LightShafts {
           const az = start.z - camera.position.z;
           const alongView = ahead * forward.x + ay * forward.y + az * forward.z;
           const dist = Math.hypot(ahead, ay, az);
-          if (dist > 7 && dist < 18 && alongView > 4 && start.y > camera.position.y - 1.2) {
+          if (dist > 6 && dist < 16 && alongView > 3 && start.y > camera.position.y - 0.2) {
             found = true;
             break;
           }
         }
         if (!found) {
-          start.copy(camera.position).addScaledVector(forward, 11);
-          start.y = camera.position.y + 0.6;
+          start.copy(camera.position).addScaledVector(forward, 9);
+          start.y = camera.position.y + 1.4;
         }
+        start.y = Math.max(start.y, camera.position.y + 0.4);
         start.addScaledVector(widthDir, (i - 2.5) * 1.6);
         ndcA.copy(start).project(camera);
         ndcB.copy(end).project(camera);

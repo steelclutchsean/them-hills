@@ -48,6 +48,7 @@ export interface CreekProbe {
   invalidate(): void;
   readonly ready: boolean;
   readonly planarMatch: number;
+  readonly planarContrast: number;
   update(
     renderer: THREE.WebGLRenderer,
     scene: THREE.Scene,
@@ -94,11 +95,12 @@ export function createCreekProbe(): CreekProbe {
   let phase: 'idle' | 'cubes' | 'planar' = 'idle';
   let faceCursor = 0;
   let planarMatch = 0;
+  let planarContrast = 0;
 
   const scratch = new THREE.Vector3();
   const prevClear = new THREE.Color();
   const planarTarget = new THREE.WebGLRenderTarget(768, 432, {
-    type: THREE.HalfFloatType,
+    type: THREE.UnsignedByteType,
     format: THREE.RGBAFormat,
     depthBuffer: true,
     generateMipmaps: false,
@@ -118,9 +120,6 @@ export function createCreekProbe(): CreekProbe {
   const target = new THREE.Vector3();
   const rotation = new THREE.Matrix4();
   const sampleProj = new THREE.Matrix4();
-  const reflectorPlane = new THREE.Plane();
-  const clipPlane = new THREE.Vector4();
-  const q = new THREE.Vector4();
   const planarEye = new THREE.Vector3();
   const planarFwd = new THREE.Vector3();
   const liveFwd = new THREE.Vector3();
@@ -170,33 +169,6 @@ export function createCreekProbe(): CreekProbe {
 
     sampleProj.copy(planarCam.projectionMatrix);
     creekProbeUniforms.uPlanarVP.value.multiplyMatrices(sampleProj, planarCam.matrixWorldInverse);
-
-    // Oblique near plane on the water, so the bake keeps the banks and the
-    // crowns and drops the underground the mirrored camera is sitting in.
-    reflectorPlane.setFromNormalAndCoplanarPoint(normal, planePoint);
-    reflectorPlane.applyMatrix4(planarCam.matrixWorldInverse);
-    clipPlane.set(
-      reflectorPlane.normal.x,
-      reflectorPlane.normal.y,
-      reflectorPlane.normal.z,
-      reflectorPlane.constant,
-    );
-    const pe = planarCam.projectionMatrix.elements;
-    q.set(
-      (Math.sign(clipPlane.x) + pe[8]!) / pe[0]!,
-      (Math.sign(clipPlane.y) + pe[9]!) / pe[5]!,
-      -1,
-      (1 + pe[10]!) / pe[14]!,
-    );
-    const denom = clipPlane.dot(q);
-    if (Math.abs(denom) > 1e-6) {
-      clipPlane.multiplyScalar(2 / denom);
-      pe[2] = clipPlane.x;
-      pe[6] = clipPlane.y;
-      pe[10] = clipPlane.z + 1 - 0.02;
-      pe[14] = clipPlane.w;
-    }
-
     planarEye.copy(camera.position);
     camera.getWorldDirection(planarFwd);
   };
@@ -257,6 +229,9 @@ export function createCreekProbe(): CreekProbe {
     },
     get planarMatch() {
       return planarMatch;
+    },
+    get planarContrast() {
+      return planarContrast;
     },
     update(renderer, scene, hour, camera, waterY) {
       refreshMatch(camera);
@@ -347,6 +322,32 @@ export function createCreekProbe(): CreekProbe {
               renderer.render(scene, planarCam);
             } finally {
               for (const mesh of hidden) mesh.visible = true;
+            }
+            try {
+              const w = planarTarget.width;
+              const h = planarTarget.height;
+              const buf = new Uint8Array(w * h * 4);
+              renderer.readRenderTargetPixels(planarTarget, 0, 0, w, h, buf);
+              let lo = 255;
+              let hi = 0;
+              const stride = 24;
+              for (let y = 0; y < h; y += stride) {
+                for (let x = 0; x < w; x += stride) {
+                  const i = (y * w + x) * 4;
+                  const l =
+                    0.2126 * (buf[i] ?? 0) +
+                    0.7152 * (buf[i + 1] ?? 0) +
+                    0.0722 * (buf[i + 2] ?? 0);
+                  if (l < lo) lo = l;
+                  if (l > hi) hi = l;
+                }
+              }
+              planarContrast = hi - lo;
+              console.log(
+                `[creek-probe] planar luma ${lo.toFixed(0)}-${hi.toFixed(0)} contrast ${planarContrast.toFixed(0)}`,
+              );
+            } catch (err) {
+              console.log('[creek-probe] planar readback failed', err);
             }
             creekProbeUniforms.uHasPlanar.value = 1;
           }
