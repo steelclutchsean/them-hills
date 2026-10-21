@@ -500,6 +500,7 @@ async function bootstrap(): Promise<void> {
   });
   if (review?.arm) cameraRig.setArmLength(review.arm);
   if (review?.pose) setReviewPose(review.pose);
+  if (review?.free) cameraRig.setAvoidance(false);
   const chaseFov = renderer.camera.fov;
   let reviewingTool = false;
 
@@ -762,6 +763,7 @@ async function bootstrap(): Promise<void> {
         const y = terrain.getHeightAt(shot.x, shot.z) + 1.5;
         character.placeAt(shot.x, y, shot.z);
         if (shot.pose === 'dig' || shot.pose === 'pan') character.setYaw(shot.yaw);
+        cameraRig.setAvoidance(!shot.free);
         cameraRig.setYawPitch(shot.yaw, shot.pitch);
         cameraRig.setArmLength(shot.arm);
         setReviewPose(shot.pose);
