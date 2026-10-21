@@ -229,7 +229,8 @@ async function bootstrap(): Promise<void> {
   const softwareGl = /swiftshader|llvmpipe|softpipe/i.test(
     glRendererString(renderer.renderer.getContext()),
   );
-  waterReflection.setSize(softwareGl ? 112 : 176);
+  waterReflection.setSize(softwareGl ? (RENDER_QUALITY.ao ? 112 : 80) : 176);
+  waterReflection.setStride(softwareGl ? (RENDER_QUALITY.ao ? 2 : 4) : 1);
   waterReflection.setEnabled(RENDER_QUALITY.reflections);
   for (const s of streamList) {
     skipReflection(s.group);
@@ -809,7 +810,8 @@ async function bootstrap(): Promise<void> {
       publishProbe();
       requestAnimationFrame(() => {
         renderer.applyGraphics();
-        waterReflection.setSize(softwareGl ? 112 : 176);
+        waterReflection.setSize(softwareGl ? (RENDER_QUALITY.ao ? 112 : 80) : 176);
+        waterReflection.setStride(softwareGl ? (RENDER_QUALITY.ao ? 2 : 4) : 1);
         waterReflection.setEnabled(RENDER_QUALITY.reflections);
         setScatterDensity(RENDER_QUALITY.scatter / QUALITY_PRESETS.ultra.scatter);
         grass?.setCount(RENDER_QUALITY.grassTall);

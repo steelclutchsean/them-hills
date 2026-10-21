@@ -20,6 +20,8 @@ export interface WaterReflection {
   setEnabled(on: boolean): void;
   readonly enabled: boolean;
   setSize(pixels: number): void;
+  /** Reuse the last mirror for this many frames. Software GL uses 2. */
+  setStride(frames: number): void;
   update(
     renderer: THREE.WebGLRenderer,
     scene: THREE.Scene,
@@ -65,6 +67,8 @@ export function createWaterReflection(): WaterReflection {
   const virtual = new THREE.PerspectiveCamera();
   virtual.layers.set(REFLECTION_LAYER);
   let enabled = false;
+  let stride = 1;
+  let tick = 0;
 
   const normal = new THREE.Vector3(0, 1, 0);
   const reflectorWorldPosition = new THREE.Vector3();
@@ -93,11 +97,16 @@ export function createWaterReflection(): WaterReflection {
       size = next;
       target.setSize(next, next);
     },
+    setStride(frames) {
+      stride = Math.max(1, Math.round(frames));
+    },
     update(renderer, scene, camera, planeY) {
       if (!enabled) {
         reflectionUniforms.uHasReflect.value = 0;
         return;
       }
+      tick += 1;
+      if (tick % stride !== 0) return;
       reflectorWorldPosition.set(camera.position.x, planeY, camera.position.z);
       cameraWorldPosition.setFromMatrixPosition(camera.matrixWorld);
       rotationMatrix.extractRotation(camera.matrixWorld);
@@ -117,13 +126,14 @@ export function createWaterReflection(): WaterReflection {
       virtual.up.set(0, 1, 0);
       virtual.up.reflect(normal);
       virtual.lookAt(targetPos);
-      virtual.far = camera.far;
+      // Near banks and trees only. A 650m mirror redrew the whole forest
+      // and the prospect loop missed its budget on software GL.
+      virtual.far = 42;
       virtual.near = camera.near;
       virtual.fov = camera.fov;
       virtual.aspect = camera.aspect;
       virtual.updateProjectionMatrix();
       virtual.updateMatrixWorld();
-      virtual.projectionMatrix.copy(camera.projectionMatrix);
 
       textureMatrix.set(0.5, 0, 0, 0.5, 0, 0.5, 0, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0, 1);
       textureMatrix.multiply(virtual.projectionMatrix);
