@@ -2535,7 +2535,7 @@ async function bootstrap(): Promise<void> {
       updateScatterWind(worldTime, charPos, renderer.camera.position, renderer.sun.intensity);
       const treeDistance =
         foliageLook && renderer.camera.position.y - foliageLook.y > 12
-          ? 9
+          ? 32
           : hideViewTrees || arcBanner === 'fire'
             ? 42
             : dialogue?.treeId === 'silas'
