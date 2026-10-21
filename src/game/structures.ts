@@ -194,7 +194,7 @@ function addWindow(parent: THREE.Object3D, x: number, y: number, z: number, yaw:
     roughness: 0.18,
     metalness: 0.02,
     emissive: 0xffb15a,
-    emissiveIntensity: 0.35,
+    emissiveIntensity: 0.85,
     transparent: true,
     opacity: 0.92,
   });
@@ -393,6 +393,9 @@ export function buildCabin(opts: {
   const postZ = hz + 1.2;
   root.add(mesh(porchPost, dark, postL, 1.42, postZ));
   root.add(mesh(porchPost, dark, postR, 1.42, postZ));
+  const porchRoof = mesh(new THREE.BoxGeometry(width * 0.9, 0.08, 1.45), dark, 0, 2.58, hz + 0.78);
+  porchRoof.rotation.x = 0.22;
+  root.add(porchRoof);
   for (const railY of [0.72, 1.15]) {
     const rail = mesh(
       new THREE.CylinderGeometry(0.025, 0.025, postR - postL, 6),

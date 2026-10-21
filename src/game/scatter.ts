@@ -297,7 +297,7 @@ export async function scatterAssets(
       impostor = makeImpostor(config.lod, worldScale);
       impostor.visible = false;
       wrap.add(impostor);
-      lodDistance = config.lod === 'tree' ? 52 : config.lod === 'rock' ? 40 : 34;
+      lodDistance = config.lod === 'tree' ? 42 : config.lod === 'rock' ? 40 : 34;
     }
     swayNodes.push({
       obj: wrap,

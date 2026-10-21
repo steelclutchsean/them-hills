@@ -251,7 +251,7 @@ function flakes(
   for (let i = 0; i < count; i++) {
     const holder = new THREE.Group();
     holder.name = `flake-${i}`;
-    addGoldFlake(holder, i % 3 === 0 ? 0.042 : 0.028, 0, 0, 0);
+    addGoldFlake(holder, i % 3 === 0 ? 0.085 : 0.058, 0, 0, 0);
     holder.position.set(x0 + ((i % 3) - 1) * 0.08, y, z0 + i * dz);
     parent.add(holder);
   }
@@ -288,7 +288,7 @@ function buildRocker(
   body.add(water(0.78, 0.9, 0, 0.1, 0.02));
   body.add(box(0.72, 0.2, 0.36, dark, 0, 0.32, -0.48));
   body.add(box(0.9, 0.025, 0.04, metal, 0, 0.22, -0.15));
-  flakes(body, 5, 0, -0.25, 0.14, 0.12);
+  flakes(body, 5, 0, -0.15, 0.16, 0.36);
   const handle = box(0.08, 0.08, 0.7, dark, 0.55, 0.2, 0);
   body.add(handle);
   g.add(body);
@@ -324,7 +324,7 @@ function buildSluice(
     race.add(box(0.5, 0.02, 0.02, metal, 0, 0.1, -0.9 + i * 0.36));
   }
   race.add(water(0.5, 2.7, 0, 0.09, 0.25));
-  flakes(race, 6, 0, -0.85, 0.36, 0.13);
+  flakes(race, 6, 0, -0.7, 0.34, 0.2);
   const hopper = box(0.7, 0.28, 0.48, dark, 0, 0.22, -1.35);
   race.add(hopper);
   const mound = new THREE.Mesh(stamp(new THREE.SphereGeometry(0.16, 8, 6)), timber(1, 1, true));
@@ -353,7 +353,7 @@ function buildTom(
   race.add(box(0.05, 0.22, 4.05, dark, -0.34, 0.12, -0.2));
   race.add(box(0.05, 0.22, 4.05, dark, 0.34, 0.12, -0.2));
   race.add(water(0.56, 3.2, 0, 0.08, -0.35));
-  flakes(race, 7, 0, -1.4, 0.38, 0.12);
+  flakes(race, 7, 0, -1.2, 0.36, 0.22);
   for (let i = 0; i < 8; i++) race.add(box(0.6, 0.04, 0.04, dark, 0, 0.07, -1.5 + i * 0.38));
   g.add(race);
   const hopper = box(0.78, 0.36, 0.62, dark, 0, 0.78, 1.45);
@@ -424,7 +424,7 @@ function buildMonitor(
   berm.castShadow = true;
   berm.receiveShadow = true;
   g.add(berm);
-  flakes(g, 6, 0, 1.48, 0.1, 0.52);
+  flakes(g, 6, 0, 1.55, 0.12, 0.62);
 }
 
 function animate(

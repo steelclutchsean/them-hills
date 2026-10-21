@@ -29,8 +29,10 @@ const SHOTS: Record<string, ReviewShot> = {
   camp: { x: -3.5, z: 9, yaw: 0.95, pitch: 0.42, hour: 17.2, arm: 6, pose: 'idle' },
   dusk: { x: 8, z: -14, yaw: 0.35, pitch: 0.24, hour: 18.7, arm: 5, pose: 'idle' },
   night: { x: -4, z: 7.2, yaw: 0.85, pitch: 0.4, hour: 21.4, arm: 6.5, pose: 'idle' },
-  dawn: { x: 4, z: -10, yaw: -1.25, pitch: 0.06, hour: 6.4, arm: 8, pose: 'idle' },
-  inn: { x: -12.2, z: 14.6, yaw: 0.08, pitch: 0.16, hour: 10, arm: 6.2, pose: 'idle' },
+  dawn: { x: 4, z: -10, yaw: -1.25, pitch: 0.02, hour: 6.6, arm: 9, pose: 'idle' },
+  inn: { x: -12.2, z: 16.2, yaw: 0.04, pitch: 0.22, hour: 10, arm: 7.4, pose: 'idle' },
+  town: { x: -8, z: 20, yaw: 0.15, pitch: 0.18, hour: 10.5, arm: 12, pose: 'idle' },
+  vista: { x: 48, z: 55, yaw: 2.4, pitch: 0.12, hour: 11, arm: 18, pose: 'idle', free: true },
   creekbank: {
     x: 33.2,
     z: 10,
