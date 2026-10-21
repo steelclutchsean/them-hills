@@ -99,6 +99,7 @@ test('boots, guides the first claim, and the panels respond', async ({ page }) =
   await page.keyboard.press('Escape');
   await expect(page.locator('.panel-card h2')).toHaveText('Paused');
   await expect(page.locator('[data-quality="high"]')).toBeVisible();
+  await page.evaluate(() => document.exitPointerLock());
   await page.locator('[data-quality="medium"]').click();
   await page.waitForFunction(() => document.documentElement.dataset.quality === 'medium');
   await page.waitForFunction(() => window.__themHills?.graphics === 'medium');

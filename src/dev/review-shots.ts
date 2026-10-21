@@ -27,7 +27,7 @@ const SHOTS: Record<string, Required<ReviewOverride>> = {
   night: { x: 1, z: 4, yaw: -0.4, pitch: 0.48, hour: 21.4, arm: 5, pose: 'idle' },
   dawn: { x: -4, z: -8, yaw: 2.2, pitch: 0.3, hour: 6.35, arm: 5, pose: 'idle' },
   inn: { x: -10.5, z: 15.2, yaw: -0.55, pitch: 0.22, hour: 10, arm: 9.2, pose: 'idle' },
-  creekbank: { x: 19.1, z: 1.5, yaw: 1.25, pitch: 0.46, hour: 11.2, arm: 4.8, pose: 'idle' },
+  creekbank: { x: 17.4, z: 2, yaw: 1.15, pitch: 0.26, hour: 11.2, arm: 7.6, pose: 'idle' },
   prospector: { x: 2.2, z: 4.2, yaw: 3.14, pitch: 0.18, hour: 9, arm: 2.8, pose: 'dig' },
 };
 

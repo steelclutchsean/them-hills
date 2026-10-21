@@ -210,13 +210,13 @@ function attachHandTools(hand: THREE.Object3D | undefined): {
     new THREE.CylinderGeometry(0.012, 0.014, 0.85, 6),
     new THREE.MeshStandardMaterial({ color: 0x6b4630, roughness: 0.9 }),
   );
-  handle.position.y = 0.28;
+  handle.position.y = 0.42;
   shovel.add(handle);
   const blade = new THREE.Mesh(
     new THREE.BoxGeometry(0.16, 0.18, 0.02),
     new THREE.MeshStandardMaterial({ color: 0xb7a48c, metalness: 0.35, roughness: 0.45 }),
   );
-  blade.position.y = 0.72;
+  blade.position.y = 0.9;
   shovel.add(blade);
   shovel.visible = false;
 
@@ -232,9 +232,8 @@ function attachHandTools(hand: THREE.Object3D | undefined): {
 
   // Hand bone local axes are not world axes. A small offset puts the
   // grip in the palm for the dig and pan poses.
-  shovel.position.set(0, 0.02, 0.05);
-  shovel.rotation.x = 0.85;
-  shovel.rotation.z = -0.35;
+  shovel.position.set(0, 0, 0);
+  shovel.rotation.x = 0.55;
   pan.position.set(0.02, 0.06, 0.04);
   if (hand) {
     hand.add(shovel);

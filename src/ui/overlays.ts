@@ -64,6 +64,7 @@ export function mountOverlays(opts: {
     }
     scrim.hidden = false;
     card.hidden = false;
+    document.exitPointerLock?.();
     card.textContent = '';
     if (id === 'map') {
       const note = document.createElement('p');
