@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { RAPIER } from '@/physics/world';
 import { bindFrameUniforms, FRAME_UNIFORM_GLSL } from '@/render/frame-uniforms';
-import { groundMaps } from '@/render/painterly';
+import { groundDetailMap, groundMaps } from '@/render/painterly';
 import type { Watercourse } from './watercourse';
 
 // 200m × 200m heightmap with deterministic rolling-hills generator.
@@ -204,6 +204,7 @@ const TERRAIN_FS = /* glsl */ `
   uniform sampler2D uDirt;
   uniform sampler2D uGravel;
   uniform sampler2D uRock;
+  uniform sampler2D uDetail;
   uniform vec4 uPaths[12];
   uniform vec4 uPay[32];
   uniform vec3 uLampPos[4];
@@ -235,7 +236,8 @@ const TERRAIN_FS = /* glsl */ `
 
   vec3 triplanarScaled(sampler2D tex, vec3 pos, vec3 n, float scale) {
     vec3 w = abs(n);
-    w = pow(w, vec3(3.0));
+    // Steep faces take the side projections so a slope does not stretch the XZ tile.
+    w = pow(w, vec3(4.0));
     w /= max(w.x + w.y + w.z, 1e-4);
     vec3 x = texture2D(tex, pos.zy * scale).rgb;
     vec3 y = texture2D(tex, pos.xz * scale).rgb;
@@ -263,19 +265,21 @@ const TERRAIN_FS = /* glsl */ `
     float dirtW = (1.0 - grassW) * (1.0 - rockW) * (1.0 - gravelW * 0.65);
     float sumW = max(grassW + dirtW + gravelW + rockW, 1e-3);
     vec3 tex = (grass * grassW + dirt * dirtW + gravel * gravelW + rock * rockW) / sumW;
-    float nearCam = 1.0 - smoothstep(4.0, 28.0, distance(cameraPosition, vWorld));
-    vec3 grassHi = triplanarScaled(uGrass, vWorld, n0, 1.45);
-    vec3 dirtHi = triplanarScaled(uDirt, vWorld, n0, 1.45);
-    vec3 hi = (grassHi * grassW + dirtHi * dirtW + gravel * gravelW + rock * rockW) / sumW;
-    tex = mix(tex, hi, nearCam);
+    // A separate high-frequency map, only inside about 30 m. Resampling the
+    // broad tile up close was the smeared streak.
+    float detailW = 1.0 - smoothstep(6.0, 30.0, distance(cameraPosition, vWorld));
+    vec3 detail = triplanarScaled(uDetail, vWorld, n0, 3.4);
+    tex *= mix(vec3(1.0), detail * 1.45, detailW * 0.72);
 
     // Vertex color is a mild biome brightness, not a second photograph.
     vec3 albedo = tex * mix(vec3(1.08), vColor * 1.15, 0.12);
-    float macro = noise(worldXZ * 0.012);
+    // About 50 m. Olive to muted ochre, staying inside the meadow palette.
+    float macro = noise(worldXZ * 0.02);
+    vec3 coolPatch = vec3(0.84, 0.92, 0.74);
+    vec3 warmPatch = vec3(1.02, 0.90, 0.70);
+    albedo *= mix(coolPatch, warmPatch, macro);
     float mottle = noise(worldXZ * 0.045 + 4.0);
-    albedo *= mix(0.78, 1.22, macro);
-    albedo.r *= mix(0.92, 1.12, mottle);
-    albedo.g *= mix(1.08, 0.9, mottle);
+    albedo *= mix(0.94, 1.05, mottle);
     float rough = mix(0.92, 0.78, maskShaped);
     // Wet sand just outside the channel. Darker and cooler than the dry bank,
     // so the waterline is not a chalk ring.
@@ -294,7 +298,9 @@ const TERRAIN_FS = /* glsl */ `
       float pd = length(worldXZ - (a + ab * tt));
       wear = max(wear, 1.0 - smoothstep(0.35, 1.7, pd));
     }
-    albedo = mix(albedo, dirt * 0.58, wear * 0.92);
+    float pathPatch = smoothstep(0.38, 0.78, noise(worldXZ * 1.7 + 2.0));
+    vec3 pathDirt = dirt * vec3(0.62, 0.52, 0.40);
+    albedo = mix(albedo, pathDirt, wear * pathPatch);
 
     // Pay tells blended into the splat. xy center, z radius, w kind
     // (1 black sand, 2 gravel, 3 quartz, 4 bedrock). Gameplay fills these.
@@ -553,6 +559,7 @@ export function createTerrain(world: RAPIER.World, courses: readonly Watercourse
       uDirt: { value: painted.dirt },
       uGravel: { value: painted.gravel },
       uRock: { value: painted.rock },
+      uDetail: { value: groundDetailMap() },
       uPaths: { value: PATHS },
       uPay: { value: Array.from({ length: 32 }, () => new THREE.Vector4()) },
       uLampPos: { value: LAMP_POS },

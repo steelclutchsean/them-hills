@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { bindFrameUniforms, FRAME_UNIFORM_GLSL } from '@/render/frame-uniforms';
+import { PALETTE } from '@/render/palette';
 import type { Terrain } from './terrain';
 import { createRng } from './rng';
 
@@ -12,6 +13,26 @@ import { createRng } from './rng';
 // world offset, Y rotation, scale, and a per-blade phase so wind ripples
 // don't move in lockstep. A small custom shader sways the tip with sin(time)
 // scaled by a tip-bias so the base stays anchored.
+
+function hash2(ix: number, iz: number): number {
+  const n = Math.sin(ix * 127.1 + iz * 311.7) * 43758.5453;
+  return n - Math.floor(n);
+}
+
+/** Value noise. Frequency is in cycles per meter when the caller scales xz. */
+function valueNoise(x: number, z: number): number {
+  const x0 = Math.floor(x);
+  const z0 = Math.floor(z);
+  const fx = x - x0;
+  const fz = z - z0;
+  const ux = fx * fx * (3 - 2 * fx);
+  const uz = fz * fz * (3 - 2 * fz);
+  const a = hash2(x0, z0);
+  const b = hash2(x0 + 1, z0);
+  const c = hash2(x0, z0 + 1);
+  const d = hash2(x0 + 1, z0 + 1);
+  return a + (b - a) * ux + (c - a) * uz + (a - b - c + d) * ux * uz;
+}
 
 const DEFAULT_BLADE_HEIGHT = 0.55;
 const DEFAULT_BLADE_HALF_BASE = 0.04;
@@ -33,7 +54,16 @@ const BASE_VS = /* glsl */ `
   #include <shadowmap_pars_vertex>
 
   void main() {
-    vec3 pos = position * aScale;
+    float camDist = distance(cameraPosition.xz, aOffset.xz);
+    float salt = fract(sin(dot(aOffset.xz, vec2(127.1, 311.7))) * 43758.5453);
+    float density = mix(1.0, 0.14, smoothstep(14.0, 62.0, camDist));
+    if (salt > density) {
+      vColor = vec3(0.0);
+      vWorld = aOffset;
+      gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+      return;
+    }
+    vec3 pos = position * aScale * mix(1.0, 0.62, smoothstep(16.0, 58.0, camDist));
     float tipBias = clamp(pos.y / uBladeHeight, 0.0, 1.0);
     float wind = sin(uTime * 1.4 + aPhase) * uWindAmp * tipBias * tipBias;
     float gust = sin(uTime * 0.7 + aPhase * 0.6) * (uWindAmp * 0.6) * tipBias;
@@ -188,6 +218,8 @@ export function createGrassField(terrain: Terrain, opts: GrassFieldOpts): GrassF
     const x = (rng.next() - 0.5) * extent * 2;
     const z = (rng.next() - 0.5) * extent * 2;
     if (reject && reject(x, z)) continue;
+    // Clumps of about 9 m, with a few stray blades in the gaps.
+    if (valueNoise(x * 0.11, z * 0.11) < 0.5 && rng.next() > 0.12) continue;
     const y = terrain.getHeightAt(x, z);
     offsets[placed * 3 + 0] = x;
     offsets[placed * 3 + 1] = y;
@@ -278,6 +310,67 @@ export function createGrassField(terrain: Terrain, opts: GrassFieldOpts): GrassF
     },
     update(_state) {
       // Sun, hemisphere, and time are the shared frame uniform block.
+    },
+  };
+}
+
+export interface StoneCover {
+  mesh: THREE.InstancedMesh;
+  setCount(count: number): void;
+}
+
+/** One instanced draw of small stones. Count is allocated up front and then trimmed. */
+export function createStoneCover(
+  terrain: Terrain,
+  opts: {
+    count: number;
+    extent: number;
+    reject?: (x: number, z: number) => boolean;
+    seed?: number;
+  },
+): StoneCover {
+  const { count, extent, reject, seed = 0xc3 } = opts;
+  const geom = new THREE.IcosahedronGeometry(0.07, 0);
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    roughness: 0.94,
+    metalness: 0.02,
+  });
+  const mesh = new THREE.InstancedMesh(geom, mat, count);
+  mesh.name = 'ground-stones';
+  mesh.castShadow = false;
+  mesh.receiveShadow = true;
+  mesh.frustumCulled = false;
+  const dummy = new THREE.Object3D();
+  const color = new THREE.Color();
+  const rng = createRng(seed);
+  const rock = new THREE.Color(PALETTE.rock);
+  const dark = new THREE.Color(PALETTE.dirtDeep);
+  let placed = 0;
+  let attempts = 0;
+  while (placed < count && attempts < count * 8) {
+    attempts++;
+    const x = (rng.next() - 0.5) * extent * 2;
+    const z = (rng.next() - 0.5) * extent * 2;
+    if (reject?.(x, z)) continue;
+    const y = terrain.getHeightAt(x, z);
+    dummy.position.set(x, y + 0.012, z);
+    dummy.rotation.set(rng.next() * 0.5, rng.next() * Math.PI * 2, rng.next() * 0.5);
+    const s = 0.4 + rng.next() * 1.25;
+    dummy.scale.set(s, s * (0.32 + rng.next() * 0.38), s * (0.8 + rng.next() * 0.4));
+    dummy.updateMatrix();
+    mesh.setMatrixAt(placed, dummy.matrix);
+    color.copy(rock).lerp(dark, rng.next() * 0.55);
+    mesh.setColorAt(placed, color);
+    placed++;
+  }
+  mesh.count = placed;
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  return {
+    mesh,
+    setCount(n: number) {
+      mesh.count = Math.max(0, Math.min(placed, Math.floor(n)));
     },
   };
 }

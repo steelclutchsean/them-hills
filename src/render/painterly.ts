@@ -18,6 +18,9 @@ function canvasTex(
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
+  tex.generateMipmaps = true;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
   tex.anisotropy = 4;
   tex.needsUpdate = true;
   return tex;
@@ -27,6 +30,7 @@ function hex(n: number): string {
   return `#${n.toString(16).padStart(6, '0')}`;
 }
 
+/** Small dabs. A tile-wide ellipse reads as a stretched streak once it repeats. */
 function strokes(
   ctx: CanvasRenderingContext2D,
   size: number,
@@ -35,16 +39,20 @@ function strokes(
 ): void {
   ctx.fillStyle = hex(base);
   ctx.fillRect(0, 0, size, size);
-  for (let i = 0; i < 18; i++) {
-    ctx.globalAlpha = 0.28 + (i % 3) * 0.08;
+  const count = Math.floor(size * 0.85);
+  for (let i = 0; i < count; i++) {
+    ctx.globalAlpha = 0.18 + (i % 5) * 0.05;
     ctx.fillStyle = hex(marks[i % marks.length] ?? base);
-    const y = ((i * 37) % size) - 8;
+    const x = (i * 73) % size;
+    const y = (i * 41) % size;
     ctx.beginPath();
-    ctx.ellipse(size * 0.5, y, size * 0.62, 7 + (i % 4) * 3, (i % 5) * 0.08, 0, Math.PI * 2);
+    ctx.ellipse(x, y, 2 + (i % 5), 1 + (i % 3), (i % 7) * 0.35, 0, Math.PI * 2);
     ctx.fill();
   }
   ctx.globalAlpha = 1;
 }
+
+const GROUND_SIZE = 512;
 
 let maps: {
   grass: THREE.CanvasTexture;
@@ -52,6 +60,8 @@ let maps: {
   gravel: THREE.CanvasTexture;
   rock: THREE.CanvasTexture;
 } | null = null;
+
+let detail: THREE.CanvasTexture | null = null;
 
 export function groundMaps(): {
   grass: THREE.CanvasTexture;
@@ -61,20 +71,79 @@ export function groundMaps(): {
 } {
   if (maps) return maps;
   maps = {
-    grass: canvasTex((ctx, s) =>
-      strokes(ctx, s, PALETTE.grassBase, [PALETTE.grassTip, PALETTE.grassShadow, PALETTE.dirt]),
+    grass: canvasTex(
+      (ctx, s) =>
+        strokes(ctx, s, PALETTE.grassBase, [
+          PALETTE.grassTip,
+          PALETTE.grassShadow,
+          PALETTE.grassBase,
+        ]),
+      GROUND_SIZE,
     ),
-    dirt: canvasTex((ctx, s) =>
-      strokes(ctx, s, PALETTE.dirt, [PALETTE.dirtDeep, PALETTE.gravel, PALETTE.timber]),
+    dirt: canvasTex(
+      (ctx, s) => strokes(ctx, s, PALETTE.dirtDeep, [PALETTE.dirt, PALETTE.bark, PALETTE.gravel]),
+      GROUND_SIZE,
     ),
-    gravel: canvasTex((ctx, s) =>
-      strokes(ctx, s, PALETTE.gravel, [PALETTE.rockLight, PALETTE.rock, PALETTE.foam]),
+    gravel: canvasTex(
+      (ctx, s) =>
+        strokes(ctx, s, PALETTE.rock, [PALETTE.gravel, PALETTE.rockLight, PALETTE.dirtDeep]),
+      GROUND_SIZE,
     ),
-    rock: canvasTex((ctx, s) =>
-      strokes(ctx, s, PALETTE.rock, [PALETTE.rockLight, PALETTE.dirtDeep, PALETTE.bark]),
+    rock: canvasTex(
+      (ctx, s) =>
+        strokes(ctx, s, PALETTE.rock, [PALETTE.rockLight, PALETTE.dirtDeep, PALETTE.bark]),
+      GROUND_SIZE,
     ),
   };
   return maps;
+}
+
+/** High-frequency specks. The terrain blends this in only within about 30 m. */
+export function groundDetailMap(): THREE.CanvasTexture {
+  if (detail) return detail;
+  detail = canvasTex((ctx, size) => {
+    ctx.fillStyle = '#8d8a78';
+    ctx.fillRect(0, 0, size, size);
+    for (let i = 0; i < 700; i++) {
+      const x = (i * 97) % size;
+      const y = (i * 57) % size;
+      ctx.globalAlpha = 0.35 + (i % 4) * 0.08;
+      ctx.fillStyle = i % 3 === 0 ? '#d5c9a4' : i % 3 === 1 ? '#3e4a28' : '#5c4632';
+      ctx.fillRect(x, y, 1 + (i % 2), 1 + ((i * 3) % 2));
+    }
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 220; i++) {
+      ctx.globalAlpha = 0.4;
+      ctx.strokeStyle = i % 2 === 0 ? '#3e4a28' : '#c6a84a';
+      const x = (i * 41) % size;
+      const y = (i * 67) % size;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + ((i * 3) % 5) - 2, y - 2 - (i % 4));
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }, 256);
+  return detail;
+}
+
+/** Max anisotropy above the low tier. Low stays at 4 so software GL does not pay for it. */
+export function applyGroundAnisotropy(maxAnisotropy: number, low: boolean): void {
+  const aniso = low ? 4 : Math.max(1, maxAnisotropy);
+  const painted = groundMaps();
+  for (const tex of [
+    painted.grass,
+    painted.dirt,
+    painted.gravel,
+    painted.rock,
+    groundDetailMap(),
+  ]) {
+    tex.anisotropy = aniso;
+    tex.generateMipmaps = true;
+    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.needsUpdate = true;
+  }
 }
 
 const shared = new Map<string, THREE.Material>();
@@ -613,15 +682,43 @@ export function addGoldFlake(
 }
 
 /** A fleck in a pan. Metal, no bloom, no glint shell. */
+/** A flat, lopsided nugget. A 6-segment sphere reads as a hexagon in the pan. */
+function flakeGeometry(radius: number, seed: number): THREE.BufferGeometry {
+  const sides = 7;
+  const positions: number[] = [0, 0, 0];
+  const indices: number[] = [];
+  for (let i = 0; i < sides; i++) {
+    const a = (i / sides) * Math.PI * 2 + seed * 0.6;
+    const wobble = 0.45 + (Math.sin(seed * 12.1 + i * 4.7) * 0.5 + 0.5) * 0.7;
+    const stretch = 0.62 + (Math.sin(seed * 3.3 + i) * 0.5 + 0.5) * 0.55;
+    positions.push(
+      Math.cos(a) * radius * wobble,
+      (i % 2) * radius * 0.08,
+      Math.sin(a) * radius * stretch,
+    );
+    const next = i === sides - 1 ? 1 : i + 2;
+    indices.push(0, i + 1, next);
+  }
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geom.setIndex(indices);
+  geom.computeVertexNormals();
+  return geom;
+}
+
 export function addPanFleck(
   parent: THREE.Object3D,
   x: number,
   y: number,
   z: number,
-  radius = 0.009,
+  radius = 0.0045,
 ): void {
-  const flake = new THREE.Mesh(new THREE.SphereGeometry(radius, 6, 4), panFleckMaterial());
-  flake.scale.set(1.35, 0.32, 1.05);
+  const seed = Math.abs(Math.sin(x * 12.3 + z * 4.7 + y * 9.1));
+  const flake = new THREE.Mesh(
+    flakeGeometry(radius * (0.75 + seed * 0.55), seed),
+    panFleckMaterial(),
+  );
+  flake.rotation.set(seed * 0.4, seed * Math.PI * 2, (seed - 0.5) * 0.5);
   flake.position.set(x, y, z);
   flake.castShadow = false;
   flake.receiveShadow = false;

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { RENDER_QUALITY } from '@/engine/quality';
+import { getQualityName, RENDER_QUALITY } from '@/engine/quality';
+import { applyGroundAnisotropy } from '@/render/painterly';
 import { createEnvironmentController, type EnvironmentController } from '@/engine/environment';
 import { createPostPipeline, type PostPipeline } from '@/engine/post';
 import type { SkyGrade } from '@/render/atmosphere';
@@ -145,6 +146,7 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererBundle {
       sun.shadow.radius = RENDER_QUALITY.shadowRadius;
       sun.shadow.intensity = RENDER_QUALITY.shadowIntensity;
       scene.environmentIntensity = RENDER_QUALITY.environmentIntensity;
+      applyGroundAnisotropy(renderer.capabilities.getMaxAnisotropy(), getQualityName() === 'low');
       post.bloom.strength = RENDER_QUALITY.bloomStrength;
       post.applyQuality();
       post.setSize(window.innerWidth, window.innerHeight);

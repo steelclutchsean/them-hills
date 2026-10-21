@@ -116,8 +116,8 @@ async function bakeTreeCard(source: THREE.Object3D): Promise<void> {
   box.getSize(size);
   box.getCenter(center);
   if (size.y < 0.2) return;
-  const widthPx = 128;
-  const heightPx = 256;
+  const widthPx = 256;
+  const heightPx = 512;
   const aspect = widthPx / heightPx;
   const pad = 1.06;
   let halfH = (size.y * pad) / 2;
@@ -136,7 +136,10 @@ async function bakeTreeCard(source: THREE.Object3D): Promise<void> {
     type: THREE.UnsignedByteType,
   });
   rt.texture.colorSpace = THREE.SRGBColorSpace;
-  rt.texture.generateMipmaps = false;
+  rt.texture.generateMipmaps = true;
+  rt.texture.minFilter = THREE.LinearMipmapLinearFilter;
+  rt.texture.magFilter = THREE.LinearFilter;
+  rt.texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
   const cam = new THREE.OrthographicCamera(-halfW, halfW, halfH, -halfH, 0.05, 80);
   cam.position.set(center.x, center.y, center.z + Math.max(size.z, 1) + 6);
   cam.lookAt(center);
@@ -159,20 +162,20 @@ async function bakeTreeCard(source: THREE.Object3D): Promise<void> {
   renderer.setRenderTarget(prevTarget);
   renderer.setClearColor(prevColor, prevAlpha);
   renderer.autoClear = prevAuto;
+  rt.texture.needsUpdate = true;
   bakeScene.remove(clone);
   treeCardMat = new THREE.MeshStandardMaterial({
     map: rt.texture,
-    emissiveMap: rt.texture,
-    emissive: 0xffffff,
-    emissiveIntensity: 1,
-    color: 0x000000,
+    color: 0xffffff,
     roughness: 1,
     metalness: 0,
+    emissive: 0x000000,
+    emissiveIntensity: 0,
     // Opaque cutout. A transparent card keeps partial alpha after the test,
     // and fog then blends those texels with the sky, which reads as ragged
     // holes through the tree and whatever ridge sits behind it.
     transparent: false,
-    alphaTest: 0.45,
+    alphaTest: 0.58,
     side: THREE.DoubleSide,
     depthWrite: true,
   });

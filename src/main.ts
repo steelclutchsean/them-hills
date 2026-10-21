@@ -82,7 +82,7 @@ import {
 } from '@/game/north-lode';
 import { frameBudget, noteFrameTime } from '@/engine/frame-budget';
 import { createGeneralStore } from '@/game/general-store';
-import { createGrassField } from '@/game/grass-field';
+import { createGrassField, createStoneCover } from '@/game/grass-field';
 import { createHeadlamp } from '@/game/headlamp';
 import { createInn } from '@/game/inn';
 import { createMineEntrance, type MineConfig, type MineInfo } from '@/game/mine';
@@ -377,6 +377,7 @@ async function bootstrap(): Promise<void> {
   // Grass is built after the first frames so its shader and the 5k
   // instances don't sit on the critical path to the first picture.
   let grass: ReturnType<typeof createGrassField> | null = null;
+  let stones: ReturnType<typeof createStoneCover> | null = null;
   // Filled in once the mine mouths exist. The drift is cut into the
   // hillside, so meadow blades at those xz grow through the floor.
   let inDriftCut = (_x: number, _z: number): boolean => false;
@@ -387,11 +388,20 @@ async function bootstrap(): Promise<void> {
       extent: 95,
       reject: (x, z) => streams.isInStreamZone(x, z, 0.5) || inDriftCut(x, z) || inStreet(x, z),
       seed: 0xa9,
-      baseColor: { r: [0.22, 0.32], g: [0.28, 0.36], b: [0.08, 0.12] },
-      tipColor: { r: [0.82, 0.94], g: [0.68, 0.8], b: [0.22, 0.32] },
+      baseColor: { r: [0.28, 0.4], g: [0.34, 0.44], b: [0.12, 0.16] },
+      tipColor: { r: [0.62, 0.74], g: [0.58, 0.68], b: [0.22, 0.3] },
     });
     renderer.scene.add(grass.mesh);
     grass.setCount(RENDER_QUALITY.grassTall);
+    const coverCount = Math.round(QUALITY_PRESETS.ultra.grassCover * 0.05);
+    stones = createStoneCover(terrain, {
+      count: coverCount,
+      extent: 95,
+      seed: 0xc3,
+      reject: (x, z) => streams.isInStreamZone(x, z, 0.6) || inDriftCut(x, z) || inStreet(x, z),
+    });
+    renderer.scene.add(stones.mesh);
+    stones.setCount(Math.round(RENDER_QUALITY.grassCover * 0.05));
   }
 
   // Ground-cover grass layer is created AFTER the scatter promises settle
@@ -698,8 +708,8 @@ async function bootstrap(): Promise<void> {
         // Ground-cover blades are short, so go a bit darker / less vivid
         // than the tall layer — they read as moss/lawn underlayer rather
         // than fresh prairie growth.
-        baseColor: { r: [0.2, 0.3], g: [0.26, 0.34], b: [0.08, 0.12] },
-        tipColor: { r: [0.78, 0.9], g: [0.64, 0.76], b: [0.2, 0.3] },
+        baseColor: { r: [0.26, 0.36], g: [0.32, 0.42], b: [0.12, 0.16] },
+        tipColor: { r: [0.55, 0.68], g: [0.52, 0.62], b: [0.2, 0.28] },
         reject: (x, z) =>
           streams.isInStreamZone(x, z, 0.5) ||
           exclusion.isExcluded(x, z) ||
@@ -957,6 +967,7 @@ async function bootstrap(): Promise<void> {
           setScatterDensity(RENDER_QUALITY.scatter / QUALITY_PRESETS.ultra.scatter);
           grass?.setCount(RENDER_QUALITY.grassTall);
           for (const cover of grassCovers) cover.setCount(RENDER_QUALITY.grassCover);
+          stones?.setCount(Math.round(RENDER_QUALITY.grassCover * 0.05));
           motes.resize();
         });
       },
@@ -1738,11 +1749,7 @@ async function bootstrap(): Promise<void> {
             worldTime = worldTimeForSkyHour(9.5);
             holdView = rushView();
             const stand = holdView;
-            character.placeAt(
-              stand.lx,
-              terrain.getHeightAt(stand.lx, stand.lz),
-              stand.lz,
-            );
+            character.placeAt(stand.lx, terrain.getHeightAt(stand.lx, stand.lz), stand.lz);
             character.setYaw(0);
             character.group.visible = true;
           } else holdView = creekView();
@@ -1943,6 +1950,7 @@ async function bootstrap(): Promise<void> {
         setScatterDensity(RENDER_QUALITY.scatter / QUALITY_PRESETS.ultra.scatter);
         grass?.setCount(RENDER_QUALITY.grassTall);
         for (const cover of grassCovers) cover.setCount(RENDER_QUALITY.grassCover);
+        stones?.setCount(Math.round(RENDER_QUALITY.grassCover * 0.05));
         motes.resize();
       });
     },

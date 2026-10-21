@@ -209,6 +209,116 @@ function createProspectorHead(): THREE.Group {
   return group;
 }
 
+function paintCanvas(
+  size: number,
+  paint: (ctx: CanvasRenderingContext2D) => void,
+): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('[character] canvas 2d unavailable');
+  paint(ctx);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/** Dark iron with scratches and a brighter worn lip. */
+function wornIronMaterial(): THREE.MeshStandardMaterial {
+  const map = paintCanvas(256, (ctx) => {
+    ctx.fillStyle = '#2a2724';
+    ctx.fillRect(0, 0, 256, 256);
+    ctx.strokeStyle = 'rgba(168, 160, 148, 0.35)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 28; i++) {
+      ctx.beginPath();
+      ctx.moveTo((i * 37) % 256, (i * 19) % 256);
+      ctx.lineTo(((i * 37) % 256) + 30 + (i % 12), ((i * 19) % 256) + (i % 5) - 2);
+      ctx.stroke();
+    }
+    ctx.fillStyle = 'rgba(12, 10, 9, 0.45)';
+    for (let i = 0; i < 40; i++) {
+      ctx.beginPath();
+      ctx.ellipse((i * 53) % 256, (i * 29) % 256, 4 + (i % 3), 2, i, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    const wear = ctx.createRadialGradient(128, 128, 70, 128, 128, 128);
+    wear.addColorStop(0, 'rgba(0,0,0,0)');
+    wear.addColorStop(0.72, 'rgba(0,0,0,0)');
+    wear.addColorStop(1, 'rgba(196, 184, 164, 0.45)');
+    ctx.fillStyle = wear;
+    ctx.fillRect(0, 0, 256, 256);
+  });
+  return new THREE.MeshStandardMaterial({
+    map,
+    color: 0xffffff,
+    metalness: 0.72,
+    roughness: 0.48,
+  });
+}
+
+/** Pale sand at the rim, black sand in the middle. */
+function panSandMaterial(): THREE.MeshStandardMaterial {
+  const map = paintCanvas(256, (ctx) => {
+    const sand = ctx.createRadialGradient(128, 128, 8, 128, 128, 120);
+    sand.addColorStop(0, '#161311');
+    sand.addColorStop(0.45, '#2a241c');
+    sand.addColorStop(0.78, '#6a5844');
+    sand.addColorStop(1, '#8d7356');
+    ctx.fillStyle = sand;
+    ctx.fillRect(0, 0, 256, 256);
+    ctx.fillStyle = 'rgba(20, 16, 12, 0.55)';
+    for (let i = 0; i < 50; i++) {
+      const x = 40 + ((i * 47) % 176);
+      const y = 40 + ((i * 29) % 176);
+      ctx.beginPath();
+      ctx.ellipse(x, y, 2 + (i % 3), 1.2, i, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  });
+  return new THREE.MeshStandardMaterial({
+    map,
+    color: 0xffffff,
+    roughness: 0.96,
+    metalness: 0,
+  });
+}
+
+/** Dark water with a faint sky fresnel. No scene grab. */
+function panWaterMaterial(): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    name: 'pan-water',
+    transparent: true,
+    depthWrite: false,
+    uniforms: {},
+    vertexShader: /* glsl */ `
+      varying vec3 vWorld;
+      varying vec3 vNormalW;
+      void main() {
+        vec4 world = modelMatrix * vec4(position, 1.0);
+        vWorld = world.xyz;
+        vNormalW = normalize(mat3(modelMatrix) * normal);
+        gl_Position = projectionMatrix * viewMatrix * world;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      varying vec3 vWorld;
+      varying vec3 vNormalW;
+      void main() {
+        vec3 viewDir = normalize(cameraPosition - vWorld);
+        float fres = pow(1.0 - abs(dot(viewDir, normalize(vNormalW))), 2.6);
+        vec3 sky = vec3(0.62, 0.74, 0.86);
+        vec3 water = vec3(0.05, 0.08, 0.09);
+        vec3 col = mix(water, sky, fres * 0.4 + 0.05);
+        gl_FragColor = vec4(col, 0.78);
+      }
+    `,
+  });
+}
+
 function attachHandTools(hand: THREE.Object3D | undefined): {
   show(tool: 'none' | 'shovel' | 'pan'): void;
   grip: THREE.Object3D;
@@ -236,40 +346,36 @@ function attachHandTools(hand: THREE.Object3D | undefined): {
 
   const pan = new THREE.Group();
   pan.name = 'held-pan';
-  const iron = new THREE.MeshStandardMaterial({
-    color: 0x2a2724,
-    metalness: 0.74,
-    roughness: 0.46,
-  });
+  const iron = wornIronMaterial();
   const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.15, 0.045, 14), iron);
   // Opening faces the grip's +Y, which the wrist aims at the camera's look point.
   bowl.position.y = 0.14;
-  const rim = new THREE.Mesh(
-    new THREE.TorusGeometry(0.19, 0.012, 6, 16),
-    new THREE.MeshStandardMaterial({ color: 0x3e3a34, metalness: 0.62, roughness: 0.4 }),
-  );
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.19, 0.012, 8, 20), iron);
   rim.rotation.x = Math.PI / 2;
-  rim.position.y = 0.162;
-  const water = new THREE.Mesh(
-    new THREE.CircleGeometry(0.145, 18),
-    new THREE.MeshStandardMaterial({
-      color: 0x2a4a4e,
-      roughness: 0.24,
-      metalness: 0.06,
-      transparent: true,
-      opacity: 0.82,
-      depthWrite: false,
-    }),
-  );
+  rim.position.y = 0.172;
+  const sand = new THREE.Mesh(new THREE.CircleGeometry(0.155, 20), panSandMaterial());
+  sand.name = 'pan-sand';
+  sand.rotation.x = -Math.PI / 2;
+  sand.position.y = 0.166;
+  sand.renderOrder = 1;
+  const water = new THREE.Mesh(new THREE.CircleGeometry(0.148, 20), panWaterMaterial());
   water.name = 'pan-water';
   water.rotation.x = -Math.PI / 2;
-  water.position.y = 0.158;
+  water.position.y = 0.17;
   water.renderOrder = 2;
-  pan.add(bowl, rim, water);
-  for (let i = 0; i < 12; i++) {
-    const a = (i / 12) * Math.PI * 2 + 0.35;
-    const ring = 0.018 + (i % 4) * 0.028;
-    addPanFleck(pan, Math.cos(a) * ring, 0.166, Math.sin(a) * ring * 0.7, 0.006 + (i % 3) * 0.002);
+  pan.add(bowl, rim, sand, water);
+  for (let i = 0; i < 16; i++) {
+    const a = i * 2.399;
+    const ring = 0.01 + ((i * 17) % 9) * 0.012;
+    const jx = (((i * 13) % 7) - 3) * 0.004;
+    const jz = (((i * 11) % 5) - 2) * 0.004;
+    addPanFleck(
+      pan,
+      Math.cos(a) * ring + jx,
+      0.174,
+      Math.sin(a) * ring * 0.72 + jz,
+      0.0028 + (i % 4) * 0.001,
+    );
   }
   pan.visible = false;
 

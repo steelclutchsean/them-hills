@@ -131,9 +131,9 @@ export function createLightShafts(): LightShafts {
     fog: false,
     toneMapped: false,
     uniforms: {
-      // Pale warm, not a saturated bar. Peak add stays near a tenth of white.
-      uColor: { value: new THREE.Color(0.62, 0.46, 0.24) },
-      uStrength: { value: 0.16 },
+      // Warm dust. The core, after the view and haze gates, adds about a tenth.
+      uColor: { value: new THREE.Color(0.85, 0.68, 0.38) },
+      uStrength: { value: 0.58 },
       uView: { value: 0 },
       uHaze: { value: 0.8 },
       uTime: { value: 0 },
@@ -160,9 +160,9 @@ export function createLightShafts(): LightShafts {
       varying float vDist;
       void main() {
         float across = abs(vUv.x - 0.5) * 2.0;
-        float soft = exp(-across * across * 2.6);
+        float soft = exp(-across * across * 1.7);
         // vUv.y is 0 at the low end and 1 at the canopy. Die before the ground.
-        float along = smoothstep(0.0, 0.62, vUv.y) * smoothstep(1.0, 0.78, vUv.y);
+        float along = smoothstep(0.0, 0.22, vUv.y) * smoothstep(1.0, 0.42, vUv.y);
         float n = texture2D(uNoise, vUv * vec2(0.8, 2.4) + vec2(0.0, uTime * 0.015)).r;
         float depthFade = smoothstep(3.0, 10.0, vDist) * (1.0 - smoothstep(42.0, 88.0, vDist));
         float alpha = soft * along * (0.84 + 0.16 * n) * depthFade * uView * uHaze * uStrength;

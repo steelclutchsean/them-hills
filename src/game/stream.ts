@@ -227,9 +227,9 @@ const FRAG_SHADER = /* glsl */ `
 
     // A wide wet band, then broken low foam. The old edge was a hard white ring.
     float shore = smoothstep(0.62, 0.98, t);
-    float wet = smoothstep(0.42, 0.74, t) * (1.0 - smoothstep(0.86, 1.0, t));
+    float wet = smoothstep(0.32, 0.7, t);
     float foamNoise = noise(worldXZ * 2.1 - scroll * 0.45);
-    float foamMask = shore * smoothstep(0.64, 0.92, foamNoise) * 0.22;
+    float foamMask = shore * smoothstep(0.72, 0.96, foamNoise) * 0.08;
     // Riffles are the shallow runs. Streaks follow the spline tangent.
     // Shallows foam in the channel. It dies toward the bank so the shore
     // is wet sand, not a white ring.
@@ -279,6 +279,7 @@ const FRAG_SHADER = /* glsl */ `
     vec3 sunDir = normalize(uSunDir);
     vec3 reflectDir = reflect(-sunDir, surfNormal);
     float spec = pow(max(0.0, dot(reflectDir, viewDir)), 56.0);
+    spec *= 1.0 - smoothstep(0.48, 0.9, t);
     base += uSunColor * (spec * 0.85 * uSunIntensity);
 
     float fres = pow(1.0 - max(dot(viewDir, surfNormal), 0.0), 2.1);
@@ -367,7 +368,7 @@ const FRAG_SHADER = /* glsl */ `
     lit = mix(lit, lit * uSunColor, 0.16 * uSunIntensity * shadow);
 
     float alpha = mix(0.18, 0.97, smoothstep(0.02, 0.48, depthFactor));
-    alpha *= mix(1.0, 0.1, smoothstep(0.42, 0.96, t));
+    alpha *= mix(1.0, 0.42, smoothstep(0.42, 0.96, t));
     alpha = max(alpha, lip * 0.72);
     alpha = mix(alpha, min(1.0, alpha + 0.12), fres * (1.0 - shore));
 
@@ -432,34 +433,46 @@ let gravelMat: THREE.MeshStandardMaterial | null = null;
 
 function gravelMaterial(): THREE.MeshStandardMaterial {
   if (gravelMat) return gravelMat;
-  const size = 128;
+  const size = 256;
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('[stream] canvas 2d unavailable');
-  ctx.fillStyle = '#c4a06a';
+  // Wet bank. The old fill was a pale tan and the water is thin at the lip,
+  // so this mesh was the chalk line the terrain shader could not darken.
+  ctx.fillStyle = '#2a241c';
   ctx.fillRect(0, 0, size, size);
-  for (let i = 0; i < 90; i++) {
+  for (let i = 0; i < 160; i++) {
     const x = (i * 47) % size;
     const y = (i * 29) % size;
-    const r = 3 + (i % 5);
-    const tone = 120 + (i % 7) * 14;
-    ctx.fillStyle = `rgb(${tone + 40}, ${tone - 10}, ${tone - 50})`;
+    const r = 3 + (i % 6);
+    const tone = 28 + (i % 5) * 8;
+    ctx.fillStyle = `rgb(${tone + 8}, ${tone + 4}, ${tone})`;
     ctx.beginPath();
-    ctx.ellipse(x, y, r, r * 0.72, (i % 5) * 0.4, 0, Math.PI * 2);
+    ctx.ellipse(x, y, r, r * 0.7, (i % 5) * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = 'rgba(12, 10, 8, 0.45)';
+  for (let i = 0; i < 40; i++) {
+    ctx.beginPath();
+    ctx.ellipse((i * 61) % size, (i * 23) % size, 8 + (i % 4), 3, i, 0, Math.PI * 2);
     ctx.fill();
   }
   const map = new THREE.CanvasTexture(canvas);
   map.colorSpace = THREE.SRGBColorSpace;
   map.wrapS = THREE.RepeatWrapping;
   map.wrapT = THREE.RepeatWrapping;
+  map.generateMipmaps = true;
+  map.minFilter = THREE.LinearMipmapLinearFilter;
+  map.magFilter = THREE.LinearFilter;
   map.repeat.set(6, 6);
   gravelMat = new THREE.MeshStandardMaterial({
     map,
-    color: 0xfff2dc,
-    roughness: 0.94,
-    metalness: 0,
+    color: 0xffffff,
+    roughness: 0.92,
+    metalness: 0.04,
+    envMapIntensity: 0.12,
   });
   return gravelMat;
 }

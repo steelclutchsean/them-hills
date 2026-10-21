@@ -154,15 +154,61 @@ export function createPostPipeline(
     Math.max(1, window.innerHeight >> (softwareGl ? 3 : 2)),
   );
   gtao.blendIntensity = 0.7;
-  (
-    gtao as GTAOPass & {
-      updateGtaoMaterial(parameters: {
-        samples?: number;
-        radius?: number;
-        thickness?: number;
-      }): void;
+  const gtaoPass = gtao as GTAOPass & {
+    width: number;
+    height: number;
+    pdRenderTarget: THREE.WebGLRenderTarget;
+    blendMaterial: THREE.ShaderMaterial;
+    updateGtaoMaterial(parameters: { samples?: number; radius?: number; thickness?: number }): void;
+  };
+  // The AO buffer is a fraction of the frame. A straight multiply paints
+  // that grid onto the ridgeline. Sample it nearest and weight the four
+  // taps by the full-resolution depth so the silhouette stays on the mesh edge.
+  gtaoPass.pdRenderTarget.texture.magFilter = THREE.NearestFilter;
+  gtaoPass.pdRenderTarget.texture.minFilter = THREE.NearestFilter;
+  gtaoPass.pdRenderTarget.texture.generateMipmaps = false;
+  const blend = gtaoPass.blendMaterial;
+  blend.uniforms.tDepth = { value: null };
+  blend.uniforms.uAoSize = { value: new THREE.Vector2(1, 1) };
+  const clip = camera as THREE.PerspectiveCamera;
+  blend.uniforms.uNear = { value: clip.near };
+  blend.uniforms.uFar = { value: clip.far };
+  blend.fragmentShader = /* glsl */ `
+    uniform float intensity;
+    uniform sampler2D tDiffuse;
+    uniform sampler2D tDepth;
+    uniform vec2 uAoSize;
+    uniform float uNear;
+    uniform float uFar;
+    varying vec2 vUv;
+    float linearEye(float d) {
+      float z = d * 2.0 - 1.0;
+      return (2.0 * uNear * uFar) / (uFar + uNear - z * (uFar - uNear));
     }
-  ).updateGtaoMaterial({
+    void main() {
+      vec2 size = max(uAoSize, vec2(1.0));
+      vec2 p = vUv * size - 0.5;
+      vec2 base = floor(p);
+      vec2 f = fract(p);
+      float d0 = linearEye(texture2D(tDepth, vUv).r);
+      vec3 acc = vec3(0.0);
+      float wsum = 0.0;
+      for (int j = 0; j < 2; j++) {
+        for (int i = 0; i < 2; i++) {
+          vec2 coord = clamp(base + vec2(float(i), float(j)) + 0.5, vec2(0.5), size - 0.5);
+          vec2 uv = coord / size;
+          float dz = abs(linearEye(texture2D(tDepth, uv).r) - d0);
+          float w = (i == 0 ? 1.0 - f.x : f.x) * (j == 0 ? 1.0 - f.y : f.y) * exp(-dz * 0.08);
+          acc += texture2D(tDiffuse, uv).rgb * w;
+          wsum += w;
+        }
+      }
+      vec3 texel = wsum > 0.0001 ? acc / wsum : texture2D(tDiffuse, vUv).rgb;
+      gl_FragColor = vec4(mix(vec3(1.0), texel, intensity), 1.0);
+    }
+  `;
+  blend.needsUpdate = true;
+  gtaoPass.updateGtaoMaterial({
     // Two samples on software GL. Four was enough to push the nine shot pages past 240s.
     samples: softwareGl ? 2 : 12,
     radius: 0.4,
@@ -174,6 +220,12 @@ export function createPostPipeline(
   // extra draws on the town camera.
   const renderGtao = gtao.render.bind(gtao);
   gtao.render = (renderer, writeBuffer, readBuffer, deltaTime, maskActive) => {
+    const depth = readBuffer.depthTexture;
+    if (depth) blend.uniforms.tDepth!.value = depth;
+    const aoSize = blend.uniforms.uAoSize!.value as THREE.Vector2;
+    aoSize.set(Math.max(1, gtaoPass.width), Math.max(1, gtaoPass.height));
+    blend.uniforms.uNear!.value = clip.near;
+    blend.uniforms.uFar!.value = clip.far;
     const shadow = renderer.shadowMap;
     const autoUpdate = shadow.autoUpdate;
     shadow.autoUpdate = false;
@@ -223,6 +275,8 @@ export function createPostPipeline(
       sceneDepth.setSize(grabW, grabH);
       const shift = softwareGl ? 3 : 2;
       gtao.setSize(Math.max(1, width >> shift), Math.max(1, height >> shift));
+      gtaoPass.pdRenderTarget.texture.magFilter = THREE.NearestFilter;
+      gtaoPass.pdRenderTarget.texture.minFilter = THREE.NearestFilter;
     },
     render() {
       // The creek flip divides gl_FragCoord by this. That coord is in the
