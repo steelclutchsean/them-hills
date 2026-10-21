@@ -37,10 +37,10 @@ const GradeShader = {
     void main() {
       vec3 col = texture2D(tDiffuse, vUv).rgb;
       float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));
-      float nearFocus = smoothstep(0.28, 0.04, distance(vUv, uFocus));
-      float sat = mix(uSaturation * 0.28, uSaturation, mix(1.0, nearFocus, uFocusAmt));
+      float nearFocus = smoothstep(0.46, 0.1, distance(vUv, uFocus));
+      float sat = mix(uSaturation * 0.06, uSaturation * 1.15, mix(1.0, nearFocus, uFocusAmt));
       col = mix(vec3(luma), col, sat);
-      col *= mix(1.0, mix(0.78, 1.0, nearFocus), uFocusAmt);
+      col *= mix(1.0, mix(0.55, 1.12, nearFocus), uFocusAmt);
       // Sierra poster grade: teal shade, warm highlights.
       vec3 shadowTint = vec3(0.9, 0.98, 1.02);
       vec3 highTint = vec3(1.05, 0.98, 0.92);
@@ -79,15 +79,17 @@ const GodrayShader = {
     varying vec2 vUv;
     void main() {
       vec3 col = texture2D(tDiffuse, vUv).rgb;
-      vec2 delta = (uSun - vUv) / 16.0;
+      vec2 delta = (uSun - vUv) / 24.0;
       float illum = 0.0;
       vec2 p = vUv;
-      for (int i = 0; i < 16; i++) {
+      for (int i = 0; i < 24; i++) {
         p += delta;
         float l = dot(texture2D(tDiffuse, clamp(p, 0.0, 1.0)).rgb, vec3(0.25, 0.55, 0.2));
-        illum += l * (1.0 - float(i) / 16.0);
+        // Only the sun and the bright sky add light, so trees cut real shafts.
+        float sky = smoothstep(0.55, 0.92, l);
+        illum += sky * (1.0 - float(i) / 24.0);
       }
-      illum /= 16.0;
+      illum /= 24.0;
       float onScreen = smoothstep(-0.15, 0.02, uSun.x) * smoothstep(1.15, 0.98, uSun.x)
                      * smoothstep(-0.2, 0.0, uSun.y) * smoothstep(1.15, 0.98, uSun.y);
       col += vec3(1.0, 0.92, 0.75) * illum * uIntensity * onScreen;
@@ -188,8 +190,8 @@ export function createPostPipeline(
     setSun(x, y, elevation) {
       const sun = godrays.uniforms.uSun?.value as THREE.Vector2 | undefined;
       if (sun) sun.set(x, y);
-      const golden = elevation > 0.01 && elevation < 0.3;
-      const lift = golden ? 0.62 : elevation > 0.05 ? 0.3 : elevation > -0.04 ? 0.16 : 0;
+      const golden = elevation > 0.01 && elevation < 0.32;
+      const lift = golden ? 0.95 : elevation > 0.05 ? 0.34 : elevation > -0.04 ? 0.16 : 0;
       const intensity = godrays.uniforms.uIntensity;
       if (intensity) intensity.value = lift;
     },

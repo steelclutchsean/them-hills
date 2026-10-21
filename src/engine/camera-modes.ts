@@ -9,7 +9,7 @@ const LOOK_FORWARD = 1.0;
 const LOOK_DROP = 0.85;
 const PROSPECT_FOV = 120;
 const DIG_FOV = 46;
-const PAN_FOV = 38;
+const PAN_FOV = 32;
 
 export interface CameraModeController {
   isInProspectView(): boolean;
@@ -37,16 +37,16 @@ export function frameToolShot(
   const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
   const right = new THREE.Vector3(-forward.z, 0, forward.x);
   const pan = step === 'pan';
-  const dist = pan ? 1.7 : 2.05;
-  const side = pan ? 0.55 : 0.48;
-  const height = pan ? 0.42 : 0.55;
+  const dist = pan ? 0.92 : 2.05;
+  const side = pan ? 0.22 : 0.48;
+  const height = pan ? 0.22 : 0.55;
   camera.position.set(
     focus.x + forward.x * dist + right.x * side,
     Math.max(focus.y + height, charPos.y + 0.85),
     focus.z + forward.z * dist + right.z * side,
   );
   camera.lookAt(focus);
-  const fov = pan ? 42 : DIG_FOV;
+  const fov = pan ? PAN_FOV : DIG_FOV;
   if (camera.fov !== fov) {
     camera.fov = fov;
     camera.updateProjectionMatrix();
@@ -84,9 +84,9 @@ export function createCameraModeController(camera: THREE.PerspectiveCamera): Cam
     forward.set(-Math.sin(lockedYaw), 0, -Math.cos(lockedYaw));
     right.set(-forward.z, 0, forward.x);
     const pan = step === 'pan';
-    const dist = pan ? 1.55 : 1.95;
-    const side = 0.42;
-    const height = pan ? 0.62 : 0.85;
+    const dist = pan ? 0.98 : 1.95;
+    const side = pan ? 0.2 : 0.42;
+    const height = pan ? 0.36 : 0.85;
     camera.position.set(
       focus.x + forward.x * dist + right.x * side,
       Math.max(focus.y + height, charPos.y + 0.9),
@@ -101,12 +101,12 @@ export function createCameraModeController(camera: THREE.PerspectiveCamera): Cam
   function machineFrame(charPos: THREE.Vector3, focus: THREE.Vector3, step: string): void {
     const spec =
       step === 'sluice'
-        ? { back: 5.2, side: 2.2, height: 0.38, fov: 40, look: -0.08 }
+        ? { back: 4.6, side: 1.7, height: 1.55, fov: 36, look: 0.42 }
         : step === 'tom'
-          ? { back: 6.15, side: 2.5, height: 0.48, fov: 38, look: -0.05 }
+          ? { back: 5.4, side: 2.0, height: 1.65, fov: 34, look: 0.38 }
           : step === 'monitor'
-            ? { back: 5.7, side: 2.4, height: 0.55, fov: 40, look: 0.12 }
-            : { back: 4.65, side: 2.0, height: 0.36, fov: 42, look: -0.06 };
+            ? { back: 5.2, side: 2.1, height: 1.15, fov: 38, look: 0.22 }
+            : { back: 4.15, side: 1.55, height: 1.45, fov: 36, look: 0.48 };
     forward.set(focus.x - charPos.x, 0, focus.z - charPos.z);
     if (forward.lengthSq() < 0.04) {
       forward.set(-Math.sin(lockedYaw), 0, -Math.cos(lockedYaw));

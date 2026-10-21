@@ -129,9 +129,9 @@ function makePanVariant(tier: 1 | 2 | 3): TierVariant {
 
   // Mount: lower-center, tilted up slightly so the camera looks INTO it.
   variant.position.set(0, -0.34, -0.5);
-  for (let i = 0; i < 7; i++) {
-    const a = (i / 7) * Math.PI * 2;
-    const radius = i % 3 === 0 ? 0.02 : 0.012;
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    const radius = i % 4 === 0 ? 0.045 : i % 2 === 0 ? 0.03 : 0.02;
     addGoldFlake(
       variant,
       radius,

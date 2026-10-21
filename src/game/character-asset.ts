@@ -4,12 +4,10 @@ import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js
 import { upgradeLoadedMaterials } from '@/render/materials';
 import { addGoldFlake } from '@/render/painterly';
 
-// Loads the Quaternius Ranger outfit and bakes the Superhero head (eyes and
-// brows included) onto the Ranger Head bone. The pauldron and hood stay
-// hidden. The procedural sphere head is only the fallback if that extract fails.
+// Loads the Quaternius Ranger outfit and builds a face in the ranger skin
+// tone onto the Head bone. The pauldron and hood stay hidden.
 
 const OUTFIT_GLTF = '/assets/characters/Male_Ranger.gltf';
-const HEAD_GLTF = '/assets/characters/Superhero_Male_FullBody.gltf';
 
 /** Outfit mesh names (substring match) that should NOT be rendered. */
 const HIDDEN_OUTFIT_MESH_KEYWORDS = ['hood', 'pauldron'];
@@ -242,10 +240,11 @@ function attachHandTools(hand: THREE.Object3D | undefined): {
   // Opening faces the grip's +Y, which the wrist aims at the camera's look point.
   bowl.position.y = 0.14;
   pan.add(bowl);
-  for (let i = 0; i < 7; i++) {
-    const a = (i / 7) * Math.PI * 2;
-    const radius = i % 4 === 0 ? 0.03 : 0.016 + (i % 3) * 0.006;
-    addGoldFlake(pan, radius, Math.cos(a) * 0.07, 0.17, Math.sin(a) * 0.045);
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2 + (i % 3) * 0.15;
+    const radius = i % 4 === 0 ? 0.062 : i % 2 === 0 ? 0.042 : 0.028;
+    const ring = i % 4 === 0 ? 0.05 : 0.09;
+    addGoldFlake(pan, radius, Math.cos(a) * ring, 0.175, Math.sin(a) * ring * 0.72);
   }
   pan.visible = false;
 
@@ -261,143 +260,105 @@ function attachHandTools(hand: THREE.Object3D | undefined): {
   };
 }
 
-/** Quaternius superhero head, eyes, and brows, skinned verts baked onto the ranger Head bone. */
+/** Ranger-matched face. Local -Z is the face, the same way the hat brim points. */
 async function attachModeledHead(headBone: THREE.Object3D): Promise<boolean> {
-  try {
-    const loader = new GLTFLoader();
-    const gltf = await loader.loadAsync(HEAD_GLTF);
-    gltf.scene.updateMatrixWorld(true);
-    const group = new THREE.Group();
-    group.name = 'modeled-head';
-    // The outfit's visible face is head-local -Z. The source mesh faces +Z.
-    group.rotation.y = Math.PI;
-    gltf.scene.traverse((obj) => {
-      if (!(obj instanceof THREE.SkinnedMesh)) return;
-      const geom = extractHeadGeometry(obj);
-      if (!geom) return;
-      const source = obj.material;
-      const mat =
-        (Array.isArray(source) ? source[0] : source)?.clone() ?? new THREE.MeshStandardMaterial();
-      if (mat instanceof THREE.MeshStandardMaterial && !/eye/i.test(obj.name)) {
-        mat.color.set(0xffffff);
-        mat.roughness = 0.72;
-        mat.metalness = 0.02;
-        mat.emissive?.set(0x000000);
-      }
-      const mesh = new THREE.Mesh(geom, mat);
-      mesh.name = `head-${obj.name}`;
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      group.add(mesh);
-    });
-    if (group.children.length === 0) return false;
-    group.add(createProspectorBeard());
-    headBone.add(group);
-    return true;
-  } catch (err) {
-    console.warn('[character-asset] modeled head failed, using the built face', err);
-    return false;
-  }
+  headBone.add(createMatchedFace());
+  return true;
 }
 
-function extractHeadGeometry(mesh: THREE.SkinnedMesh): THREE.BufferGeometry | null {
-  const skeleton = mesh.skeleton;
-  const headIndex = skeleton.bones.findIndex((b) => b.name === 'Head');
-  if (headIndex < 0) return null;
-  const pos = mesh.geometry.attributes.position;
-  const uv = mesh.geometry.attributes.uv;
-  const skinIndex = mesh.geometry.attributes.skinIndex;
-  const skinWeight = mesh.geometry.attributes.skinWeight;
-  if (!pos || !skinIndex || !skinWeight) return null;
-  mesh.updateWorldMatrix(true, false);
-  skeleton.update();
-  const head = skeleton.bones[headIndex];
-  if (!head) return null;
-  head.updateWorldMatrix(true, false);
-  const invHead = new THREE.Matrix4().copy(head.matrixWorld).invert();
-
-  const keep = new Uint8Array(pos.count);
-  const si = new THREE.Vector4();
-  const w = new THREE.Vector4();
-  for (let i = 0; i < pos.count; i++) {
-    si.set(skinIndex.getX(i), skinIndex.getY(i), skinIndex.getZ(i), skinIndex.getW(i));
-    w.set(skinWeight.getX(i), skinWeight.getY(i), skinWeight.getZ(i), skinWeight.getW(i));
-    let headW = 0;
-    for (let k = 0; k < 4; k++) {
-      if (Math.round(si.getComponent(k)) === headIndex) headW += w.getComponent(k);
-    }
-    if (headW >= 0.5) keep[i] = 1;
-  }
-
-  const index = mesh.geometry.index;
-  const used = new Uint8Array(pos.count);
-  const consider = (ia: number, ib: number, ic: number): void => {
-    if (keep[ia] && keep[ib] && keep[ic]) {
-      used[ia] = 1;
-      used[ib] = 1;
-      used[ic] = 1;
-    }
-  };
-  if (index) {
-    for (let i = 0; i < index.count; i += 3) consider(index.getX(i), index.getY(i), index.getZ(i));
-  } else {
-    for (let i = 0; i < pos.count; i += 3) consider(i, i + 1, i + 2);
-  }
-
-  const remap = new Int32Array(pos.count);
-  remap.fill(-1);
-  const positions: number[] = [];
-  const uvs: number[] = [];
-  const tmp = new THREE.Vector3();
-  let n = 0;
-  for (let i = 0; i < pos.count; i++) {
-    if (!used[i]) continue;
-    tmp.fromBufferAttribute(pos, i);
-    mesh.applyBoneTransform(i, tmp);
-    tmp.applyMatrix4(invHead);
-    positions.push(tmp.x, tmp.y, tmp.z);
-    if (uv) uvs.push(uv.getX(i), uv.getY(i));
-    remap[i] = n;
-    n++;
-  }
-  if (n < 12) return null;
-  const indices: number[] = [];
-  const pushTri = (ia: number, ib: number, ic: number): void => {
-    const ra = remap[ia] ?? -1;
-    const rb = remap[ib] ?? -1;
-    const rc = remap[ic] ?? -1;
-    if (ra < 0 || rb < 0 || rc < 0) return;
-    indices.push(ra, rb, rc);
-  };
-  if (index) {
-    for (let i = 0; i < index.count; i += 3) pushTri(index.getX(i), index.getY(i), index.getZ(i));
-  } else {
-    for (let i = 0; i < pos.count; i += 3) pushTri(i, i + 1, i + 2);
-  }
-  const geom = new THREE.BufferGeometry();
-  geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  if (uvs.length > 0) geom.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-  geom.setIndex(indices);
-  geom.computeVertexNormals();
-  return geom;
-}
-
-/** Jaw, mustache, and sideburns in the modeled head's local space. Face is +Z before the group yaw. */
-function createProspectorBeard(): THREE.Group {
+function createMatchedFace(): THREE.Group {
   const group = new THREE.Group();
-  group.name = 'prospector-beard';
-  const hair = new THREE.MeshStandardMaterial({ color: 0x3a2418, roughness: 0.92 });
-  const jaw = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 8), hair);
-  jaw.scale.set(0.85, 0.62, 0.45);
-  jaw.position.set(0, -0.02, 0.07);
-  const mustache = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.012, 0.018), hair);
-  mustache.position.set(0, 0.012, 0.095);
-  const sideGeom = new THREE.BoxGeometry(0.016, 0.05, 0.02);
+  group.name = 'matched-face';
+  const skin = new THREE.MeshStandardMaterial({
+    color: SKIN_COLOR,
+    roughness: 0.58,
+    metalness: 0.02,
+  });
+  const hair = new THREE.MeshStandardMaterial({ color: 0x3a2418, roughness: 0.9 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x1a100c, roughness: 0.4 });
+  const white = new THREE.MeshStandardMaterial({ color: 0xf7f1e8, roughness: 0.28 });
+  const iris = new THREE.MeshStandardMaterial({ color: 0x4a3424, roughness: 0.35 });
+  const catchlight = new THREE.MeshBasicMaterial({ color: 0xfff6e4 });
+
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.062, 0.1, 10), skin);
+  neck.position.y = -0.06;
+  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.098, 18, 14), skin);
+  skull.scale.set(1.0, 1.16, 0.94);
+  skull.position.set(0, 0.055, 0.004);
+  const jaw = new THREE.Mesh(new THREE.SphereGeometry(0.07, 14, 10), skin);
+  jaw.scale.set(0.92, 0.62, 0.86);
+  jaw.position.set(0, -0.012, -0.012);
+  const brow = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.018, 0.03), skin);
+  brow.position.set(0, 0.078, -0.078);
+  brow.rotation.x = -0.35;
+  const cheekL = new THREE.Mesh(new THREE.SphereGeometry(0.028, 8, 6), skin);
+  cheekL.position.set(0.045, 0.02, -0.07);
+  const cheekR = cheekL.clone();
+  cheekR.position.x = -0.045;
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.02, 8, 6), skin);
+  nose.scale.set(0.75, 1.15, 1.35);
+  nose.position.set(0, 0.028, -0.092);
+  const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.016, 0.04, 0.018), skin);
+  bridge.position.set(0, 0.05, -0.082);
+  group.add(neck, skull, jaw, brow, cheekL, cheekR, nose, bridge);
+
+  const socket = new THREE.SphereGeometry(0.02, 8, 6);
+  const socketL = new THREE.Mesh(socket, dark);
+  socketL.position.set(0.032, 0.048, -0.078);
+  const socketR = socketL.clone();
+  socketR.position.x = -0.032;
+  const eyeWhite = new THREE.SphereGeometry(0.014, 8, 6);
+  const eyeL = new THREE.Mesh(eyeWhite, white);
+  eyeL.position.set(0.032, 0.046, -0.088);
+  const eyeR = eyeL.clone();
+  eyeR.position.x = -0.032;
+  const irisGeom = new THREE.SphereGeometry(0.007, 8, 6);
+  const irisL = new THREE.Mesh(irisGeom, iris);
+  irisL.position.set(0.032, 0.045, -0.098);
+  const irisR = irisL.clone();
+  irisR.position.x = -0.032;
+  const glintGeom = new THREE.SphereGeometry(0.003, 6, 4);
+  const glintL = new THREE.Mesh(glintGeom, catchlight);
+  glintL.position.set(0.036, 0.05, -0.102);
+  const glintR = glintL.clone();
+  glintR.position.x = -0.028;
+  const browGeom = new THREE.BoxGeometry(0.028, 0.008, 0.01);
+  const browMat = new THREE.MeshStandardMaterial({ color: 0x2c1c14, roughness: 0.8 });
+  const browL = new THREE.Mesh(browGeom, browMat);
+  browL.position.set(0.032, 0.068, -0.09);
+  browL.rotation.z = -0.28;
+  const browR = browL.clone();
+  browR.position.x = -0.032;
+  browR.rotation.z = 0.28;
+  group.add(socketL, socketR, eyeL, eyeR, irisL, irisR, glintL, glintR, browL, browR);
+
+  const earGeom = new THREE.SphereGeometry(0.022, 8, 6);
+  const earL = new THREE.Mesh(earGeom, skin);
+  earL.scale.set(0.45, 1.05, 0.65);
+  earL.position.set(0.092, 0.04, 0.01);
+  const earR = earL.clone();
+  earR.position.x = -0.092;
+  const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.008, 0.01), dark);
+  mouth.position.set(0, -0.02, -0.078);
+  const lip = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.006, 0.008), skin);
+  lip.position.set(0, -0.014, -0.084);
+  group.add(earL, earR, mouth, lip);
+
+  const beardJaw = new THREE.Mesh(new THREE.SphereGeometry(0.062, 12, 8), hair);
+  beardJaw.scale.set(0.9, 0.7, 0.55);
+  beardJaw.position.set(0, -0.045, -0.02);
+  const mustache = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.012, 0.016), hair);
+  mustache.position.set(0, 0.004, -0.096);
+  const sideGeom = new THREE.BoxGeometry(0.016, 0.055, 0.02);
   const sideL = new THREE.Mesh(sideGeom, hair);
-  sideL.position.set(0.048, 0.0, 0.06);
+  sideL.position.set(0.05, -0.005, -0.05);
   const sideR = sideL.clone();
-  sideR.position.x = -0.048;
-  group.add(jaw, mustache, sideL, sideR);
+  sideR.position.x = -0.05;
+  group.add(beardJaw, mustache, sideL, sideR);
+
+  group.traverse((obj) => {
+    if (obj instanceof THREE.Mesh) obj.castShadow = true;
+  });
   return group;
 }
 
