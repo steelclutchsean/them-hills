@@ -283,7 +283,9 @@ test('captures fixed cameras', async ({ page }) => {
 });
 
 test('migrates a v4 save, buys a tool, and stakes a claim', async ({ page }) => {
-  test.setTimeout(180_000);
+  // Three boots. The purchase had already landed (wallet at the $80 headroom)
+  // when the test clock cut off waitReady on the reload.
+  test.setTimeout(300_000);
   const errors = trackErrors(page);
   await page.goto('/?freezeSave=1');
   await page.waitForSelector('#boot-start', { timeout: 120_000 });
