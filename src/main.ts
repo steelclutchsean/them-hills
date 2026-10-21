@@ -1439,6 +1439,44 @@ async function bootstrap(): Promise<void> {
   let arcStatusLine: string | null = null;
   const playtestLock = params.has('smoke') || params.has('shot') || params.has('freezeSave');
 
+  function probeProspect(snap: ReturnType<typeof prospect.getSnapshot>) {
+    if (!snap) return null;
+    const v = snap.viz;
+    const base = {
+      step: snap.step,
+      awaiting: snap.awaitingConfirm,
+      action: snap.primaryAction,
+      kind: v?.kind ?? '',
+    };
+    if (!v) return base;
+    if (v.kind === 'dig' || v.kind === 'strike' || v.kind === 'drill') {
+      return {
+        ...base,
+        indicator: v.indicator,
+        sweet: 'sweetCenter' in v ? v.sweetCenter : v.sweet,
+      };
+    }
+    if (v.kind === 'classify') return { ...base, beat: v.beatPhase };
+    if (v.kind === 'pan') {
+      return { ...base, cx: v.cursorX, cy: v.cursorY, radius: v.radius };
+    }
+    if (v.kind === 'collect') {
+      return {
+        ...base,
+        cx: v.cursorX,
+        cy: v.cursorY,
+        suction: v.suctionRadius,
+        flakes: v.flakes
+          .filter((flake) => flake.state === 'present')
+          .map((flake) => ({ x: flake.x, y: flake.y })),
+      };
+    }
+    if (v.kind === 'extract' || v.kind === 'muck') return { ...base, progress: 'progress' in v ? v.progress : v.rock };
+    if (v.kind === 'blast') return { ...base, phase: v.phase, fuse: v.fuse, placed: v.placed };
+    if (v.kind === 'rocker') return { ...base, rock: v.rock };
+    return base;
+  }
+
   function publishProbe(): void {
     const save = gameStore.getState().save;
     const gold = save.inventory.carry.gold;
@@ -1480,6 +1518,8 @@ async function bootstrap(): Promise<void> {
       sampleHoles: geologyMarks.counts().holes,
       machineCount: placedMachines.list().length,
       activeViz: prospect.getSnapshot()?.viz?.kind ?? null,
+      yaw: cameraRig.getYaw(),
+      prospect: probeProspect(prospect.getSnapshot()),
       playerPose: character.getPose(),
       exportLegacyV4: () => {
         const snap = gameStore.getState().serialize();

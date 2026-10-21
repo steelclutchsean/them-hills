@@ -109,6 +109,28 @@ export interface ThemHillsProbe {
   hatFit?: () => { checked: number; floating: string[] };
   /** Live clip. `bind` is true only when an arm is back in the T-pose. */
   playerPose: { clip: string; bind: boolean };
+  /** Camera yaw in radians. Movement is relative to this. */
+  yaw?: number;
+  /** Live prospect meter, so a playtest can read the same timing a player sees. */
+  prospect?: {
+    step: string;
+    awaiting: boolean;
+    action: string;
+    kind: string;
+    indicator?: number;
+    sweet?: number;
+    beat?: number;
+    cx?: number;
+    cy?: number;
+    radius?: number;
+    suction?: number;
+    flakes?: { x: number; y: number }[];
+    progress?: number;
+    phase?: string;
+    fuse?: number;
+    placed?: number;
+    rock?: number;
+  } | null;
   audio?: {
     context: string;
     buses: { master: boolean; music: boolean; sfx: boolean; ambience: boolean };
