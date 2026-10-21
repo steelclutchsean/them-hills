@@ -346,6 +346,22 @@ export function createCreekProbe(): CreekProbe {
               console.log(
                 `[creek-probe] planar luma ${lo.toFixed(0)}-${hi.toFixed(0)} contrast ${planarContrast.toFixed(0)}`,
               );
+              const cols = 16;
+              const rows = 8;
+              for (let gy = rows - 1; gy >= 0; gy--) {
+                let glyph = '';
+                const sy = Math.min(h - 1, Math.floor(((gy + 0.5) * h) / rows));
+                for (let gx = 0; gx < cols; gx++) {
+                  const sx = Math.min(w - 1, Math.floor(((gx + 0.5) * w) / cols));
+                  const pi = (sy * w + sx) * 4;
+                  const pl =
+                    0.2126 * (buf[pi] ?? 0) +
+                    0.7152 * (buf[pi + 1] ?? 0) +
+                    0.0722 * (buf[pi + 2] ?? 0);
+                  glyph += pl > 90 ? '#' : pl > 45 ? '+' : pl > 18 ? '.' : ' ';
+                }
+                console.log(`[creek-probe] ${glyph}`);
+              }
             } catch (err) {
               console.log('[creek-probe] planar readback failed', err);
             }

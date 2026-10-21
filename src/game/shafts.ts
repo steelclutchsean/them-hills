@@ -147,7 +147,7 @@ export function createLightShafts(): LightShafts {
     toneMapped: false,
     uniforms: {
       uColor: { value: new THREE.Color(1.12, 0.74, 0.34) },
-      uStrength: { value: 1.05 },
+      uStrength: { value: 1.25 },
       uTime: { value: 0 },
       uNoise: { value: shaftNoise() },
     },
@@ -247,16 +247,16 @@ export function createLightShafts(): LightShafts {
           continue;
         }
         beam.visible = true;
-        const half = (widths[i] ?? 0.8) * 1.35;
+        const half = (widths[i] ?? 0.8) * 0.38;
         const gap = gaps[i];
-        let xFar = ndcA.x + (i - 2.5) * 0.07;
-        let yFar = ndcA.y - 0.03;
+        let xFar = ndcA.x + (i - 2.5) * 0.14;
+        let yFar = ndcA.y - 0.02;
         if (gap) {
           crown.set(gap.x, gap.y, gap.z);
           toCam.copy(crown).project(camera);
           if (toCam.z < 1 && toCam.x > -1.2 && toCam.x < 1.2) xFar = toCam.x;
         }
-        const yNear = yFar - (0.55 + (i % 3) * 0.08);
+        const yNear = yFar - (0.78 + (i % 3) * 0.05);
         const xNear = xFar + (i - 2.5) * 0.025;
         rayPoint(xFar, yFar, 26 + (i % 3) * 5, end);
         rayPoint(xNear, yNear, 8 + i * 0.35, start);
