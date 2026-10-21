@@ -126,9 +126,9 @@ export function createWaterReflection(): WaterReflection {
       virtual.up.set(0, 1, 0);
       virtual.up.reflect(normal);
       virtual.lookAt(targetPos);
-      // Near banks and trees only. A 650m mirror redrew the whole forest
-      // and the prospect loop missed its budget on software GL.
-      virtual.far = 42;
+      // The opposite bank and the first trees. Farther than this redrew the
+      // whole forest and the prospect loop missed its budget on software GL.
+      virtual.far = 64;
       virtual.near = camera.near;
       virtual.fov = camera.fov;
       virtual.aspect = camera.aspect;
@@ -173,7 +173,13 @@ export function createWaterReflection(): WaterReflection {
       renderer.setRenderTarget(target);
       renderer.setClearColor(fog, 1);
       renderer.clear();
+      // Full scene fog turns the far bank into a flat wash, so the mirror
+      // keeps the trees dark and green instead of the fog color.
+      const expFog = scene.fog instanceof THREE.FogExp2 ? scene.fog : null;
+      const prevDensity = expFog?.density ?? 0;
+      if (expFog) expFog.density = prevDensity * 0.22;
       renderer.render(scene, virtual);
+      if (expFog) expFog.density = prevDensity;
 
       renderer.shadowMap.autoUpdate = prevShadowAuto;
       renderer.xr.enabled = prevXr;

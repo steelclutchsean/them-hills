@@ -214,7 +214,7 @@ const FRAG_SHADER = /* glsl */ `
     // Without a reflection target, a strong fresnel just paints the creek
     // the color of the sky and it disappears into the bank.
     // A floor keeps the mirror readable even when the camera looks down.
-    float reflectAmt = uHasReflect > 0.5 ? max(fres, 0.38) * 0.86 : fres * 0.2;
+    float reflectAmt = uHasReflect > 0.5 ? max(fres, 0.58) * 0.94 : fres * 0.2;
     base = mix(base, reflected, reflectAmt);
 
     float cau = noise(worldXZ * 3.4 - scroll * 1.5) * noise(worldXZ * 6.2 + scroll * 0.6);
