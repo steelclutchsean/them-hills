@@ -12,7 +12,7 @@ export function inTownClearing(x: number, z: number): boolean {
 
 /** Dirt street between the false fronts and the original shops. */
 export function inStreet(x: number, z: number): boolean {
-  return x > -32 && x < -14 && z > -24 && z < 100;
+  return x > -32 && x < -6 && z > -24 && z < 100;
 }
 
 /** A point on the bank, `outward` meters past the water's edge, on the town side. */

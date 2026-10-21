@@ -700,6 +700,7 @@ function posterCutout(mat: THREE.Material, color: number, wind: boolean): THREE.
         diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.05, 0.62, 0.32), warm);
         diffuseColor.rgb *= mix(0.5, 1.12, clamp(luma * 1.4, 0.0, 1.0));
         diffuseColor.a *= sampledDiffuseColor.a * chroma;
+        diffuseColor.a = step(0.42, diffuseColor.a);
       #endif`,
     );
   };

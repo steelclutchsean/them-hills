@@ -168,8 +168,11 @@ async function bakeTreeCard(source: THREE.Object3D): Promise<void> {
     color: 0x000000,
     roughness: 1,
     metalness: 0,
-    transparent: true,
-    alphaTest: 0.28,
+    // Opaque cutout. A transparent card keeps partial alpha after the test,
+    // and fog then blends those texels with the sky, which reads as ragged
+    // holes through the tree and whatever ridge sits behind it.
+    transparent: false,
+    alphaTest: 0.45,
     side: THREE.DoubleSide,
     depthWrite: true,
   });

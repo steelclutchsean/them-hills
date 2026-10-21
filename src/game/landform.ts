@@ -6,49 +6,79 @@ import { PALETTE } from '@/render/palette';
 // One solid ring. The old ridgeline was a stack of thin cards, which read as
 // translucent jagged blobs and z-fought a dotted seam where the cards met.
 
-function ridgeRockMap(): THREE.CanvasTexture {
+function rangeTile(
+  paint: (ctx: CanvasRenderingContext2D, size: number) => void,
+): THREE.CanvasTexture {
+  const size = 256;
   const canvas = document.createElement('canvas');
-  canvas.width = 256;
-  canvas.height = 256;
+  canvas.width = size;
+  canvas.height = size;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('[landform] no 2d');
-  ctx.fillStyle = '#a56b45';
-  ctx.fillRect(0, 0, 256, 256);
-  for (let i = 0; i < 36; i++) {
-    ctx.fillStyle = i % 3 === 0 ? '#3a2418' : i % 3 === 1 ? '#e4c49a' : '#6e4632';
-    const x = (i * 47) % 256;
-    ctx.fillRect(x, (i * 19) % 256, 18 + (i % 5) * 6, 40 + (i % 7) * 12);
-  }
-  ctx.strokeStyle = '#24160e';
-  ctx.lineWidth = 4;
-  for (let i = 0; i < 11; i++) {
-    ctx.beginPath();
-    ctx.moveTo(0, 12 + i * 22);
-    ctx.lineTo(256, i * 24);
-    ctx.stroke();
-  }
-  ctx.strokeStyle = '#f0e2c8';
-  ctx.lineWidth = 2;
-  for (let i = 0; i < 7; i++) {
-    ctx.beginPath();
-    ctx.moveTo((i * 30) % 256, 0);
-    ctx.lineTo((i * 30 + 80) % 256, 256);
-    ctx.stroke();
-  }
+  paint(ctx, size);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
-  tex.anisotropy = 4;
+  tex.anisotropy = 8;
   tex.needsUpdate = true;
   return tex;
 }
 
-function rangeMaterial(map: THREE.Texture): THREE.MeshStandardMaterial {
+function rangeMaps(): { rock: THREE.Texture; scree: THREE.Texture; grass: THREE.Texture } {
+  const rock = rangeTile((ctx, s) => {
+    ctx.fillStyle = '#6e5344';
+    ctx.fillRect(0, 0, s, s);
+    for (let i = 0; i < 70; i++) {
+      ctx.fillStyle = i % 3 === 0 ? '#3a2a22' : i % 3 === 1 ? '#b7a48c' : '#8d6a52';
+      ctx.beginPath();
+      ctx.ellipse((i * 47) % s, (i * 29) % s, 12 + (i % 6) * 5, 8 + (i % 4) * 4, i * 0.7, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.strokeStyle = '#24160e';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 16; i++) {
+      ctx.beginPath();
+      const x = (i * 41) % s;
+      const y = (i * 23) % s;
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + 16 + (i % 5) * 4, y + 10 + (i % 3) * 6);
+      ctx.stroke();
+    }
+  });
+  const scree = rangeTile((ctx, s) => {
+    ctx.fillStyle = '#a89078';
+    ctx.fillRect(0, 0, s, s);
+    for (let i = 0; i < 140; i++) {
+      ctx.fillStyle = i % 2 === 0 ? '#6e5a48' : '#d2c2aa';
+      ctx.beginPath();
+      ctx.ellipse((i * 37) % s, (i * 19) % s, 3 + (i % 4), 2 + (i % 3), i, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  });
+  const grass = rangeTile((ctx, s) => {
+    ctx.fillStyle = '#5c6a32';
+    ctx.fillRect(0, 0, s, s);
+    ctx.fillStyle = '#8a9a48';
+    for (let i = 0; i < 90; i++) {
+      const x = (i * 29) % s;
+      const y = (i * 17) % s;
+      ctx.fillRect(x, y, 2, 7 + (i % 4));
+    }
+    ctx.fillStyle = '#3e4a28';
+    for (let i = 0; i < 40; i++) ctx.fillRect((i * 53) % s, (i * 31) % s, 3, 5);
+  });
+  return { rock, scree, grass };
+}
+
+function rangeMaterial(maps: {
+  rock: THREE.Texture;
+  scree: THREE.Texture;
+  grass: THREE.Texture;
+}): THREE.MeshStandardMaterial {
   const mat = new THREE.MeshStandardMaterial({
-    map,
     color: 0xffffff,
-    roughness: 0.94,
+    roughness: 0.96,
     metalness: 0,
     flatShading: true,
     transparent: false,
@@ -58,24 +88,43 @@ function rangeMaterial(map: THREE.Texture): THREE.MeshStandardMaterial {
     fog: true,
     side: THREE.DoubleSide,
   });
-  mat.customProgramCacheKey = () => 'them-hills-range-4';
+  mat.customProgramCacheKey = () => 'them-hills-range-5';
   mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uRock = { value: maps.rock };
+    shader.uniforms.uScree = { value: maps.scree };
+    shader.uniforms.uGrass = { value: maps.grass };
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
-        '#include <common>\nvarying vec3 vWorldPos;\nvarying vec3 vWorldN;',
+        '#include <common>\nattribute float crest;\nvarying vec3 vWorldPos;\nvarying vec3 vWorldN;\nvarying float vCrest;',
       )
       .replace(
         '#include <project_vertex>',
         `vec4 themWorld = modelMatrix * vec4(transformed, 1.0);
          vWorldPos = themWorld.xyz;
          vWorldN = normalize(mat3(modelMatrix) * objectNormal);
+         vCrest = crest;
          #include <project_vertex>`,
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <common>',
-        '#include <common>\nvarying vec3 vWorldPos;\nvarying vec3 vWorldN;\nvec3 themAlbedo;',
+        `#include <common>
+         uniform sampler2D uRock;
+         uniform sampler2D uScree;
+         uniform sampler2D uGrass;
+         varying vec3 vWorldPos;
+         varying vec3 vWorldN;
+         varying float vCrest;
+         vec3 themTri(sampler2D tex, vec3 pos, vec3 n) {
+           vec3 w = abs(n);
+           w = pow(w, vec3(4.0));
+           w /= max(w.x + w.y + w.z, 1e-4);
+           vec3 x = texture2D(tex, pos.zy * 0.16).rgb;
+           vec3 y = texture2D(tex, pos.xz * 0.16).rgb;
+           vec3 z = texture2D(tex, pos.xy * 0.16).rgb;
+           return x * w.x + y * w.y + z * w.z;
+         }`,
       )
       .replace(
         '#include <color_fragment>',
@@ -83,24 +132,18 @@ function rangeMaterial(map: THREE.Texture): THREE.MeshStandardMaterial {
          {
            vec3 n = normalize(vWorldN);
            float slope = 1.0 - abs(n.y);
-           float snow = smoothstep(16.0, 34.0, vWorldPos.y) * (1.0 - smoothstep(0.22, 0.7, slope));
-           float trees = smoothstep(8.0, 14.0, vWorldPos.y) * (1.0 - smoothstep(22.0, 34.0, vWorldPos.y));
-           trees *= 1.0 - smoothstep(0.15, 0.55, slope);
-           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.16, 0.32, 0.14), trees * 0.78);
-           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.97, 0.98, 0.96), snow);
-           themAlbedo = diffuseColor.rgb;
+           vec3 rock = themTri(uRock, vWorldPos, n);
+           vec3 scree = themTri(uScree, vWorldPos, n);
+           vec3 grass = themTri(uGrass, vWorldPos, n);
+           float rockW = smoothstep(0.34, 0.72, slope);
+           float grassW = (1.0 - smoothstep(0.08, 0.42, slope)) * (1.0 - smoothstep(0.45, 0.7, vCrest));
+           float screeW = (1.0 - rockW) * (1.0 - grassW);
+           float sumW = max(rockW + screeW + grassW, 1e-3);
+           vec3 albedo = (rock * rockW + scree * screeW + grass * grassW) / sumW;
+           float snow = smoothstep(0.62, 0.9, vCrest) * (1.0 - smoothstep(0.16, 0.55, slope));
+           albedo = mix(albedo, vec3(0.96, 0.97, 0.98), snow);
+           diffuseColor.rgb = albedo;
          }`,
-      )
-      .replace(
-        '#include <fog_fragment>',
-        `vec3 themLit = gl_FragColor.rgb;
-         #include <fog_fragment>
-         float themDist = length(vWorldPos.xz);
-         float themLow = 1.0 - smoothstep(14.0, 46.0, vWorldPos.y);
-         float themFog = smoothstep(26.0, 150.0, themDist) * mix(0.55, 1.0, themLow);
-         gl_FragColor.rgb = mix(themLit, gl_FragColor.rgb, clamp(themFog, 0.0, 1.0));
-         float peakKeep = smoothstep(18.0, 42.0, vWorldPos.y);
-         gl_FragColor.rgb = mix(gl_FragColor.rgb, max(gl_FragColor.rgb, themAlbedo * 0.5), peakKeep);`,
       );
   };
   return mat;
@@ -125,6 +168,7 @@ function buildRange(
   const span = 92;
   const pos: number[] = [];
   const uv: number[] = [];
+  const crestAttr: number[] = [];
   const idx: number[] = [];
   const trees: THREE.Vector3[] = [];
   for (let i = 0; i <= segA; i++) {
@@ -138,8 +182,10 @@ function buildRange(
       const z = Math.sin(a) * radius;
       const y = groundY(x, z) + crest * amount * 86;
       pos.push(x, y, z);
-      uv.push(a * 6.5, u * 4 + y * 0.03);
-      if (crest > 0.35 && crest < 0.72 && i % 6 === 0 && j % 2 === 0) {
+      uv.push(a * 2, u * 2);
+      const height01 = crest * amount;
+      crestAttr.push(height01);
+      if (height01 > 0.22 && height01 < 0.64 && i % 4 === 0 && j % 2 === 0) {
         trees.push(new THREE.Vector3(x, y, z));
       }
     }
@@ -155,6 +201,7 @@ function buildRange(
   const geom = new THREE.BufferGeometry();
   geom.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geom.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geom.setAttribute('crest', new THREE.Float32BufferAttribute(crestAttr, 1));
   geom.setIndex(idx);
   geom.computeVertexNormals();
   const normals = geom.getAttribute('normal');
@@ -223,7 +270,7 @@ export function addLandform(
   groundY: (x: number, z: number) => number,
 ): void {
   const built = buildRange(groundY);
-  const range = new THREE.Mesh(built.geom, rangeMaterial(ridgeRockMap()));
+  const range = new THREE.Mesh(built.geom, rangeMaterial(rangeMaps()));
   range.name = 'ridgeline';
   range.castShadow = false;
   range.receiveShadow = true;

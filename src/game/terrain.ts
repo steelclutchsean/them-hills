@@ -233,14 +233,17 @@ const TERRAIN_FS = /* glsl */ `
     return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
   }
 
-  vec3 triplanar(sampler2D tex, vec3 pos, vec3 n) {
+  vec3 triplanarScaled(sampler2D tex, vec3 pos, vec3 n, float scale) {
     vec3 w = abs(n);
     w = pow(w, vec3(3.0));
     w /= max(w.x + w.y + w.z, 1e-4);
-    vec3 x = texture2D(tex, pos.zy * 0.18).rgb;
-    vec3 y = texture2D(tex, pos.xz * 0.18).rgb;
-    vec3 z = texture2D(tex, pos.xy * 0.18).rgb;
+    vec3 x = texture2D(tex, pos.zy * scale).rgb;
+    vec3 y = texture2D(tex, pos.xz * scale).rgb;
+    vec3 z = texture2D(tex, pos.xy * scale).rgb;
     return x * w.x + y * w.y + z * w.z;
+  }
+  vec3 triplanar(sampler2D tex, vec3 pos, vec3 n) {
+    return triplanarScaled(tex, pos, n, 0.18);
   }
 
   void main() {
@@ -260,6 +263,11 @@ const TERRAIN_FS = /* glsl */ `
     float dirtW = (1.0 - grassW) * (1.0 - rockW) * (1.0 - gravelW * 0.65);
     float sumW = max(grassW + dirtW + gravelW + rockW, 1e-3);
     vec3 tex = (grass * grassW + dirt * dirtW + gravel * gravelW + rock * rockW) / sumW;
+    float nearCam = 1.0 - smoothstep(4.0, 28.0, distance(cameraPosition, vWorld));
+    vec3 grassHi = triplanarScaled(uGrass, vWorld, n0, 1.45);
+    vec3 dirtHi = triplanarScaled(uDirt, vWorld, n0, 1.45);
+    vec3 hi = (grassHi * grassW + dirtHi * dirtW + gravel * gravelW + rock * rockW) / sumW;
+    tex = mix(tex, hi, nearCam);
 
     // Vertex color is a mild biome brightness, not a second photograph.
     vec3 albedo = tex * mix(vec3(1.08), vColor * 1.15, 0.12);

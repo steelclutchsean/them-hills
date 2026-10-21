@@ -35,6 +35,8 @@ export interface WeatherView {
 export interface WeatherController {
   update(worldTime: number, dt: number, playerPos: THREE.Vector3): void;
   getView(): WeatherView;
+  /** Pin a state for store captures. Pass null to resume the simulation. */
+  hold(state: WeatherState | null): void;
 }
 
 interface WeatherInit {
@@ -52,6 +54,7 @@ export function createWeatherController(opts: WeatherInit): WeatherController {
   let targetState: WeatherState = initialState;
   let targetIntensity = initialState === 'clear' ? 0 : 1;
   let nextChangeAt = lastChangedAt + pickInterval();
+  let held: WeatherState | null = null;
 
   const rain = createRainSystem();
   scene.add(rain.mesh);
@@ -68,7 +71,18 @@ export function createWeatherController(opts: WeatherInit): WeatherController {
   }
 
   return {
+    hold(next) {
+      held = next;
+    },
     update(worldTime, dt, playerPos) {
+      if (held) {
+        state = held;
+        targetState = held;
+        intensity = held === 'clear' ? 0 : 1;
+        targetIntensity = intensity;
+        rain.update(dt, held === 'rain' ? 1 : 0, playerPos);
+        return;
+      }
       // Time to roll a new target?
       if (worldTime > nextChangeAt && state === targetState) {
         const next = pickNextState();

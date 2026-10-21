@@ -25,7 +25,7 @@ import {
   updateTownDressing,
   updateTownLights,
 } from '@/game/structures';
-import { buildTownStreet } from '@/game/town-street';
+import { buildTownStreet, tickTownStreet } from '@/game/town-street';
 import { addLandform } from '@/game/landform';
 import {
   bankPoint,
@@ -1605,6 +1605,7 @@ async function bootstrap(): Promise<void> {
       },
       previewScene: (who: string) => {
         shotKind = who;
+        if (who !== 'street' && who !== 'overview' && who !== 'vista') weather.hold(null);
         const north = mines.find((mine) => mine.id === 'mine_north');
         const hideHero = who === 'blast' || who === 'cavein';
         character.group.visible = !hideHero;
@@ -1701,16 +1702,19 @@ async function bootstrap(): Promise<void> {
           holdView = shedView(6.4);
         } else if (who === 'street') {
           worldTime = worldTimeForSkyHour(9.5);
+          weather.hold('clear');
           dialogue = null;
           arcBanner = null;
           holdView = streetView();
         } else if (who === 'vista') {
           worldTime = worldTimeForSkyHour(9.5);
+          weather.hold('clear');
           dialogue = null;
           arcBanner = null;
           holdView = vistaView();
         } else if (who === 'overview') {
           worldTime = worldTimeForSkyHour(9.5);
+          weather.hold('clear');
           scriptEvent('rush');
           const dressed = worldDress.snap('rush');
           waterRise = dressed.rise;
@@ -2728,6 +2732,13 @@ async function bootstrap(): Promise<void> {
       // wholesale at the next in-game midnight (handled above).
       weather.update(worldTime, dt, charPos);
       sky.update(worldTime, weather.getView());
+      if (
+        (shotKind === 'street' || shotKind === 'overview' || shotKind === 'vista') &&
+        renderer.scene.fog instanceof THREE.FogExp2
+      ) {
+        const cap = shotKind === 'overview' ? 0.0026 : shotKind === 'vista' ? 0.0036 : 0.0048;
+        renderer.scene.fog.density = Math.min(renderer.scene.fog.density, cap);
+      }
 
       // Cave darkness override: when the player is inside the mine cave,
       // clamp ambient near-zero so the interior reads as actually dark.
@@ -2821,6 +2832,7 @@ async function bootstrap(): Promise<void> {
               : 16;
       fadeFoliageNear(foliageLook ? renderer.camera.position : null, 12, foliageLook, treeDistance);
       updateTownDressing(worldTime, renderer.camera);
+      tickTownStreet(worldTime);
       updateTownLights(sunDirWorld.y);
       setFoliageWindTime(worldTime);
       pulseGold(worldTime);
