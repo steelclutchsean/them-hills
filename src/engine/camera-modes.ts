@@ -21,6 +21,8 @@ export interface CameraModeController {
    * close third-person shots; every other step is the first-person view.
    */
   updateProspectView(charPos: THREE.Vector3, step: string | null, focus: THREE.Vector3): void;
+  /** FOV the prospect view authored this frame, or null while the chase camera owns it. */
+  authorFov(): number | null;
 }
 
 /**
@@ -57,11 +59,13 @@ export function createCameraModeController(camera: THREE.PerspectiveCamera): Cam
   let inProspect = false;
   let lockedYaw = 0;
   let savedFov = camera.fov;
+  let authoredFov: number | null = null;
   const forward = new THREE.Vector3();
   const right = new THREE.Vector3();
   const lookTarget = new THREE.Vector3();
 
   function setFov(next: number): void {
+    authoredFov = next;
     if (camera.fov === next) return;
     camera.fov = next;
     camera.updateProjectionMatrix();
@@ -138,9 +142,11 @@ export function createCameraModeController(camera: THREE.PerspectiveCamera): Cam
     },
     exitProspectView() {
       inProspect = false;
+      authoredFov = null;
       camera.fov = savedFov;
       camera.updateProjectionMatrix();
     },
+    authorFov: () => (inProspect ? authoredFov : null),
     updateProspectView(charPos, step, focus) {
       if (!inProspect) return;
       if (step === 'dig' || step === 'pan') closeThird(charPos, focus, step);

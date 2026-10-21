@@ -931,6 +931,11 @@ async function bootstrap(): Promise<void> {
           },
         };
       },
+      upgradeCost: (category: string) => {
+        const cat = category as EquipmentCategory;
+        const ownedTier = gameStore.getState().save.equipment.ownedTiers[cat];
+        return getNextUpgrade(cat, ownedTier)?.cost ?? null;
+      },
       buyUpgrade: (category: string) => {
         const cat = category as EquipmentCategory;
         const ownedTier = gameStore.getState().save.equipment.ownedTiers[cat];
@@ -1113,6 +1118,7 @@ async function bootstrap(): Promise<void> {
 
   let simRunning = skipIntro;
   if (skipIntro) document.body.dataset.sim = '1';
+  let cinemaTime = 0;
   let presentedFrames = 0;
   const overlays = mountOverlays({
     onResume: () => {
@@ -1206,6 +1212,78 @@ async function bootstrap(): Promise<void> {
     cameraRig.setYawPitch(stance.yaw, -0.15);
   }
 
+  // Title card sits over a live golden-hour drift. The sim clock does not move.
+  const titleRight = new THREE.Vector3();
+  const titleLook = new THREE.Vector3();
+  const titleBeats: { p: [number, number, number]; l: [number, number, number] }[] = [
+    { p: [44, 8.5, -12], l: [28, 1.4, 12] },
+    { p: [36, 5.5, 26], l: [28, 1.2, 8] },
+    { p: [8, 10, 40], l: [-6, 2.4, 18] },
+    { p: [-24, 7, 4], l: [-8, 2.2, 22] },
+    { p: [16, 11, 48], l: [30, 1.6, 8] },
+  ];
+  function paintTitle(dt: number): void {
+    cinemaTime += dt;
+    document.body.dataset.cinema = '1';
+    const beats = titleBeats;
+    const scaled = ((cinemaTime % 52) / 52) * beats.length;
+    const i = Math.floor(scaled) % beats.length;
+    const j = (i + 1) % beats.length;
+    const t = scaled - Math.floor(scaled);
+    const s = t * t * (3 - 2 * t);
+    const a = beats[i] ?? beats[0];
+    const b = beats[j] ?? beats[0];
+    if (!a || !b) return;
+    const px = a.p[0] + (b.p[0] - a.p[0]) * s;
+    const py = a.p[1] + (b.p[1] - a.p[1]) * s;
+    const pz = a.p[2] + (b.p[2] - a.p[2]) * s;
+    const lx = a.l[0] + (b.l[0] - a.l[0]) * s;
+    const ly = a.l[1] + (b.l[1] - a.l[1]) * s;
+    const lz = a.l[2] + (b.l[2] - a.l[2]) * s;
+    const camY = Math.max(py, terrain.getHeightAt(px, pz) + 3.2);
+    renderer.camera.position.set(px, camY, pz);
+    renderer.camera.lookAt(lx, ly, lz);
+    renderer.camera.updateMatrixWorld();
+    titleRight.set(1, 0, 0).applyQuaternion(renderer.camera.quaternion);
+    renderer.camera.lookAt(lx + titleRight.x * 5.5, ly, lz + titleRight.z * 5.5);
+    renderer.camera.fov = 48;
+    renderer.camera.updateProjectionMatrix();
+
+    character.postStep(dt, cinemaTime, null, {
+      menu: true,
+      ground: (x, z) => terrain.getHeightAt(x, z),
+    });
+
+    const golden = worldTimeForSkyHour(17.55);
+    sky.update(golden, { state: 'clear', intensity: 0 });
+    titleLook.set(lx, ly, lz);
+    const sunDir = renderer.followSun(titleLook);
+    renderer.syncFrame(golden, sunDir);
+    updateScatterWind(cinemaTime, titleLook, renderer.camera.position, renderer.sun.intensity);
+    updateTownDressing(cinemaTime, renderer.camera);
+    updateTownLights(sunDir.y);
+    setFoliageWindTime(cinemaTime);
+    pulseGold(cinemaTime);
+    shafts.update(sunDir, titleLook, true);
+    motes.update(cinemaTime, titleLook, sunDir.y);
+    const grassLight = {
+      time: cinemaTime,
+      sunColor: renderer.sun.color,
+      sunIntensity: renderer.sun.intensity,
+      ambientColor: renderer.ambient.color,
+      ambientIntensity: renderer.ambient.intensity,
+    };
+    grass?.update(grassLight);
+    for (const cover of grassCovers) cover.update(grassLight);
+    renderer.camera.updateMatrixWorld();
+    waterReflection.update(
+      renderer.renderer,
+      renderer.scene,
+      renderer.camera,
+      waterLevelNear(courses, renderer.camera.position.x, renderer.camera.position.z),
+    );
+  }
+
   // ---- Game loop ----
   const loop = createGameLoop({
     // Shader compile on a software GPU can stall a frame for seconds.
@@ -1214,7 +1292,16 @@ async function bootstrap(): Promise<void> {
     maxFrameDt: smoke.active ? 1 : 0.25,
     update: (dt) => {
       input.poll();
-      if (!simRunning || document.hidden) {
+      if (document.hidden) {
+        publishProbe();
+        return;
+      }
+      if (simRunning && fx.soakHitStop(dt)) {
+        publishProbe();
+        return;
+      }
+      if (!simRunning) {
+        paintTitle(dt);
         publishProbe();
         return;
       }
@@ -1350,7 +1437,12 @@ async function bootstrap(): Promise<void> {
         ? { step: prospectSnap.step, progress: prospectSnap.progress }
         : null;
       const menuPose = overlays.isBlocking() || settings.isOpen();
-      character.postStep(dt, worldTime, activity, { menu: menuPose });
+      const carryGold = gameStore.getState().save.inventory.carry.gold;
+      character.postStep(dt, worldTime, activity, {
+        menu: menuPose,
+        carrying: carryGold.flake_g + carryGold.picker_g + carryGold.nugget_g > 0.05,
+        ground: (x, z) => terrain.getHeightAt(x, z),
+      });
 
       // 6. Camera position. During a prospect minigame, swap the spring-arm
       // rig for the fixed first-person prospect view + tool viewmodel.
@@ -1396,9 +1488,6 @@ async function bootstrap(): Promise<void> {
           stepForCam,
           machineFocus ?? character.getToolFocus(),
         );
-        // Shake rides ON TOP of the base camera placement during the
-        // prospect view. It's a per-frame offset and never permanent.
-        fx.applyShakeTo(renderer.camera);
         const snap = prospect.getSnapshot();
         if (snap) {
           const v = snap.viz;
@@ -2026,6 +2115,8 @@ async function bootstrap(): Promise<void> {
               );
             gameStore.getState().markFirstSale();
             emitGameplay('sell', { vendorId: activeVendor!.id, earned: result.earned });
+            fx.rumble(170, 0.35, 0.7);
+            fx.shake(0.02, 0.22);
             console.log(
               `[vendor] sold ${totalG.toFixed(3)}g at ${activeVendor!.id} for $${result.earned.toFixed(2)}`,
             );
@@ -2063,6 +2154,7 @@ async function bootstrap(): Promise<void> {
               effects: fx,
               position: character.getPosition(),
               grams: totalG,
+              nuggetGrams: result.reward.nugget_g,
             });
             gameStore.getState().markTutorialComplete();
             if (
@@ -2520,6 +2612,9 @@ async function bootstrap(): Promise<void> {
         questTracker,
         prospect: prospect.getSnapshot(),
       });
+      const settingsFov = gameStore.getState().save.settings.graphics.fovDegrees;
+      const baseFov = cameraMode.authorFov() ?? (reviewingTool ? renderer.camera.fov : settingsFov);
+      fx.applyCameraFeel(renderer.camera, baseFov);
       renderer.camera.updateMatrixWorld();
       sunNdc.copy(renderer.camera.position).addScaledVector(sunDirWorld, 80);
       sunNdc.project(renderer.camera);
@@ -2574,6 +2669,7 @@ async function bootstrap(): Promise<void> {
   function startPlaying(): void {
     simRunning = true;
     document.body.dataset.sim = '1';
+    delete document.body.dataset.cinema;
     overlays.hide();
     settings.close();
     if (canvas) void Promise.resolve(canvas.requestPointerLock()).catch(() => undefined);

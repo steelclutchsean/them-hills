@@ -27,6 +27,7 @@ declare global {
       save(): Promise<void>;
       graphics?: string;
       exportLegacyV4?: () => unknown;
+      upgradeCost?: (category: string) => number | null;
       buyUpgrade?: (category: string) => boolean;
       stakeClaim?: () => { ok: boolean; reason: string };
       prepareShowcase?: () => { x: number; z: number };
@@ -246,9 +247,14 @@ test('migrates a v4 save, buys a tool, and stakes a claim', async ({ page }) => 
       timeout: 30_000,
     },
   );
-  await page.evaluate(async () => {
-    const legacy = window.__themHills?.exportLegacyV4();
-    if (!legacy) throw new Error('no legacy snapshot');
+  const panPrice = await page.evaluate(() => window.__themHills?.upgradeCost('pan') ?? null);
+  expect(panPrice).not.toBeNull();
+  const price = panPrice ?? 0;
+  const headroom = 80;
+  await page.evaluate(async ({ price, headroom }) => {
+    const legacy = window.__themHills?.exportLegacyV4() as { wallet?: { balance?: number } } | undefined;
+    if (!legacy?.wallet || typeof legacy.wallet.balance !== 'number') throw new Error('no legacy snapshot');
+    legacy.wallet.balance = price + headroom;
     await new Promise<void>((resolve, reject) => {
       const open = indexedDB.open('keyval-store');
       open.onupgradeneeded = () => {
@@ -267,7 +273,7 @@ test('migrates a v4 save, buys a tool, and stakes a claim', async ({ page }) => 
         tx.onerror = () => reject(tx.error ?? new Error('indexedDB write failed'));
       };
     });
-  });
+  }, { price, headroom });
 
   await page.goto('/');
   await page.waitForSelector('#boot-start', { timeout: 120_000 });
@@ -287,7 +293,8 @@ test('migrates a v4 save, buys a tool, and stakes a claim', async ({ page }) => 
     };
   });
   expect(migrated.saveVersion).toBe(6);
-  expect(migrated.wallet).toBeGreaterThan(499);
+  expect(migrated.wallet).toBeGreaterThan(price + headroom - 1);
+  expect(migrated.wallet).toBeLessThan(price + headroom + 1);
   expect(migrated.carryGrams).toBeGreaterThan(1.4);
   expect(Math.hypot(migrated.x - 4, migrated.z - -3)).toBeLessThan(8);
   expect(migrated.panTier).toBe(1);
@@ -323,8 +330,8 @@ test('migrates a v4 save, buys a tool, and stakes a claim', async ({ page }) => 
   expect(kept.saveVersion).toBe(6);
   expect(kept.panTier).toBe(2);
   expect(kept.claimCount).toBe(1);
-  expect(kept.wallet).toBeGreaterThan(290);
-  expect(kept.wallet).toBeLessThan(310);
+  expect(kept.wallet).toBeGreaterThan(headroom - 1);
+  expect(kept.wallet).toBeLessThan(headroom + 1);
   expect(kept.carryGrams).toBeGreaterThan(1.4);
   expect(errors, errors.join('\n')).toEqual([]);
 });

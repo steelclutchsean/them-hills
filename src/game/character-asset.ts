@@ -41,6 +41,8 @@ export interface CharacterRig {
   hipR: BoneJoint;
   kneeL: BoneJoint;
   kneeR: BoneJoint;
+  footL: BoneJoint;
+  footR: BoneJoint;
 }
 
 function makeJoint(bones: THREE.Object3D[]): BoneJoint {
@@ -130,6 +132,8 @@ export async function loadCharacter(): Promise<CharacterRig> {
     hipR: makeJoint(find('thigh_r')),
     kneeL: makeJoint(find('calf_l')),
     kneeR: makeJoint(find('calf_r')),
+    footL: makeJoint(find('foot_l')),
+    footR: makeJoint(find('foot_r')),
   };
 }
 

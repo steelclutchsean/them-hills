@@ -108,7 +108,7 @@ export const EQUIPMENT: Record<EquipmentCategory, CategoryInfo> = {
     category: 'pan',
     displayName: 'Pan',
     upgrades: [
-      { fromTier: 1, toTier: 2, cost: 200, label: 'Tier 2 — Steel 14"' },
+      { fromTier: 1, toTier: 2, cost: 750, label: 'Tier 2 — Steel 14"' },
       { fromTier: 2, toTier: 3, cost: 1720, label: 'Tier 3 — Pro steel 17" w/ riffles' },
     ],
   },

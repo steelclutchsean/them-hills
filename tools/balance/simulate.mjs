@@ -15,6 +15,7 @@ const DOLLARS_PER_GRAM = (SPOT / GRAMS_PER_OZT) * TOWN * ASSAYER;
 
 const PRICE = {
   rocker: 236,
+  panSteel: 750,
   sluice: 840,
   tom: 1120,
   hire: 1150,
@@ -44,6 +45,9 @@ const STYLE = {
 
 const LADDER = [
   { name: 'Rocker box', cost: PRICE.rocker, next: 'rocker' },
+  // Steel pan is the step after the rocker is running. Income stays on the
+  // rocker until the sluice, which is what keeps every style inside 5–15.
+  { name: 'Steel pan', cost: PRICE.panSteel, next: null },
   { name: 'Sluice', cost: PRICE.sluice, next: 'sluice' },
   { name: 'Long tom', cost: PRICE.tom, next: 'tom' },
   { name: 'Hire a hand', cost: PRICE.hire, next: null },

@@ -50,98 +50,26 @@
       #boot {
         position: fixed;
         inset: 0;
-        z-index: 40;
+        z-index: 22;
         display: flex;
         align-items: center;
-        justify-content: center;
+        justify-content: flex-end;
+        padding: 28px 6vw;
         background: #1b140e;
-        pointer-events: auto;
+        pointer-events: none;
       }
-      .boot-layout {
-        display: flex;
-        width: min(980px, calc(100vw - 28px));
-        min-height: min(560px, calc(100vh - 28px));
-        border: 1px solid #8a6a3b;
-        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
-        background: #f3e6c8;
-        color: #2a2118;
-      }
-      .boot-art {
-        position: relative;
-        flex: 1.15;
-        overflow: hidden;
-        background: #87b4c4;
-        min-height: 320px;
-      }
-      .art-sky {
-        position: absolute;
-        inset: 0 0 42% 0;
-        background: linear-gradient(#f2d7a2, #e7a15a 55%, #d7e4ea);
-      }
-      .art-ridge {
-        position: absolute;
-        left: -10%;
-        right: -10%;
-        bottom: 28%;
-        height: 38%;
-        background: #6e8f86;
-        clip-path: polygon(0 70%, 12% 40%, 28% 62%, 46% 18%, 63% 48%, 80% 22%, 100% 58%, 100% 100%, 0 100%);
-      }
-      .art-hill {
-        position: absolute;
-        left: -8%;
-        right: -8%;
-        bottom: 16%;
-        height: 34%;
-        background: #3f6a45;
-        clip-path: polygon(0 60%, 18% 30%, 40% 55%, 62% 20%, 84% 48%, 100% 28%, 100% 100%, 0 100%);
-      }
-      .art-creek {
-        position: absolute;
-        left: -5%;
-        right: -5%;
-        bottom: 8%;
-        height: 18%;
-        background: linear-gradient(#d8efe8, #2f7f86);
-        clip-path: polygon(0 40%, 100% 10%, 100% 100%, 0 80%);
-      }
-      .art-figure {
-        position: absolute;
-        left: 22%;
-        bottom: 18%;
-        width: 18px;
-        height: 48px;
-        background: #3a2a1c;
-        border-radius: 8px 8px 2px 2px;
-        box-shadow: 14px 18px 0 -6px #c4a574;
-      }
-      .art-figure::before {
-        content: '';
-        position: absolute;
-        left: 2px;
-        top: -12px;
-        width: 14px;
-        height: 14px;
-        border-radius: 50%;
-        background: #e7c19e;
-      }
-      .art-caption {
-        position: absolute;
-        left: 16px;
-        bottom: 12px;
-        margin: 0;
-        letter-spacing: 0.18em;
-        text-transform: uppercase;
-        font-size: 12px;
-        color: #f7edd4;
-        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+      body[data-cinema='1'] #boot {
+        background: transparent;
       }
       #boot[hidden] {
         display: none;
       }
       .boot-card {
-        width: min(380px, 100%);
+        pointer-events: auto;
+        width: min(380px, calc(100vw - 32px));
         padding: 32px 28px 24px;
+        border: 1px solid #8a6a3b;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
         background:
           repeating-linear-gradient(0deg, rgba(90, 60, 30, 0.04) 0 1px, transparent 1px 7px),
           #f3e6c8;
@@ -299,22 +227,12 @@
     <canvas id="game-canvas"></canvas>
     <div id="hud"></div>
     <div id="boot">
-      <div class="boot-layout">
-        <div class="boot-art" aria-hidden="true">
-          <div class="art-sky"></div>
-          <div class="art-ridge"></div>
-          <div class="art-hill"></div>
-          <div class="art-creek"></div>
-          <div class="art-figure"></div>
-          <p class="art-caption">Coyote Creek</p>
-        </div>
-        <div class="boot-card">
-          <p class="boot-kicker">Prospecting</p>
-          <h1>Them Hills</h1>
-          <p id="boot-status">Waking the hills…</p>
-          <div class="boot-track"><div id="boot-fill"></div></div>
-          <div id="boot-actions" hidden></div>
-        </div>
+      <div class="boot-card">
+        <p class="boot-kicker">Prospecting</p>
+        <h1>Them Hills</h1>
+        <p id="boot-status">Waking the hills…</p>
+        <div class="boot-track"><div id="boot-fill"></div></div>
+        <div id="boot-actions" hidden></div>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>

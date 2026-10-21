@@ -1,28 +1,13 @@
 import * as THREE from 'three';
 import { RAPIER } from '@/physics/world';
 import type { MoveInput } from '@/input/manager';
-import {
-  applyAim,
-  applyClassify,
-  applyDig,
-  applyFalling,
-  applyIdle,
-  applyIdleHold,
-  applyJumping,
-  applyLanded,
-  applyPan,
-  applyRock,
-  applyRun,
-  applyWalk,
-  armsAreBind,
-  type PoseClip,
-} from './character-animations';
+import { armsAreBind, loadMotion, type MotionPlayer, type PoseClip } from './character-clips';
 import { loadCharacter, type CharacterRig } from './character-asset';
 import { getReviewPose } from '@/dev/review-shots';
 
-// Movement, jump, gravity, stamina, a state machine for animation selection,
-// and a rigged glTF character (Quaternius "Universal Base Characters"). Animations
-// drive the skeleton bones procedurally — the pack ships no bundled motion clips.
+// Movement, jump, gravity, stamina, and a rigged glTF ranger. Motion is the
+// Quaternius CC0 library, retargeted in character-clips, with a light IK
+// pass for the tool and for feet on a slope.
 //
 // The character mesh is centered on the Rapier capsule center so the feet land on
 // the visual ground when the capsule's bottom rests on the heightfield.
@@ -75,7 +60,11 @@ export interface Character {
     dt: number,
     time: number,
     activity: ProspectingActivity | null,
-    pose?: { menu?: boolean },
+    pose?: {
+      menu?: boolean;
+      carrying?: boolean;
+      ground?: (x: number, z: number) => number;
+    },
   ): void;
   /** Clip name plus whether the arms have fallen back to the bind T. */
   getPose(): PlayerPose;
@@ -115,25 +104,6 @@ const LANDED_DURATION = 0.18;
 const CAPSULE_HALF_HEIGHT = 0.5;
 const CAPSULE_RADIUS = 0.4;
 
-const gripUp = new THREE.Vector3(0, 1, 0);
-const gripDir = new THREE.Vector3();
-const gripQuat = new THREE.Quaternion();
-const gripInv = new THREE.Matrix4();
-
-/** Point the hand's local +Y (the grip socket axis) at a world target. */
-function aimGrip(hand: THREE.Object3D | undefined, target: THREE.Vector3): void {
-  if (!hand?.parent) return;
-  hand.updateWorldMatrix(true, false);
-  const origin = new THREE.Vector3().setFromMatrixPosition(hand.matrixWorld);
-  gripDir.copy(target).sub(origin);
-  if (gripDir.lengthSq() < 1e-5) return;
-  gripDir.normalize();
-  gripInv.copy(hand.parent.matrixWorld).invert();
-  gripDir.transformDirection(gripInv);
-  gripQuat.setFromUnitVectors(gripUp, gripDir);
-  hand.quaternion.copy(gripQuat);
-}
-
 export async function createCharacter(opts: CharacterOpts): Promise<Character> {
   // ---- Rapier body + collider ----
   const bodyDesc = RAPIER.RigidBodyDesc.kinematicPositionBased();
@@ -152,6 +122,7 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
 
   // ---- Visual rig (loaded glTF) ----
   const rig: CharacterRig = await loadCharacter();
+  const motion: MotionPlayer = await loadMotion(rig);
   const group = rig.group;
   group.position.set(opts.initialPosition.x, opts.initialPosition.y, opts.initialPosition.z);
   group.rotation.y = opts.initialYaw;
@@ -259,7 +230,6 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
 
   let toolStep: 'dig' | 'pan' | 'other' = 'other';
   let clip: PoseClip = 'idle-hold-tool';
-  applyIdleHold(rig, 0, 1);
 
   function focusAt(step: 'dig' | 'pan' | 'other'): THREE.Vector3 {
     const t = body.translation();
@@ -278,10 +248,14 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
   }
 
   function postStep(
-    _dt: number,
+    dt: number,
     time: number,
     activity: ProspectingActivity | null,
-    pose?: { menu?: boolean },
+    pose?: {
+      menu?: boolean;
+      carrying?: boolean;
+      ground?: (x: number, z: number) => number;
+    },
   ): void {
     const t = body.translation();
     group.position.set(t.x, t.y, t.z);
@@ -302,71 +276,74 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
           : 'other';
     toolStep = grip === 'other' ? 'other' : grip;
 
+    let requested: PoseClip = 'idle';
     if (pose?.menu && !posed) {
       showFor(null, false);
-      clip = applyIdleHold(rig, time);
-      return;
+      requested = 'idle';
+    } else {
+      showFor(posed?.step ?? null, livePan);
+      if (posed) {
+        switch (posed.step) {
+          case 'dig':
+          case 'sluice':
+          case 'tom':
+          case 'strike':
+            requested = 'shovel';
+            break;
+          case 'rocker':
+            requested = 'rock';
+            break;
+          case 'monitor':
+            requested = 'aim';
+            break;
+          case 'pan':
+            requested = 'pan';
+            break;
+          case 'classify':
+          case 'collect':
+            requested = 'sort';
+            break;
+          case 'extract':
+            requested = 'kneel';
+            break;
+          default:
+            requested = 'idle-hold-tool';
+            break;
+        }
+      } else {
+        switch (state) {
+          case 'walking':
+            requested = 'walk';
+            break;
+          case 'running':
+            requested = 'run';
+            break;
+          case 'jumping':
+            requested = 'jump';
+            break;
+          case 'falling':
+            requested = 'fall';
+            break;
+          case 'landed':
+            requested = 'land';
+            break;
+          case 'idle':
+          default:
+            requested = 'idle';
+            break;
+        }
+      }
     }
 
-    showFor(posed?.step ?? null, livePan);
-
-    if (posed) {
-      const progress = posed.progress;
-      switch (posed.step) {
-        case 'dig':
-        case 'sluice':
-        case 'tom':
-        case 'strike':
-          clip = applyDig(rig, time, progress);
-          break;
-        case 'rocker':
-          clip = applyRock(rig, time);
-          break;
-        case 'monitor':
-          clip = applyAim(rig, time);
-          break;
-        case 'pan':
-          clip = applyPan(rig, time, progress);
-          break;
-        case 'classify':
-        case 'collect':
-        case 'extract':
-          clip = applyClassify(rig, time, progress);
-          break;
-        default:
-          clip = applyIdleHold(rig, time);
-          break;
-      }
-      if (grip !== 'other') {
-        group.updateWorldMatrix(true, true);
-        aimGrip(rig.handR.bones[0], focusAt(grip));
-      }
-      return;
-    }
-
-    switch (state) {
-      case 'walking':
-        clip = applyWalk(rig, time);
-        break;
-      case 'running':
-        clip = applyRun(rig, time);
-        break;
-      case 'jumping':
-        clip = applyJumping(rig, time);
-        break;
-      case 'falling':
-        clip = applyFalling(rig, time);
-        break;
-      case 'landed': {
-        const t01 = Math.max(0, Math.min(1, 1 - landedTimer / LANDED_DURATION));
-        clip = applyLanded(rig, time, t01);
-        break;
-      }
-      case 'idle':
-      default:
-        clip = applyIdle(rig, time);
-        break;
-    }
+    const tool =
+      grip === 'dig' ? 'dig' : grip === 'pan' ? 'pan' : posed?.step === 'rocker' ? 'rock' : posed?.step === 'monitor' ? 'aim' : 'none';
+    clip = motion.update(dt, requested, {
+      time,
+      carrying: pose?.carrying === true && !posed,
+      tool,
+      toolTarget: tool === 'none' ? null : focusAt(grip === 'pan' ? 'pan' : 'dig'),
+      ground: pose?.ground ?? null,
+    });
   }
 
   return {

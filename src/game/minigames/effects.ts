@@ -42,7 +42,19 @@ export interface EffectSystem {
     style?: BurstStyle,
   ): void;
   shake(intensity: number, durationSec?: number): void;
+  /** Additive degrees on top of the frame's authored FOV. Decays over durationSec. */
+  kickFov(degrees: number, durationSec?: number): void;
+  /** Freeze the simulation for a short hit. The caller skips the world step. */
+  hitStop(seconds: number): void;
+  /** True while a hit-stop is still holding. Consumes `dt` from the timer. */
+  soakHitStop(dt: number): boolean;
+  rumble(durationMs: number, strong: number, weak: number): void;
   update(dt: number): void;
+  /**
+   * Shake and FOV kick. `baseFov` is the fov the camera mode just authored,
+   * before this offset. Position shake is added on top of the placed camera.
+   */
+  applyCameraFeel(camera: THREE.PerspectiveCamera, baseFov: number): void;
   applyShakeTo(camera: THREE.PerspectiveCamera): void;
 }
 
@@ -183,6 +195,35 @@ export function createEffectSystem(): EffectSystem {
   let shakeDuration = 0;
   let shakeIntensity = 0;
   let shakePhase = Math.random() * 10;
+  let fovKick = 0;
+  let fovKickDuration = 0;
+  let fovKickT = 0;
+  let hitLeft = 0;
+
+  function rumble(durationMs: number, strong: number, weak: number): void {
+    const pads = navigator.getGamepads?.();
+    if (!pads) return;
+    for (const pad of pads) {
+      if (!pad) continue;
+      const actuator = (pad as Gamepad & {
+        vibrationActuator?: {
+          playEffect: (type: string, params: Record<string, number>) => Promise<unknown>;
+        };
+      }).vibrationActuator;
+      if (actuator && typeof actuator.playEffect === 'function') {
+        void actuator
+          .playEffect('dual-rumble', {
+            duration: durationMs,
+            strongMagnitude: strong,
+            weakMagnitude: weak,
+          })
+          .catch(() => undefined);
+      }
+      const haptic = (pad as Gamepad & { hapticActuators?: { pulse?: (v: number, ms: number) => Promise<unknown> }[] })
+        .hapticActuators?.[0];
+      if (haptic?.pulse) void haptic.pulse(Math.max(strong, weak), durationMs).catch(() => undefined);
+    }
+  }
 
   return {
     particlesGroup: cameraPool.group,
@@ -208,6 +249,22 @@ export function createEffectSystem(): EffectSystem {
         shakeT = 0;
       }
     },
+    kickFov(degrees, durationSec = 0.4) {
+      if (degrees > fovKick * (1 - fovKickT / Math.max(fovKickDuration, 1e-4))) {
+        fovKick = degrees;
+        fovKickDuration = durationSec;
+        fovKickT = 0;
+      }
+    },
+    hitStop(seconds) {
+      hitLeft = Math.max(hitLeft, seconds);
+    },
+    soakHitStop(dt) {
+      if (hitLeft <= 0) return false;
+      hitLeft = Math.max(0, hitLeft - dt);
+      return true;
+    },
+    rumble,
     update(dt) {
       advance(cameraPool.pool, dt);
       advance(worldPool.pool, dt);
@@ -215,6 +272,15 @@ export function createEffectSystem(): EffectSystem {
         shakeT += dt;
         shakePhase += dt * SHAKE_FREQ_HZ * Math.PI * 2;
       }
+      if (fovKickT < fovKickDuration) fovKickT += dt;
+    },
+    applyCameraFeel(camera, baseFov) {
+      const kick = fovKickT < fovKickDuration ? fovKick * (1 - fovKickT / fovKickDuration) : 0;
+      if (Math.abs(camera.fov - (baseFov + kick)) > 0.01) {
+        camera.fov = baseFov + kick;
+        camera.updateProjectionMatrix();
+      }
+      this.applyShakeTo(camera);
     },
     applyShakeTo(camera) {
       if (shakeT >= shakeDuration) return;

@@ -60,6 +60,8 @@ export interface ThemHillsProbe {
   save: () => Promise<void>;
   /** A v4-shaped copy of the live save, for the migration smoke. */
   exportLegacyV4: () => unknown;
+  /** Live price of the next tier, read from equipment config. */
+  upgradeCost: (category: string) => number | null;
   buyUpgrade: (category: string) => boolean;
   stakeClaim: () => { ok: boolean; reason: string };
   prepareShowcase: () => { x: number; z: number };

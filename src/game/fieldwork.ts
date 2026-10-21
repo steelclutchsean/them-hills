@@ -403,6 +403,14 @@ export function openingGuide(save: SaveV1): {
       beam: 'rocker',
     };
   }
+  if (owned.pan < 2) {
+    const steel = EQUIPMENT.pan.upgrades.find((row) => row.toTier === 2);
+    return {
+      title: 'A steel pan',
+      detail: `The 14 inch steel pan is $${steel?.cost ?? 750} at the store. Run the rocker until it is paid, then the sluice.`,
+      beam: 'store',
+    };
+  }
   if (owned.sluice < 2) {
     return {
       title: 'A sluice',

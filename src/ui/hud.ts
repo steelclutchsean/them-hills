@@ -896,6 +896,18 @@ export function mountHud(root: HTMLElement, hooks: HudHooks = {}): MountedHud {
   let fps = 0;
   let seenCarry = -1;
   let seenWallet = -1;
+  let shownWallet = -1;
+  let walletFrom = 0;
+  let walletTo = -1;
+  let walletFromMs = 0;
+  let vendorKey = '';
+  let vendorFromMs = 0;
+  const rollMs = 720;
+  function easeOut(now: number, from: number, to: number, started: number): number {
+    const u = Math.max(0, Math.min(1, (now - started) / rollMs));
+    const e = 1 - (1 - u) * (1 - u) * (1 - u);
+    return from + (to - from) * e;
+  }
   const toastTimers: number[] = [];
   function pushToast(text: string): void {
     const toast = document.createElement('div');
@@ -959,7 +971,19 @@ export function mountHud(root: HTMLElement, hooks: HudHooks = {}): MountedHud {
       const dollarEst = (totalG / GRAMS_PER_OZT) * s.spotPricePerOzt * ASSAYER_MULT;
       lines.invValue!.textContent = `$${dollarEst.toFixed(2)}`;
 
-      lines.invWallet!.textContent = `$${s.walletBalance.toFixed(2)}`;
+      const nowMs = performance.now();
+      if (shownWallet < 0) {
+        shownWallet = s.walletBalance;
+        walletFrom = s.walletBalance;
+        walletTo = s.walletBalance;
+        walletFromMs = nowMs;
+      } else if (Math.abs(s.walletBalance - walletTo) > 0.001) {
+        walletFrom = shownWallet;
+        walletTo = s.walletBalance;
+        walletFromMs = nowMs;
+      }
+      shownWallet = easeOut(nowMs, walletFrom, walletTo, walletFromMs);
+      lines.invWallet!.textContent = `$${shownWallet.toFixed(2)}`;
       if (seenCarry >= 0 && totalG > seenCarry + 0.004) {
         pushToast(`Found ${(totalG - seenCarry).toFixed(2)} g`);
       }
@@ -1067,9 +1091,18 @@ export function mountHud(root: HTMLElement, hooks: HudHooks = {}): MountedHud {
 
         const amount = document.createElement('div');
         amount.className = 'step-bar';
-        amount.textContent = s.vendor.canSell
-          ? `Sell all gold for $${s.vendor.grossDollars.toFixed(2)}`
-          : 'No gold to sell';
+        if (s.vendor.canSell) {
+          const key = `${s.vendor.name}:${s.vendor.grossDollars.toFixed(2)}`;
+          if (key !== vendorKey) {
+            vendorKey = key;
+            vendorFromMs = nowMs;
+          }
+          const shown = easeOut(nowMs, 0, s.vendor.grossDollars, vendorFromMs);
+          amount.textContent = `Sell all gold for $${shown.toFixed(2)}`;
+        } else {
+          vendorKey = '';
+          amount.textContent = 'No gold to sell';
+        }
         vendor.appendChild(amount);
 
         const sub = document.createElement('div');
