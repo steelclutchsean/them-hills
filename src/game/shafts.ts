@@ -222,53 +222,44 @@ export function createLightShafts(): LightShafts {
       widthDir.y = 0;
       if (widthDir.lengthSq() < 1e-4) widthDir.set(1, 0, 0);
       widthDir.normalize();
+      // The sun's screen position. Each shaft is a world quad whose ends
+      // sit on two different view rays, so the streak cannot collapse.
+      ndcA.copy(camera.position).addScaledVector(sunDir, 60);
+      ndcA.project(camera);
+      const sunInFront = ndcA.z < 1 && sunDir.dot(forward) > 0.12;
       const gaps = findGaps(camera.position, sunFlat);
+      const rayPoint = (nx: number, ny: number, dist: number, out: THREE.Vector3) => {
+        ndcB.set(
+          THREE.MathUtils.clamp(nx, -0.92, 0.92),
+          THREE.MathUtils.clamp(ny, -0.35, 0.94),
+          0.5,
+        );
+        ndcB.unproject(camera);
+        ndcB.sub(camera.position);
+        if (ndcB.lengthSq() < 1e-8) ndcB.copy(forward);
+        ndcB.normalize();
+        out.copy(camera.position).addScaledVector(ndcB, dist);
+      };
       for (let i = 0; i < beams.length; i++) {
         const beam = beams[i];
-        const gap = gaps[i];
-        if (!beam || !gap) {
+        if (!beam || !sunInFront) {
           if (beam) beam.visible = false;
           continue;
         }
         beam.visible = true;
-        const half = (widths[i] ?? 0.8) * 2.5;
-        crown.set(gap.x, gap.y, gap.z);
-        // A column parallel to the view collapses to a point. Keep each
-        // shaft off the lens axis so perspective stretches it into a slant.
-        toCam.subVectors(crown, camera.position);
-        const depth = toCam.dot(forward);
-        toCam.addScaledVector(forward, -depth);
-        if (toCam.length() < 3.2) {
-          crown.addScaledVector(widthDir, (i % 2 === 0 ? 1 : -1) * (4.2 + i * 0.45));
+        const half = (widths[i] ?? 0.8) * 1.35;
+        const gap = gaps[i];
+        let xFar = ndcA.x + (i - 2.5) * 0.07;
+        let yFar = ndcA.y - 0.03;
+        if (gap) {
+          crown.set(gap.x, gap.y, gap.z);
+          toCam.copy(crown).project(camera);
+          if (toCam.z < 1 && toCam.x > -1.2 && toCam.x < 1.2) xFar = toCam.x;
         }
-        end.copy(crown).addScaledVector(sunDir, 2.2);
-        end.y += 1.1;
-        let found = false;
-        for (let travel = 6; travel <= 36; travel += 2) {
-          start.copy(crown).addScaledVector(sunDir, -travel);
-          const ahead = start.x - camera.position.x;
-          const ay = start.y - camera.position.y;
-          const az = start.z - camera.position.z;
-          const alongView = ahead * forward.x + ay * forward.y + az * forward.z;
-          const dist = Math.hypot(ahead, ay, az);
-          if (dist > 6 && dist < 16 && alongView > 3 && start.y > camera.position.y - 0.2) {
-            found = true;
-            break;
-          }
-        }
-        if (!found) {
-          start.copy(camera.position).addScaledVector(forward, 9);
-          start.y = camera.position.y + 1.4;
-        }
-        start.y = Math.max(start.y, camera.position.y + 0.4);
-        start.addScaledVector(widthDir, (i - 2.5) * 1.6);
-        ndcA.copy(start).project(camera);
-        ndcB.copy(end).project(camera);
-        const ndcLen = Math.hypot(ndcA.x - ndcB.x, ndcA.y - ndcB.y);
-        if (ndcLen < 0.24) {
-          start.addScaledVector(widthDir, (i % 2 === 0 ? 1 : -1) * 5.5);
-          start.y -= 2.2;
-        }
+        const yNear = yFar - (0.55 + (i % 3) * 0.08);
+        const xNear = xFar + (i - 2.5) * 0.025;
+        rayPoint(xFar, yFar, 26 + (i % 3) * 5, end);
+        rayPoint(xNear, yNear, 8 + i * 0.35, start);
         const attr = beam.geometry.getAttribute('position') as THREE.BufferAttribute;
         const place = (index: number, base: THREE.Vector3, span: number) => {
           attr.setXYZ(

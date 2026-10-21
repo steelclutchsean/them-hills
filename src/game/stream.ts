@@ -305,6 +305,7 @@ const FRAG_SHADER = /* glsl */ `
       vec4 clip = uPlanarVP * vec4(vWorld, 1.0);
       if (clip.w > 0.15) {
         vec2 uv = clip.xy / clip.w * 0.5 + 0.5;
+        uv.y = 1.0 - uv.y;
         uv += surfNormal.xz * 0.003;
         if (uv.x > 0.015 && uv.x < 0.985 && uv.y > 0.015 && uv.y < 0.985) {
           vec3 bank = texture2D(uPlanar, uv).rgb;
