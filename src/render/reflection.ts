@@ -123,7 +123,9 @@ export function createWaterReflection(): WaterReflection {
       targetPos.add(reflectorWorldPosition);
 
       virtual.position.copy(view);
+      // Match Reflector: camera up, then mirrored. World up alone rolls a pitched view.
       virtual.up.set(0, 1, 0);
+      virtual.up.applyMatrix4(rotationMatrix);
       virtual.up.reflect(normal);
       virtual.lookAt(targetPos);
       // The opposite bank and the first trees. Farther than this redrew the
@@ -134,11 +136,6 @@ export function createWaterReflection(): WaterReflection {
       virtual.aspect = camera.aspect;
       virtual.updateProjectionMatrix();
       virtual.updateMatrixWorld();
-
-      textureMatrix.set(0.5, 0, 0, 0.5, 0, 0.5, 0, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0, 1);
-      textureMatrix.multiply(virtual.projectionMatrix);
-      textureMatrix.multiply(virtual.matrixWorldInverse);
-      reflectionUniforms.uReflProjView.value.copy(textureMatrix);
 
       reflectorPlane.setFromNormalAndCoplanarPoint(normal, reflectorWorldPosition);
       reflectorPlane.applyMatrix4(virtual.matrixWorldInverse);
@@ -161,6 +158,13 @@ export function createWaterReflection(): WaterReflection {
       el[10] = clipPlane.z + 1 - 0.003;
       el[14] = clipPlane.w;
 
+      // The sample matrix has to use the clipped projection, or the water
+      // reads the fog clear instead of the bank that was just drawn.
+      textureMatrix.set(0.5, 0, 0, 0.5, 0, 0.5, 0, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0, 1);
+      textureMatrix.multiply(virtual.projectionMatrix);
+      textureMatrix.multiply(virtual.matrixWorldInverse);
+      reflectionUniforms.uReflProjView.value.copy(textureMatrix);
+
       const prevTarget = renderer.getRenderTarget();
       const prevShadowAuto = renderer.shadowMap.autoUpdate;
       const prevXr = renderer.xr.enabled;
@@ -177,7 +181,7 @@ export function createWaterReflection(): WaterReflection {
       // keeps the trees dark and green instead of the fog color.
       const expFog = scene.fog instanceof THREE.FogExp2 ? scene.fog : null;
       const prevDensity = expFog?.density ?? 0;
-      if (expFog) expFog.density = prevDensity * 0.22;
+      if (expFog) expFog.density = prevDensity * 0.08;
       renderer.render(scene, virtual);
       if (expFog) expFog.density = prevDensity;
 

@@ -308,6 +308,72 @@ function addChimneySmoke(parent: THREE.Object3D, x: number, y: number, z: number
   }
 }
 
+/** Woodshed, hitch rail, and a woodpile so the inn is not a single box. */
+function addInnYard(
+  root: THREE.Object3D,
+  width: number,
+  depth: number,
+  wood: THREE.Material,
+  dark: THREE.Material,
+  stone: THREE.Material,
+): void {
+  const hx = width / 2;
+  const hz = depth / 2;
+  const shedX = hx + 1.15;
+  const post = new THREE.CylinderGeometry(0.07, 0.09, 1.7, 6);
+  root.add(mesh(post, dark, shedX - 0.7, 0.85, hz - 0.2));
+  root.add(mesh(post, dark, shedX + 0.85, 0.85, hz - 0.15));
+  root.add(mesh(post, dark, shedX + 0.8, 0.85, hz - 1.55));
+  const roof = mesh(new THREE.BoxGeometry(2.15, 0.08, 1.9), dark, shedX + 0.1, 1.78, hz - 0.85);
+  roof.rotation.z = -0.28;
+  roof.rotation.y = 0.04;
+  root.add(roof);
+  for (let i = 0; i < 5; i++) {
+    const log = mesh(
+      new THREE.CylinderGeometry(0.07, 0.08, 0.85, 6),
+      i % 2 === 0 ? wood : dark,
+      shedX - 0.15 + (i % 2) * 0.12,
+      0.12 + Math.floor(i / 2) * 0.16,
+      hz - 0.7 - (i % 3) * 0.16,
+    );
+    log.rotation.z = Math.PI / 2;
+    log.rotation.y = (i % 3) * 0.08;
+    root.add(log);
+  }
+  const railZ = hz + 2.15;
+  const rail = mesh(
+    new THREE.CylinderGeometry(0.035, 0.035, width * 0.7, 6),
+    dark,
+    -0.2,
+    0.85,
+    railZ,
+  );
+  rail.rotation.z = Math.PI / 2;
+  root.add(rail);
+  root.add(mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.9, 6), dark, -width * 0.38, 0.45, railZ));
+  root.add(mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.9, 6), dark, width * 0.28, 0.45, railZ));
+  const trough = mesh(
+    new THREE.BoxGeometry(0.95, 0.28, 0.38),
+    wood,
+    width * 0.15,
+    0.22,
+    railZ + 0.15,
+  );
+  root.add(trough);
+  root.add(mesh(new THREE.BoxGeometry(0.78, 0.08, 0.22), stone, width * 0.15, 0.32, railZ + 0.15));
+  const stump = mesh(
+    new THREE.CylinderGeometry(0.22, 0.26, 0.42, 7),
+    dark,
+    -hx - 0.55,
+    0.21,
+    hz + 0.4,
+  );
+  root.add(stump);
+  const axe = mesh(new THREE.BoxGeometry(0.04, 0.55, 0.08), dark, -hx - 0.55, 0.62, hz + 0.4);
+  axe.rotation.z = 0.15;
+  root.add(axe);
+}
+
 /** Log cabin with a porch, chimney, sign, barrels, and a door lantern. */
 export function buildCabin(opts: {
   sign: string;
@@ -443,6 +509,8 @@ export function buildCabin(opts: {
   root.add(crate);
   const lantern = addLantern(root, width * 0.22, 1.75, hz + 0.25);
 
+  if (width > 4.2) addInnYard(root, width, depth, wood, dark, stone);
+
   const ring = markerRing();
   ring.position.z = hz + 1.85;
   root.add(ring);
@@ -494,8 +562,14 @@ export function buildShop(opts: { sign: string; accent: number }): BuiltPlace {
   );
   root.add(pan);
   addBarrel(root, 1.45, 0.25);
+  addBarrel(root, 1.7, 0.55);
   const crate = mesh(new THREE.BoxGeometry(0.36, 0.28, 0.32), wood, -1.4, 0.4, 0.2);
   root.add(crate);
+  const crate2 = mesh(new THREE.BoxGeometry(0.32, 0.24, 0.28), dark, -1.28, 0.66, 0.28);
+  crate2.rotation.y = 0.2;
+  root.add(crate2);
+  const walk = mesh(new THREE.BoxGeometry(2.4, 0.06, 0.9), wood, 0, 0.08, 1.15);
+  root.add(walk);
   const lantern = addLantern(root, -1.15, 1.65, 0.75);
   const ring = markerRing();
   ring.position.set(0, 0.05, 1.45);

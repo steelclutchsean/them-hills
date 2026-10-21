@@ -103,9 +103,9 @@ export async function loadCharacter(): Promise<CharacterRig> {
     const modeled = await attachModeledHead(headBone);
     if (!modeled) headBone.add(createProspectorHead());
     const hat = createProspectorHat();
-    hat.position.y = 0.08;
+    hat.position.y = 0.11;
     // Front of the hat is local -Z. A negative X tilt lifts the brim off the eyes.
-    hat.rotation.x = -0.22;
+    hat.rotation.x = -0.4;
     headBone.add(hat);
   }
   const handR = bones.get('hand_r');
@@ -239,12 +239,20 @@ function attachHandTools(hand: THREE.Object3D | undefined): {
   );
   // Opening faces the grip's +Y, which the wrist aims at the camera's look point.
   bowl.position.y = 0.14;
-  pan.add(bowl);
-  for (let i = 0; i < 12; i++) {
-    const a = (i / 12) * Math.PI * 2 + (i % 3) * 0.15;
-    const radius = i % 4 === 0 ? 0.062 : i % 2 === 0 ? 0.042 : 0.028;
-    const ring = i % 4 === 0 ? 0.05 : 0.09;
-    addGoldFlake(pan, radius, Math.cos(a) * ring, 0.175, Math.sin(a) * ring * 0.72);
+  const rim = new THREE.Mesh(
+    new THREE.TorusGeometry(0.19, 0.012, 6, 16),
+    new THREE.MeshStandardMaterial({ color: 0xc2ad8e, metalness: 0.72, roughness: 0.32 }),
+  );
+  rim.rotation.x = Math.PI / 2;
+  rim.position.y = 0.162;
+  pan.add(bowl, rim);
+  // A pile in the middle of the bowl, big enough to read as the find.
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + 0.4;
+    const hero = i < 4;
+    const radius = hero ? 0.105 : 0.062;
+    const ring = hero ? 0.015 + (i % 2) * 0.028 : 0.055;
+    addGoldFlake(pan, radius, Math.cos(a) * ring, 0.205, Math.sin(a) * ring * 0.66);
   }
   pan.visible = false;
 
@@ -282,9 +290,9 @@ function createMatchedFace(): THREE.Group {
 
   const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.062, 0.1, 10), skin);
   neck.position.y = -0.06;
-  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.098, 18, 14), skin);
-  skull.scale.set(1.0, 1.16, 0.94);
-  skull.position.set(0, 0.055, 0.004);
+  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.092, 18, 14), skin);
+  skull.scale.set(1.02, 1.18, 0.88);
+  skull.position.set(0, 0.058, 0.01);
   const jaw = new THREE.Mesh(new THREE.SphereGeometry(0.07, 14, 10), skin);
   jaw.scale.set(0.92, 0.62, 0.86);
   jaw.position.set(0, -0.012, -0.012);
@@ -302,26 +310,27 @@ function createMatchedFace(): THREE.Group {
   bridge.position.set(0, 0.05, -0.082);
   group.add(neck, skull, jaw, brow, cheekL, cheekR, nose, bridge);
 
-  const socket = new THREE.SphereGeometry(0.02, 8, 6);
+  const socket = new THREE.SphereGeometry(0.024, 8, 6);
   const socketL = new THREE.Mesh(socket, dark);
-  socketL.position.set(0.032, 0.048, -0.078);
+  socketL.position.set(0.034, 0.05, -0.086);
   const socketR = socketL.clone();
-  socketR.position.x = -0.032;
-  const eyeWhite = new THREE.SphereGeometry(0.014, 8, 6);
+  socketR.position.x = -0.034;
+  const eyeWhite = new THREE.SphereGeometry(0.018, 10, 8);
   const eyeL = new THREE.Mesh(eyeWhite, white);
-  eyeL.position.set(0.032, 0.046, -0.088);
+  eyeL.scale.set(1.15, 0.82, 0.7);
+  eyeL.position.set(0.034, 0.048, -0.1);
   const eyeR = eyeL.clone();
-  eyeR.position.x = -0.032;
-  const irisGeom = new THREE.SphereGeometry(0.007, 8, 6);
+  eyeR.position.x = -0.034;
+  const irisGeom = new THREE.SphereGeometry(0.009, 8, 6);
   const irisL = new THREE.Mesh(irisGeom, iris);
-  irisL.position.set(0.032, 0.045, -0.098);
+  irisL.position.set(0.034, 0.046, -0.112);
   const irisR = irisL.clone();
-  irisR.position.x = -0.032;
-  const glintGeom = new THREE.SphereGeometry(0.003, 6, 4);
+  irisR.position.x = -0.034;
+  const glintGeom = new THREE.SphereGeometry(0.0035, 6, 4);
   const glintL = new THREE.Mesh(glintGeom, catchlight);
-  glintL.position.set(0.036, 0.05, -0.102);
+  glintL.position.set(0.039, 0.052, -0.118);
   const glintR = glintL.clone();
-  glintR.position.x = -0.028;
+  glintR.position.x = -0.029;
   const browGeom = new THREE.BoxGeometry(0.028, 0.008, 0.01);
   const browMat = new THREE.MeshStandardMaterial({ color: 0x2c1c14, roughness: 0.8 });
   const browL = new THREE.Mesh(browGeom, browMat);

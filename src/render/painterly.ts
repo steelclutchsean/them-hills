@@ -299,10 +299,10 @@ export function goldGlintMaterial(): THREE.ShaderMaterial {
       uniform float uTime;
       varying vec3 vN;
       void main() {
-        float facing = pow(max(-vN.z, 0.0), 1.4);
-        float twinkle = 0.7 + 0.3 * sin(uTime * 6.0 + vN.x * 9.0);
-        vec3 col = vec3(9.0, 5.2, 1.15) * (1.05 + facing * 2.6 * twinkle);
-        gl_FragColor = vec4(col, 0.95);
+        float facing = pow(max(-vN.z, 0.0), 0.55);
+        float twinkle = 0.75 + 0.25 * sin(uTime * 6.0 + vN.x * 9.0);
+        vec3 col = vec3(14.0, 8.2, 1.7) * (0.7 + facing * 2.4 * twinkle);
+        gl_FragColor = vec4(col, 0.98);
       }
     `,
   });
@@ -323,9 +323,9 @@ export function addGoldFlake(
 ): void {
   const flake = new THREE.Mesh(new THREE.SphereGeometry(radius, 10, 8), goldFlakeMaterial());
   flake.position.set(x, y, z);
-  flake.scale.set(1.65, 0.42, 1.25);
+  flake.scale.set(2.15, 0.48, 1.55);
   parent.add(flake);
-  const glint = new THREE.Mesh(new THREE.SphereGeometry(radius * 1.45, 8, 6), goldGlintMaterial());
+  const glint = new THREE.Mesh(new THREE.SphereGeometry(radius * 2.35, 10, 8), goldGlintMaterial());
   glint.position.set(x, y + radius * 0.15, z);
   parent.add(glint);
 }

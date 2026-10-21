@@ -206,15 +206,19 @@ const FRAG_SHADER = /* glsl */ `
     vec3 reflected = mix(uHemiSky, uFoam, 0.22);
     if (uHasReflect > 0.5) {
       vec4 clip = uReflProjView * vec4(vWorld, 1.0);
-      vec2 uv = clip.xy / clip.w * 0.5 + 0.5;
-      if (clip.w > 0.0 && uv.x > 0.02 && uv.x < 0.98 && uv.y > 0.02 && uv.y < 0.98) {
-        reflected = texture2D(uReflect, uv).rgb;
+      if (clip.w > 0.0) {
+        vec2 uv = clamp(clip.xy / clip.w * 0.5 + 0.5, 0.0, 1.0);
+        vec3 sample = texture2D(uReflect, uv).rgb;
+        float rl = dot(sample, vec3(0.25, 0.6, 0.15));
+        // The mirror target is already tone-mapped. Push the green back
+        // so a second pass does not turn the trees into a gray sheen.
+        reflected = mix(vec3(rl), sample, 1.7);
       }
     }
     // Without a reflection target, a strong fresnel just paints the creek
     // the color of the sky and it disappears into the bank.
     // A floor keeps the mirror readable even when the camera looks down.
-    float reflectAmt = uHasReflect > 0.5 ? max(fres, 0.58) * 0.94 : fres * 0.2;
+    float reflectAmt = uHasReflect > 0.5 ? max(fres, 0.74) * 0.97 : fres * 0.2;
     base = mix(base, reflected, reflectAmt);
 
     float cau = noise(worldXZ * 3.4 - scroll * 1.5) * noise(worldXZ * 6.2 + scroll * 0.6);

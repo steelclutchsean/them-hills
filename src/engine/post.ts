@@ -37,10 +37,10 @@ const GradeShader = {
     void main() {
       vec3 col = texture2D(tDiffuse, vUv).rgb;
       float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));
-      float nearFocus = smoothstep(0.46, 0.1, distance(vUv, uFocus));
-      float sat = mix(uSaturation * 0.06, uSaturation * 1.15, mix(1.0, nearFocus, uFocusAmt));
+      float nearFocus = smoothstep(0.72, 0.08, distance(vUv, uFocus));
+      float sat = mix(uSaturation * 0.62, uSaturation * 1.22, mix(1.0, nearFocus, uFocusAmt));
       col = mix(vec3(luma), col, sat);
-      col *= mix(1.0, mix(0.55, 1.12, nearFocus), uFocusAmt);
+      col *= mix(1.0, mix(0.82, 1.18, nearFocus), uFocusAmt);
       // Sierra poster grade: teal shade, warm highlights.
       vec3 shadowTint = vec3(0.9, 0.98, 1.02);
       vec3 highTint = vec3(1.05, 0.98, 0.92);
@@ -85,8 +85,9 @@ const GodrayShader = {
       for (int i = 0; i < 24; i++) {
         p += delta;
         float l = dot(texture2D(tDiffuse, clamp(p, 0.0, 1.0)).rgb, vec3(0.25, 0.55, 0.2));
-        // Only the sun and the bright sky add light, so trees cut real shafts.
-        float sky = smoothstep(0.55, 0.92, l);
+        // Only the sun disc is bright enough to seed a ray. The whole dawn
+        // sky sits under this, so trees between the camera and the disc cut shafts.
+        float sky = smoothstep(1.5, 3.1, l);
         illum += sky * (1.0 - float(i) / 24.0);
       }
       illum /= 24.0;

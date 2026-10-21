@@ -265,8 +265,8 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
     const t = body.translation();
     const forwardX = -Math.sin(yaw);
     const forwardZ = -Math.cos(yaw);
-    const reach = step === 'pan' ? 0.42 : 0.55;
-    const lift = step === 'pan' ? 1.05 : 0.72;
+    const reach = step === 'pan' ? 0.5 : 0.55;
+    const lift = step === 'pan' ? 0.36 : 0.72;
     return new THREE.Vector3(t.x + forwardX * reach, t.y + lift, t.z + forwardZ * reach);
   }
 
@@ -292,7 +292,14 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
       reviewPose === 'dig' || reviewPose === 'pan' ? { step: reviewPose, progress: 0.5 } : activity;
     const livePan = activity?.step === 'pan';
     const grip =
-      posed?.step === 'pan' ? 'pan' : posed?.step === 'dig' || posed?.step === 'sluice' || posed?.step === 'tom' || posed?.step === 'strike' ? 'dig' : 'other';
+      posed?.step === 'pan'
+        ? 'pan'
+        : posed?.step === 'dig' ||
+            posed?.step === 'sluice' ||
+            posed?.step === 'tom' ||
+            posed?.step === 'strike'
+          ? 'dig'
+          : 'other';
     toolStep = grip === 'other' ? 'other' : grip;
 
     if (pose?.menu && !posed) {

@@ -197,7 +197,7 @@ export function updateScatterWind(
   view: THREE.Vector3 = camera,
   sunLift = 1,
 ): void {
-  if (treeCardMat) treeCardMat.emissiveIntensity = Math.max(0.08, Math.min(1, sunLift));
+  if (treeCardMat) treeCardMat.emissiveIntensity = Math.max(0.72, Math.min(1.15, sunLift));
   for (const node of swayNodes) {
     const keep = node.ordinal < Math.ceil(node.budget * density);
     if (!keep) {
