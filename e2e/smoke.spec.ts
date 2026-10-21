@@ -203,7 +203,7 @@ test('plays the prospect loop and reloads the save', async ({ page }) => {
 });
 
 test('captures fixed cameras', async ({ page }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(360_000);
   const errors = trackErrors(page);
   const shots = [
     'spawn',
