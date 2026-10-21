@@ -133,7 +133,7 @@ export function createLightShafts(): LightShafts {
     uniforms: {
       // Warm dust. The core, after the view and haze gates, adds about a tenth.
       uColor: { value: new THREE.Color(0.85, 0.68, 0.38) },
-      uStrength: { value: 0.58 },
+      uStrength: { value: 0.82 },
       uView: { value: 0 },
       uHaze: { value: 0.8 },
       uTime: { value: 0 },
