@@ -488,9 +488,9 @@ export async function createCrewVariant(shirt: number, hat: number): Promise<THR
         if (jumper) {
           // The atlas multiply was swallowing the shirt in shade. Emissive
           // keeps a red that still reads when the sun misses the bank.
-          next.color.set(shirtMesh ? 0xff4a3c : 0xd24a3e);
-          next.emissive.set(shirtMesh ? 0xc42820 : 0x8a221c);
-          next.emissiveIntensity = shirtMesh ? 1.05 : 0.62;
+          next.color.set(shirtMesh ? 0xff4a3a : 0xe0483c);
+          next.emissive.set(0xff2a22);
+          next.emissiveIntensity = shirtMesh ? 2.55 : 1.65;
         } else {
           next.color.lerp(tint, shirtMesh ? 0.72 : 0.45);
         }
@@ -511,13 +511,13 @@ export async function createCrewVariant(shirt: number, hat: number): Promise<THR
         const mat = obj.material.clone();
         obj.material = mat;
         if (mat instanceof THREE.MeshStandardMaterial && mat.color.getHex() === SKIN_COLOR) {
-          mat.emissive.set(0xb87448);
-          mat.emissiveIntensity = 0.7;
+          mat.emissive.set(0xc48050);
+          mat.emissiveIntensity = 0.95;
         }
         if (mat instanceof THREE.MeshBasicMaterial) {
           const hex = mat.color.getHex();
           if (hex === 0xf4efe4 || hex === 0x2a1a10 || hex === 0x140c09 || hex === 0xfff6e4) {
-            obj.scale.multiplyScalar(1.7);
+            obj.scale.multiplyScalar(1.9);
           }
         }
       });

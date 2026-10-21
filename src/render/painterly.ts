@@ -385,8 +385,8 @@ export function machineTimber(
     color: new THREE.Color(deepen, deepen * 0.94, deepen * 0.78),
     roughness: 0.82,
     metalness: 0.02,
-    emissive: new THREE.Color(0.5 * deepen, 0.36 * deepen, 0.18 * deepen),
-    emissiveIntensity: 0.5,
+    emissive: new THREE.Color(0.62 * deepen, 0.44 * deepen, 0.22 * deepen),
+    emissiveIntensity: 0.72,
     aoMapIntensity: 0.32,
   });
   mat.normalScale.set(0.55, 0.55);

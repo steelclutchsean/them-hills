@@ -453,13 +453,23 @@ function buildTom(
 
   const grizzly = new THREE.Group();
   grizzly.name = 'grizzly';
-  grizzly.position.set(0, 1.02, -0.18);
-  grizzly.add(box(0.88, 0.04, 0.72, metal, 0, 0, 0));
-  const holeMat = new THREE.MeshBasicMaterial({ color: 0x140e0a });
-  for (let row = 0; row < 4; row++) {
-    for (let col = 0; col < 5; col++) {
-      const hole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.055, 8), holeMat);
-      hole.position.set(-0.28 + col * 0.14, 0.02, -0.22 + row * 0.15);
+  // Animate pins this group at y=1.02. Sit it on the near head of the tom,
+  // tipped toward the bank, so the camera sees the face of the plate.
+  grizzly.position.set(0, 1.02, -2.35);
+  grizzly.rotation.x = -1.05;
+  const plate = new THREE.MeshStandardMaterial({
+    color: 0xe4e0d8,
+    roughness: 0.32,
+    metalness: 0.82,
+    emissive: 0xa8a49c,
+    emissiveIntensity: 0.45,
+  });
+  grizzly.add(box(1.05, 0.04, 0.78, plate, 0, 0.15, 0));
+  const holeMat = new THREE.MeshBasicMaterial({ color: 0x100c09 });
+  for (let row = 0; row < 2; row++) {
+    for (let col = 0; col < 3; col++) {
+      const hole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.09, 12), holeMat);
+      hole.position.set(-0.28 + col * 0.28, 0.17, -0.16 + row * 0.32);
       grizzly.add(hole);
     }
   }

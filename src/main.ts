@@ -1017,6 +1017,7 @@ async function bootstrap(): Promise<void> {
       startMachine: (kind: string) => {
         const allowed: MachineKind[] = ['rocker', 'sluice', 'longtom', 'monitor'];
         if (!allowed.includes(kind as MachineKind)) return false;
+        character.group.visible = true;
         const machineKind = kind as MachineKind;
         const saveNow = gameStore.getState().save;
         const claim = saveNow.fieldwork.claims.find((c) => c.kind === 'placer');
@@ -1073,21 +1074,23 @@ async function bootstrap(): Promise<void> {
         if (machine) {
           const fx = -Math.sin(machine.yaw);
           const fz = -Math.cos(machine.yaw);
-          // Beside the jumper, not stacked in front of him, so the chase
-          // camera frames his face and the rocker at the same mid distance.
-          const px = machine.x - fx * 1.85 + -fz * 1.45;
-          const pz = machine.z - fz * 1.85 + fx * 1.45;
+          // The chase camera looks at the prospector. Stand him on the jumper
+          // and hide him so the mid-shot is the jumper's face, not his back.
+          const px = machine.x - fx * 0.75;
+          const pz = machine.z - fz * 0.75;
           character.placeAt(px, terrain.getHeightAt(px, pz) + 0.95, pz);
-          character.setYaw(machine.yaw + 0.4);
+          character.setYaw(machine.yaw);
+          character.group.visible = false;
           cameraRig.setAvoidance(false);
-          cameraRig.setYawPitch(machine.yaw + 0.85, 0.22);
-          cameraRig.setArmLength(5.5);
+          cameraRig.setArmLength(5.2);
+          cameraRig.setYawPitch(machine.yaw + 0.62, 0.16);
         }
         return true;
       },
       applyShot: (name: string) => {
         const shot = reviewShot(name);
         if (!shot) return false;
+        character.group.visible = true;
         const y = terrain.getHeightAt(shot.x, shot.z) + 1.5;
         character.placeAt(shot.x, y, shot.z);
         if (shot.pose === 'dig' || shot.pose === 'pan') character.setYaw(shot.yaw);
