@@ -39,35 +39,19 @@ export interface AudioMixer {
   }): void;
   /** 0 outdoors, 1 inside a mine. Smoothed by the caller via dt. */
   setCave(amount: number): void;
+  /** Replace the generated silence with a decoded impulse response. */
+  setImpulse(buffer: AudioBuffer): void;
   play(buffer: AudioBuffer, opts: ShotOptions): void;
+}
+
+/** Air absorption: open up close, muffled once a source is well out of reach. */
+export function distanceCutoff(distance: number): number {
+  const t = Math.max(0, Math.min(1, (distance - 3.5) / 34));
+  return 15000 * Math.pow(800 / 15000, t);
 }
 
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
-}
-
-function makeImpulse(ctx: AudioContext): AudioBuffer {
-  const seconds = 2.1;
-  const rate = ctx.sampleRate;
-  const length = Math.floor(rate * seconds);
-  const buffer = ctx.createBuffer(2, length, rate);
-  for (let channel = 0; channel < 2; channel++) {
-    const data = buffer.getChannelData(channel);
-    let energy = 0;
-    for (let i = 0; i < length; i++) {
-      const t = i / length;
-      // A few early taps, then a long cave tail.
-      const early = i === Math.floor(rate * 0.017) || i === Math.floor(rate * 0.031) ? 0.6 : 0;
-      const sample =
-        ((Math.random() * 2 - 1) * Math.pow(1 - t, 2.4) + early) * (channel === 0 ? 1 : 0.92);
-      data[i] = sample;
-      energy += sample * sample;
-    }
-    const rms = Math.sqrt(energy / length) || 1;
-    const scale = 0.12 / rms;
-    for (let i = 0; i < length; i++) data[i] = (data[i] ?? 0) * scale;
-  }
-  return buffer;
 }
 
 export function createMixer(ctx: AudioContext, levels: MixLevels): AudioMixer {
@@ -93,7 +77,6 @@ export function createMixer(ctx: AudioContext, levels: MixLevels): AudioMixer {
   ambience.connect(master);
 
   const convolver = ctx.createConvolver();
-  convolver.buffer = makeImpulse(ctx);
   const wet = ctx.createGain();
   wet.gain.value = 0;
   convolver.connect(wet);
@@ -115,6 +98,8 @@ export function createMixer(ctx: AudioContext, levels: MixLevels): AudioMixer {
   sends.ambience.connect(convolver);
 
   const buses = { music, sfx, ambience };
+  const ear = { x: 0, y: 0, z: 0 };
+  let heardListener = false;
 
   function play(buffer: AudioBuffer, opts: ShotOptions): void {
     const source = ctx.createBufferSource();
@@ -133,10 +118,20 @@ export function createMixer(ctx: AudioContext, levels: MixLevels): AudioMixer {
       panner.positionX.value = opts.position.x;
       panner.positionY.value = opts.position.y;
       panner.positionZ.value = opts.position.z;
-      source.connect(panner);
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.Q.value = 0.7;
+      const dx = opts.position.x - ear.x;
+      const dy = opts.position.y - ear.y;
+      const dz = opts.position.z - ear.z;
+      const distance = heardListener ? Math.hypot(dx, dy, dz) : 0;
+      filter.frequency.value = distanceCutoff(distance);
+      source.connect(filter);
+      filter.connect(panner);
       panner.connect(gain);
       source.onended = () => {
         source.disconnect();
+        filter.disconnect();
         panner.disconnect();
         gain.disconnect();
       };
@@ -176,6 +171,13 @@ export function createMixer(ctx: AudioContext, levels: MixLevels): AudioMixer {
       listener.upX.value = state.ux;
       listener.upY.value = state.uy;
       listener.upZ.value = state.uz;
+      ear.x = state.x;
+      ear.y = state.y;
+      ear.z = state.z;
+      heardListener = true;
+    },
+    setImpulse(buffer) {
+      convolver.buffer = buffer;
     },
     setCave(amount) {
       const wetAmount = Math.max(0, Math.min(1, amount));

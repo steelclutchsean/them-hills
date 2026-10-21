@@ -4,9 +4,9 @@
 // context stays silent until tryEnable() runs inside a user gesture
 // (browser autoplay). Clips are fetched after that gesture, not at boot.
 // One-shots at the player and the creek/town beds are HRTF-spatialized.
-// A generated impulse stands in for mine reverb.
+// Mine reverb is a recorded tunnel impulse, loaded with the other clips.
 
-import { allAudioUrls, type MusicCue } from './catalog';
+import { allAudioUrls, IMPULSE, type Attention, type MusicCue } from './catalog';
 import { createAmbience } from './ambience';
 import { createAudioBank } from './bank';
 import { createFoley } from './foley';
@@ -35,6 +35,8 @@ export interface AudioUpdateState {
     uy: number;
     uz: number;
   };
+  /** Menus and dialogue duck the score. World leaves it alone. */
+  attention: Attention;
 }
 
 export interface AudioDebug {
@@ -84,6 +86,7 @@ function clamp01(value: number): number {
 export function createAudioSystem(): AudioSystem {
   let ctx: AudioContext | null = null;
   let mixer: ReturnType<typeof createMixer> | null = null;
+  let bank: ReturnType<typeof createAudioBank> | null = null;
   let music: ReturnType<typeof createMusic> | null = null;
   let ambience: ReturnType<typeof createAmbience> | null = null;
   let foley: ReturnType<typeof createFoley> | null = null;
@@ -91,6 +94,7 @@ export function createAudioSystem(): AudioSystem {
   let heardFind = false;
   let pending: (() => void) | null = null;
   let cave = 0;
+  let impulseReady = false;
   let surface: Surface = 'grass';
   const levels: MixLevels = { master: 1, music: 0.85, sfx: 1, ambient: 1 };
 
@@ -103,7 +107,7 @@ export function createAudioSystem(): AudioSystem {
       if (!Ctor) return null;
       ctx = new Ctor();
       mixer = createMixer(ctx, levels);
-      const bank = createAudioBank(ctx);
+      bank = createAudioBank(ctx);
       music = createMusic(mixer, bank);
       ambience = createAmbience(mixer, bank);
       foley = createFoley(mixer, bank);
@@ -200,6 +204,13 @@ export function createAudioSystem(): AudioSystem {
       const step = 1 - Math.exp(-Math.max(0, state.dt) * 2.5);
       cave += (targetCave - cave) * step;
       mixer.setCave(cave);
+      if (!impulseReady && bank) {
+        const impulse = bank.peek(IMPULSE);
+        if (impulse) {
+          mixer.setImpulse(impulse);
+          impulseReady = true;
+        }
+      }
       surface = surfaceAt({
         x: state.player.x,
         z: state.player.z,
@@ -210,11 +221,13 @@ export function createAudioSystem(): AudioSystem {
       foley.setOrigin({ x: state.player.x, y: state.player.y - 0.2, z: state.player.z });
       foley.setSurface(surface);
       music.update({
+        dt: state.dt,
         x: state.player.x,
         z: state.player.z,
         hour: state.hour,
         inCave: state.inCave,
         prospecting: state.prospecting,
+        attention: state.attention,
       });
       ambience.update({
         dt: state.dt,

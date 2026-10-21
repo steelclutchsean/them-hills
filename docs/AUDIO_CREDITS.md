@@ -3,38 +3,40 @@
 Them Hills loads these clips after the first click or keypress. They are not
 part of the boot bundle. Formats are Ogg Vorbis. Paths are under `public/audio/`.
 
-Anything listed as edited was loudness-matched and re-encoded. A few music
-beds were also trimmed and given a short loop crossfade so they can repeat.
+Anything listed as edited was loudness-matched and re-encoded. A few beds
+were also trimmed and given a short loop crossfade so they can repeat.
 The game does not ship the untouched source files.
 
-## Original, dedicated to CC0
+Freesound does not hand the original wav to a logged-out download. The
+Freesound clips below were transcoded from that site's HQ preview (MP3).
+The take is the contributor's; the file is a generation more compressed
+than their archive master.
 
-Written for this project (`tools/audio/render_originals.py`). No attribution
-required.
+## The score
 
-| File | What it is |
+One arrangement, not four songs. Every stem is the same 16 bars, D major,
+84 BPM, so a context change is a bar-aligned crossfade of layers and cannot
+clash in key or tempo.
+
+The tune is "Oh! Susanna" (Stephen Foster, 1848), public domain. The
+performance — guitar, banjo, fiddle, harmonica, a soft reed pad, boot and
+brush, and the three stingers — was synthesized for this project
+(`tools/audio/render_round2.py`) and is dedicated to CC0. No attribution
+required. These are not recordings of those instruments.
+
+| File | Layer |
 | --- | --- |
-| `music/stinger-flake.ogg` | First-gold flourish: plucked strings, a fiddle line, a harmonica note |
-| `music/stinger-nugget.ogg` | Larger strike: low string, banjo roll, fiddle, harmonica |
-| `music/stinger-sale.ogg` | Sale flourish: strummed chord and a rising harmonica line |
-| `ambience/owl-a.ogg`, `ambience/owl-b.ogg` | Two synthesized hoots |
-| `ambience/town.ogg` | Muffled murmur built from filtered noise, not a crowd recording |
-| `sfx/slosh.ogg` | Pan slosh |
-| `sfx/dirt-crunch.ogg` | Dirt layer under the dig impact |
+| `music/stem-guitar.ogg` | Fingerpicked bed. Present in every cue |
+| `music/stem-banjo.ogg` | Clawhammer rolls. Town and prospecting |
+| `music/stem-fiddle.ogg` | The melody. Prospecting, lighter while walking |
+| `music/stem-harmonica.ogg` | The chorus. Town |
+| `music/stem-pad.ogg` | Long reed tones. Night, and inside a mine |
+| `music/stem-percussion.ogg` | Heel and brush. Prospecting and town |
+| `music/stinger-flake.ogg` | Short D-major tag for the first flake |
+| `music/stinger-nugget.ogg` | Larger tag for a nugget |
+| `music/stinger-sale.ogg` | Cadence for a sale at the assayer |
 
-## Music beds
-
-These are four separate pieces. The game crossfades them (about three
-seconds, with the outgoing bed low-passed). They are not stems of one score.
-
-| File | Cue | Source | License |
-| --- | --- | --- | --- |
-| `music/exploration.ogg` | Walking the hills | "Steady Rhythm" by Justin Dalessandro (ColdOneK). [OpenGameArt](https://opengameart.org/content/steady-rhythm-relaxing-acoustic-loop) | CC-BY 4.0. Attribution required |
-| `music/prospecting.ogg` | Digging and panning | "Celtic Loop" by stereoscopic. [OpenGameArt](https://opengameart.org/content/celtic-loop) | CC0 |
-| `music/town.ogg` | Near camp and the buyers | "Faraway" by obscure music (Gichco). [OpenGameArt](https://opengameart.org/content/faraway). Excerpt, looped | CC0 |
-| `music/night.ogg` | Night, and inside a mine | "Dark Forest Theme" by cynicmusic (The Cynic Project). [OpenGameArt](https://opengameart.org/content/dark-forest-theme). Excerpt, looped. Optional credit: The Cynic Project / cynicmusic.com / pixelsphere.org | CC0 |
-
-## Ambience recordings
+## Ambience
 
 | File | Source | License |
 | --- | --- | --- |
@@ -42,11 +44,25 @@ seconds, with the outgoing bed low-passed). They are not stems of one score.
 | `ambience/creek-close.ogg` | `water_flowing.ogg` from "30 CC0 SFX loops" by rubberduck. [OpenGameArt](https://opengameart.org/content/30-cc0-sfx-loops) | CC0 |
 | `ambience/wind.ogg` | Wind recorded by Jonathan Shaw (InspectorJ), [Freesound 376415](https://freesound.org/people/InspectorJ/sounds/376415/), looped by AntumDeluge. [OpenGameArt](https://opengameart.org/content/wind-loop) | CC-BY 3.0. Attribution required |
 | `ambience/rain.ogg` | `rain.ogg` from rubberduck's "30 CC0 SFX loops" | CC0 |
-| `ambience/crickets.ogg` | `cricket2.wav` by Aj_, made in as3sfxr. [OpenGameArt](https://opengameart.org/content/birdcricketfrog-and-mosquito-sounds) | CC0 |
-| `ambience/bird-a.ogg`, `ambience/bird-b.ogg` | `bird.wav` and `bird2.wav` by Aj_, as3sfxr, same page | CC0 |
+| `ambience/crickets.ogg` | "Crickets Ambient Noise" by Wolfgang_, credited to Ted Kerr. [OpenGameArt](https://opengameart.org/content/crickets-ambient-noise-loopable). Loop crossfaded | CC0 |
+| `ambience/town.ogg` | "geroezemoes.wav" by gecop, [Freesound 640254](https://freesound.org/people/gecop/sounds/640254/). Distant Flemish chatter, words not intelligible. Low-passed and looped | CC0 |
+| `ambience/owl-a.ogg`, `ambience/owl-b.ogg` | "Great Horned Owls Hooting, Crickets" by CHallSmith, [Freesound 870593](https://freesound.org/people/CHallSmith/sounds/870593/). Two excerpts of a field recording | CC0 |
+| `ambience/bird-a.ogg`, `bird-b.ogg`, `bird-c.ogg` | "Ambient Bird Sounds" by isaiah658, a camera recording. [OpenGameArt](https://opengameart.org/content/ambient-bird-sounds). Sliced into calls | CC0 |
+| `ambience/bird-d.ogg` | "Bird chirping sounds" by syncopika, recorded in a backyard. [OpenGameArt](https://opengameart.org/content/bird-chirping-sounds) | CC0 |
 
-Cave reverb is not a recording. It is a short noise impulse with a few early
-taps, generated when the audio context starts.
+## Mine reverb
+
+`ir/mine.ogg` is the mono impulse response `middle_tunnel_1way_mono.wav`
+from the Innocent Railway Tunnel, Open Acoustic Impulse Response Library
+(OpenAIR), Audiolab, University of York.
+[Archived source page](https://web.archive.org/web/20250114000539/https://www.openair.hosted.york.ac.uk/?page_id=525).
+License: [CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+Attribution: www.openairlib.net.
+
+Edited here: trimmed to the direct sound and about two seconds of tail,
+faded, resampled to 44.1 kHz. Gill Heads Mine is in the same library and
+was measured, but its tail is only a few hundred milliseconds, so the
+tunnel response is the one the mines use.
 
 ## Foley and UI
 
@@ -57,12 +73,11 @@ Interface Sounds, Impact Sounds, RPG Audio.
 | --- | --- |
 | `sfx/ui-click.ogg`, `ui-hover.ogg`, `ui-open.ogg`, `ui-close.ogg`, `ui-confirm.ogg`, `ui-pluck.ogg` | Interface Sounds |
 | `sfx/foot-grass-0.ogg` … `foot-grass-3.ogg`, `foot-wood-0.ogg` … `foot-wood-3.ogg` | Impact Sounds footsteps |
-| `sfx/dig-0.ogg` … `dig-3.ogg` | Impact Sounds `impactMining` |
 | `sfx/jump.ogg`, `sfx/land.ogg` | Impact Sounds `impactSoft` |
 | `sfx/gold-0.ogg`, `gold-1.ogg`, `gold-2.ogg` | Impact Sounds metal and tin hits |
 | `sfx/gold-3.ogg`, `sfx/coins.ogg`, `sfx/coins-b.ogg` | RPG Audio `metalClick`, `handleCoins`, `handleCoins2` |
 
-Other footsteps:
+Recorded footsteps and tools:
 
 | Files | Source | License |
 | --- | --- | --- |
@@ -70,11 +85,19 @@ Other footsteps:
 | `sfx/foot-water-0.ogg` … `foot-water-3.ogg` | EminYILDIRIM, [Freesound 608663](https://freesound.org/people/EminYILDIRIM/sounds/608663/), and swuing, [Freesound 38873](https://freesound.org/people/swuing/sounds/38873/), same pack | CC-BY 3.0. Attribution required |
 | `sfx/foot-gravel-0.ogg` … `foot-gravel-3.ogg` | Ali_6868, [Freesound pack 21608](https://freesound.org/people/Ali_6868/packs/21608/), same pack (that folder is marked CC0) | CC0 |
 | `sfx/foot-dirt-0.ogg` … `foot-dirt-2.ogg` | TinyWorlds, from pdsounds.org recordings (mud and leaves). [OpenGameArt](https://opengameart.org/content/different-steps-on-wood-stone-leaves-gravel-and-mud) | CC0 |
+| `sfx/dig-0.ogg` … `dig-3.ogg`, `sfx/dirt-crunch.ogg` | "Digging with shovel" by guyburns, [Freesound 558413](https://freesound.org/people/guyburns/sounds/558413/). Shovelling gravel and dirt. Sliced; the crunch is a high-passed grain of the same take | CC0 |
+| `sfx/slosh.ogg`, `slosh-1.ogg`, `slosh-2.ogg` | "Water Pour Small Pan" by Rudmer_Rotteveel, [Freesound 699581](https://freesound.org/people/Rudmer_Rotteveel/sounds/699581/), water in a steel pan, mixed with high-passed gravel from the guyburns shovel take. There was no single public-domain gold-pan recording to ship | CC0 |
 
-## What this does not include
+## What is still weak
 
-There is no recorded shovel-in-soil take, no field recording of birds or a
-night chorus, and no recorded mine. The dig is a mining impact plus the
-original crunch. Birds and crickets are the as3sfxr clips above. The town
-bed is synthesized. The score changes by crossfading whole tracks, so a
-transition can disagree in key for a moment.
+The band is synthesized. Guitar, banjo, fiddle, and harmonica share a key
+and a tempo, and they do not sound like a recorded session in a foothill
+cabin. The heel-and-brush part is synthesized too.
+
+Birdsong is a real backyard and a real camera recording, not identified
+Sierra species. The cricket bed is a separate night recording from the
+owls, so the two do not share a space. Town chatter is a real distant
+conversation, in Flemish, not a camp of forty-niners. The pan swirl is two
+recordings layered, not one pan of water and gravel. Cave reverb is a
+railway tunnel in Edinburgh, not a Sierra adit. Freesound material here is
+the site's preview encode, not the contributor's wav master.

@@ -406,23 +406,10 @@ def copy_sfx() -> None:
 
 
 def main() -> None:
-    tmp = SRC / "rendered"
-    tmp.mkdir(parents=True, exist_ok=True)
-    for sub in ("music", "ambience", "sfx"):
-        (OUT / sub).mkdir(parents=True, exist_ok=True)
-    render_stingers(tmp)
-    render_owls(tmp)
-    render_town(tmp)
-    render_slosh_and_dirt(tmp)
-    encode_music(tmp)
-    encode_ambience(tmp)
-    copy_sfx()
-    total = 0
-    for path in sorted(OUT.rglob("*")):
-        if path.is_file():
-            total += path.stat().st_size
-            print(f"{path.stat().st_size:8} {path.relative_to(ROOT)}")
-    print(f"total {total / 1024:.0f} KiB")
+    # The Celtic, forest, and synthesized placeholder renders used to live
+    # here. Running them again would replace the single-key score and the
+    # field recordings. Round 2 is tools/audio/render_round2.py.
+    raise SystemExit("This renderer is retired. Run tools/audio/render_round2.py")
 
 
 if __name__ == "__main__":

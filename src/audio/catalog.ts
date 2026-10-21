@@ -1,11 +1,16 @@
 // Lazy URLs. Nothing here is imported into the JS bundle — the bank
 // fetches a file the first time the AudioContext is allowed to run.
 
+export const STEMS = ['guitar', 'banjo', 'fiddle', 'harmonica', 'pad', 'percussion'] as const;
+export type StemName = (typeof STEMS)[number];
+
 export const MUSIC = {
-  exploration: '/audio/music/exploration.ogg',
-  prospecting: '/audio/music/prospecting.ogg',
-  town: '/audio/music/town.ogg',
-  night: '/audio/music/night.ogg',
+  guitar: '/audio/music/stem-guitar.ogg',
+  banjo: '/audio/music/stem-banjo.ogg',
+  fiddle: '/audio/music/stem-fiddle.ogg',
+  harmonica: '/audio/music/stem-harmonica.ogg',
+  pad: '/audio/music/stem-pad.ogg',
+  percussion: '/audio/music/stem-percussion.ogg',
   stingerFlake: '/audio/music/stinger-flake.ogg',
   stingerNugget: '/audio/music/stinger-nugget.ogg',
   stingerSale: '/audio/music/stinger-sale.ogg',
@@ -19,7 +24,12 @@ export const AMBIENCE = {
   crickets: '/audio/ambience/crickets.ogg',
   town: '/audio/ambience/town.ogg',
   owl: ['/audio/ambience/owl-a.ogg', '/audio/ambience/owl-b.ogg'],
-  bird: ['/audio/ambience/bird-a.ogg', '/audio/ambience/bird-b.ogg'],
+  bird: [
+    '/audio/ambience/bird-a.ogg',
+    '/audio/ambience/bird-b.ogg',
+    '/audio/ambience/bird-c.ogg',
+    '/audio/ambience/bird-d.ogg',
+  ],
 } as const;
 
 export const SFX = {
@@ -63,7 +73,7 @@ export const SFX = {
     '/audio/sfx/dig-3.ogg',
   ],
   dirt: ['/audio/sfx/dirt-crunch.ogg'],
-  slosh: ['/audio/sfx/slosh.ogg'],
+  slosh: ['/audio/sfx/slosh.ogg', '/audio/sfx/slosh-1.ogg', '/audio/sfx/slosh-2.ogg'],
   gold: [
     '/audio/sfx/gold-0.ogg',
     '/audio/sfx/gold-1.ogg',
@@ -81,10 +91,13 @@ export const SFX = {
   uiPluck: ['/audio/sfx/ui-pluck.ogg'],
 } as const;
 
+export const IMPULSE = '/audio/ir/mine.ogg';
+
 export type MusicCue = 'exploration' | 'prospecting' | 'town' | 'night';
+export type Attention = 'world' | 'menu' | 'dialogue';
 
 export function allAudioUrls(): string[] {
-  const urls: string[] = Object.values(MUSIC);
+  const urls: string[] = [...Object.values(MUSIC), IMPULSE];
   urls.push(
     AMBIENCE.creek,
     AMBIENCE.creekClose,

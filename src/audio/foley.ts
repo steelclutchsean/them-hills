@@ -83,10 +83,24 @@ export function createFoley(mixer: AudioMixer, bank: AudioBank): Foley {
     return urls[Math.floor(Math.random() * urls.length)] ?? null;
   }
 
+  function humanize(kind: 'foley' | 'close' | 'ui'): { gain: number; rate: number } {
+    if (kind === 'ui')
+      return { gain: 0.92 + Math.random() * 0.16, rate: 0.985 + Math.random() * 0.03 };
+    if (kind === 'close')
+      return { gain: 0.86 + Math.random() * 0.28, rate: 0.96 + Math.random() * 0.08 };
+    return { gain: 0.78 + Math.random() * 0.44, rate: 0.93 + Math.random() * 0.14 };
+  }
+
   function shot(
     urls: readonly string[],
     gain: number,
-    opts?: { rate?: number; spatial?: boolean; delay?: number; fallback?: () => void },
+    opts?: {
+      rate?: number;
+      spatial?: boolean;
+      delay?: number;
+      vary?: 'foley' | 'close' | 'ui';
+      fallback?: () => void;
+    },
   ): boolean {
     const url = pick(urls);
     const buffer = url ? bank.peek(url) : null;
@@ -94,11 +108,11 @@ export function createFoley(mixer: AudioMixer, bank: AudioBank): Foley {
       opts?.fallback?.();
       return false;
     }
-    const rate = (opts?.rate ?? 1) * (0.96 + Math.random() * 0.08);
+    const human = humanize(opts?.vary ?? (opts?.spatial === false ? 'ui' : 'foley'));
     mixer.play(buffer, {
       bus: 'sfx',
-      gain,
-      rate,
+      gain: gain * human.gain,
+      rate: (opts?.rate ?? 1) * human.rate,
       delay: opts?.delay,
       position: opts?.spatial === false ? undefined : { x: origin.x, y: origin.y, z: origin.z },
       rolloff: 0.45,
@@ -152,8 +166,7 @@ export function createFoley(mixer: AudioMixer, bank: AudioBank): Foley {
       });
     },
     pan() {
-      shot(SFX.slosh, 0.34, { fallback: () => noise(640, 0.6, 0.16, 0.05) });
-      shot(SFX.footWater, 0.26, { rate: 1.2 });
+      shot(SFX.slosh, 0.46, { fallback: () => noise(640, 0.6, 0.16, 0.05) });
     },
     splash() {
       shot(SFX.slosh, 0.42, { fallback: () => noise(500, 0.5, 0.2, 0.07) });
@@ -161,6 +174,7 @@ export function createFoley(mixer: AudioMixer, bank: AudioBank): Foley {
     },
     gold(rate) {
       shot(SFX.gold, 0.38, {
+        vary: 'close',
         rate,
         fallback: () => {
           tone(1320 * rate, 0.06, 0.06);

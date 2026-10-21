@@ -1126,6 +1126,12 @@ async function bootstrap(): Promise<void> {
           uy: listenerUp.y,
           uz: listenerUp.z,
         },
+        attention:
+          dialogue !== null
+            ? 'dialogue'
+            : settings.isOpen() || overlays.isBlocking()
+              ? 'menu'
+              : 'world',
       });
 
       // Footsteps follow the surface under the player (grass, dirt, gravel,

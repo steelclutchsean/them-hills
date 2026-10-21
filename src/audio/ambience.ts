@@ -3,7 +3,7 @@
 
 import type { AudioBank } from './bank';
 import { AMBIENCE } from './catalog';
-import type { AudioMixer } from './mixer';
+import { distanceCutoff, type AudioMixer } from './mixer';
 import { nightAmount, TOWN_POINT, townAmount } from './zones';
 
 export interface AmbienceFrame {
@@ -25,6 +25,7 @@ interface LoopSlot {
   url: string;
   gain: GainNode;
   panner: PannerNode | null;
+  filter: BiquadFilterNode | null;
   started: boolean;
 }
 
@@ -45,6 +46,7 @@ export function createAmbience(mixer: AudioMixer, bank: AudioBank): AmbienceBed 
     const gain = ctx.createGain();
     gain.gain.value = 0;
     let panner: PannerNode | null = null;
+    let filter: BiquadFilterNode | null = null;
     if (spatial) {
       panner = ctx.createPanner();
       panner.panningModel = 'HRTF';
@@ -52,12 +54,17 @@ export function createAmbience(mixer: AudioMixer, bank: AudioBank): AmbienceBed 
       panner.refDistance = 4;
       panner.maxDistance = 40;
       panner.rolloffFactor = 0.15;
-      gain.connect(panner);
+      filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 15000;
+      filter.Q.value = 0.7;
+      gain.connect(filter);
+      filter.connect(panner);
       panner.connect(mixer.ambience);
     } else {
       gain.connect(mixer.ambience);
     }
-    return { url, gain, panner, started: false };
+    return { url, gain, panner, filter, started: false };
   }
 
   const creek = makeLoop(AMBIENCE.creek, true);
@@ -98,8 +105,8 @@ export function createAmbience(mixer: AudioMixer, bank: AudioBank): AmbienceBed 
     if (!buffer) return;
     mixer.play(buffer, {
       bus: 'ambience',
-      gain,
-      rate: 0.94 + Math.random() * 0.12,
+      gain: gain * (0.72 + Math.random() * 0.5),
+      rate: 0.92 + Math.random() * 0.16,
       position: { x, y, z },
       rolloff: 1.15,
       refDistance: 6,
@@ -125,6 +132,9 @@ export function createAmbience(mixer: AudioMixer, bank: AudioBank): AmbienceBed 
       approach(creekClose.gain.gain, creekGain * (frame.inWater ? 0.7 : 0.28), frame.dt, 2.2);
       place(creek, frame.streamX, frame.streamY, frame.streamZ);
       place(creekClose, frame.streamX, frame.streamY + 0.2, frame.streamZ);
+      const creekCut = distanceCutoff(frame.streamDist);
+      if (creek.filter) creek.filter.frequency.value = creekCut;
+      if (creekClose.filter) creekClose.filter.frequency.value = creekCut;
 
       approach(
         wind.gain.gain,
@@ -141,6 +151,11 @@ export function createAmbience(mixer: AudioMixer, bank: AudioBank): AmbienceBed 
       );
       approach(town.gain.gain, townLevel * 0.34 * outdoors, frame.dt, 1.6);
       place(town, TOWN_POINT.x, frame.y + 1.2, TOWN_POINT.z);
+      if (town.filter) {
+        town.filter.frequency.value = distanceCutoff(
+          Math.hypot(frame.x - TOWN_POINT.x, frame.z - TOWN_POINT.z),
+        );
+      }
 
       birdIn -= frame.dt;
       if (birdIn <= 0) {

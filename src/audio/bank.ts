@@ -4,6 +4,8 @@
 export interface AudioBank {
   prefetch(urls: readonly string[]): void;
   peek(url: string): AudioBuffer | null;
+  /** idle until prefetch, then pending, then ready or failed. */
+  status(url: string): 'idle' | 'pending' | 'ready' | 'failed';
 }
 
 export function createAudioBank(ctx: AudioContext): AudioBank {
@@ -41,6 +43,12 @@ export function createAudioBank(ctx: AudioContext): AudioBank {
     },
     peek(url) {
       return ready.get(url) ?? null;
+    },
+    status(url) {
+      if (ready.has(url)) return 'ready';
+      if (failed.has(url)) return 'failed';
+      if (pending.has(url)) return 'pending';
+      return 'idle';
     },
   };
 }
