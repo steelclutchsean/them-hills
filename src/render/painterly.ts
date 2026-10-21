@@ -301,7 +301,7 @@ export function goldGlintMaterial(): THREE.ShaderMaterial {
       void main() {
         float facing = pow(max(-vN.z, 0.0), 0.55);
         float twinkle = 0.75 + 0.25 * sin(uTime * 6.0 + vN.x * 9.0);
-        vec3 col = vec3(14.0, 8.2, 1.7) * (0.7 + facing * 2.4 * twinkle);
+        vec3 col = vec3(5.4, 3.05, 0.42) * (0.85 + facing * 1.8 * twinkle);
         gl_FragColor = vec4(col, 0.98);
       }
     `,

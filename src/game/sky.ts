@@ -302,7 +302,8 @@ export function createSkyController(opts: {
     if (weather && weather.state !== 'clear') exposure *= 1 - weather.intensity * 0.1;
     renderer.toneMappingExposure = exposure;
 
-    _grade.horizon.copy(_fog);
+    const lowSun = smooth01(0.35, 0.02, elev);
+    _grade.horizon.copy(_fog).lerp(_bg, lowSun * 0.85);
     _grade.sunColor.copy(sun.color);
     _grade.sunDirection.set(sx, sy, 0.3).normalize();
     _grade.cloudCover = cloudCover;

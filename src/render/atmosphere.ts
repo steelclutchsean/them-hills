@@ -67,12 +67,12 @@ const FRAG = /* glsl */ `
     sky = mix(uHorizon * 0.78, sky, smoothstep(-0.28, 0.04, h));
 
     float sunDot = max(dot(dir, sunDir), 0.0);
-    float glow = pow(sunDot, 8.0);
-    float disc = smoothstep(0.9992, 0.99978, sunDot);
+    float glow = pow(sunDot, 36.0);
+    float disc = smoothstep(0.9994, 0.99986, sunDot);
     // A low sun keeps a peach sky. The disc stays hot so god rays have a source.
     float lowSun = smoothstep(0.38, 0.02, sunDir.y);
-    sky += uSunColor * glow * mix(0.85, 0.28, lowSun);
-    sky += vec3(1.0, 0.96, 0.82) * disc * 6.5;
+    sky += uSunColor * glow * mix(0.9, 0.18, lowSun);
+    sky += vec3(1.0, 0.94, 0.72) * disc * 8.0;
 
     // Warm band when the sun sits on the horizon.
     float sunset = smoothstep(0.42, 0.0, sunDir.y) * smoothstep(-0.25, 0.08, sunDir.y);

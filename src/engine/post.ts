@@ -87,7 +87,7 @@ const GodrayShader = {
         float l = dot(texture2D(tDiffuse, clamp(p, 0.0, 1.0)).rgb, vec3(0.25, 0.55, 0.2));
         // Only the sun disc is bright enough to seed a ray. The whole dawn
         // sky sits under this, so trees between the camera and the disc cut shafts.
-        float sky = smoothstep(1.5, 3.1, l);
+        float sky = smoothstep(0.95, 2.4, l);
         illum += sky * (1.0 - float(i) / 24.0);
       }
       illum /= 24.0;

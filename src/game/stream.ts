@@ -208,6 +208,7 @@ const FRAG_SHADER = /* glsl */ `
       vec4 clip = uReflProjView * vec4(vWorld, 1.0);
       if (clip.w > 0.0) {
         vec2 uv = clamp(clip.xy / clip.w * 0.5 + 0.5, 0.0, 1.0);
+        uv.y = 1.0 - uv.y;
         vec3 mirror = texture2D(uReflect, uv).rgb;
         float rl = dot(mirror, vec3(0.25, 0.6, 0.15));
         // The mirror target is already tone-mapped. Push the green back

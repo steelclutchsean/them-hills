@@ -283,9 +283,9 @@ function createMatchedFace(): THREE.Group {
     metalness: 0.02,
   });
   const hair = new THREE.MeshStandardMaterial({ color: 0x3a2418, roughness: 0.9 });
-  const dark = new THREE.MeshStandardMaterial({ color: 0x1a100c, roughness: 0.4 });
-  const white = new THREE.MeshStandardMaterial({ color: 0xf7f1e8, roughness: 0.28 });
-  const iris = new THREE.MeshStandardMaterial({ color: 0x4a3424, roughness: 0.35 });
+  const dark = new THREE.MeshBasicMaterial({ color: 0x140c09 });
+  const white = new THREE.MeshBasicMaterial({ color: 0xf4efe4 });
+  const iris = new THREE.MeshBasicMaterial({ color: 0x2a1a10 });
   const catchlight = new THREE.MeshBasicMaterial({ color: 0xfff6e4 });
 
   const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.062, 0.1, 10), skin);
@@ -332,7 +332,7 @@ function createMatchedFace(): THREE.Group {
   const glintR = glintL.clone();
   glintR.position.x = -0.029;
   const browGeom = new THREE.BoxGeometry(0.028, 0.008, 0.01);
-  const browMat = new THREE.MeshStandardMaterial({ color: 0x2c1c14, roughness: 0.8 });
+  const browMat = new THREE.MeshBasicMaterial({ color: 0x1c120c });
   const browL = new THREE.Mesh(browGeom, browMat);
   browL.position.set(0.032, 0.068, -0.09);
   browL.rotation.z = -0.28;
