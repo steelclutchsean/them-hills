@@ -119,7 +119,10 @@ export function mountOverlays(opts: {
         button.type = 'button';
         button.dataset.quality = name;
         button.textContent = name[0]!.toUpperCase() + name.slice(1);
-        button.addEventListener('click', () => opts.onQuality?.(name));
+        button.addEventListener('click', () => {
+          document.documentElement.dataset.quality = name;
+          opts.onQuality?.(name);
+        });
         quality.appendChild(button);
       }
       card.appendChild(quality);

@@ -227,10 +227,10 @@ const TERRAIN_FS = /* glsl */ `
     // Vertex color is a mild biome brightness, not a second photograph.
     vec3 albedo = tex * mix(vec3(1.08), vColor * 1.15, 0.12);
     float macro = noise(worldXZ * 0.012);
-    float patch = noise(worldXZ * 0.045 + 4.0);
+    float mottle = noise(worldXZ * 0.045 + 4.0);
     albedo *= mix(0.78, 1.22, macro);
-    albedo.r *= mix(0.92, 1.12, patch);
-    albedo.g *= mix(1.08, 0.9, patch);
+    albedo.r *= mix(0.92, 1.12, mottle);
+    albedo.g *= mix(1.08, 0.9, mottle);
     float rough = mix(0.92, 0.72, maskShaped);
 
     // Detail normal from the same hash noise, added in world XZ so lighting
