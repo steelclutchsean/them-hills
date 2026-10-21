@@ -295,33 +295,6 @@ export function createCreekProbe(): CreekProbe {
           faceCursor += 1;
           if (faceCursor >= PROBE_COUNT * FACES) phase = 'planar';
         } else {
-          const heroSlot = slots[2] ?? slots[0];
-          if (heroSlot && creekProbeUniforms.uHasProbe.value < 0.5) {
-            try {
-              const side = PROBE_SIZE;
-              const cubeBuf = new Uint8Array(side * side * 4);
-              renderer.setRenderTarget(heroSlot.target, 0);
-              renderer.readRenderTargetPixels(heroSlot.target, 0, 0, side, side, cubeBuf);
-              let clo = 255;
-              let chi = 0;
-              for (let y = 0; y < side; y += 16) {
-                for (let x = 0; x < side; x += 16) {
-                  const i = (y * side + x) * 4;
-                  const l =
-                    0.2126 * (cubeBuf[i] ?? 0) +
-                    0.7152 * (cubeBuf[i + 1] ?? 0) +
-                    0.0722 * (cubeBuf[i + 2] ?? 0);
-                  if (l < clo) clo = l;
-                  if (l > chi) chi = l;
-                }
-              }
-              console.log(
-                `[creek-probe] cube luma ${clo.toFixed(0)}-${chi.toFixed(0)} contrast ${(chi - clo).toFixed(0)}`,
-              );
-            } catch (err) {
-              console.log('[creek-probe] cube readback failed', err);
-            }
-          }
           const hero = points[2] ?? points[0];
           const planeY = Number.isFinite(waterY) ? waterY : (hero?.y ?? 0) - 0.45;
           let source: THREE.Camera | null = null;

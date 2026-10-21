@@ -226,6 +226,7 @@ export function createLightShafts(): LightShafts {
       ndcA.copy(camera.position).addScaledVector(sunDir, 80);
       ndcA.project(camera);
       const sunX = ndcA.x;
+      const sunY = ndcA.y;
       const sunInFront = ndcA.z < 1 && sunDir.dot(forward) > 0.12;
       const gaps = findGaps(camera.position, sunFlat);
       const sideX = -sunFlat.z;
@@ -265,6 +266,37 @@ export function createLightShafts(): LightShafts {
           start.addScaledVector(toCam, 10);
           start.y -= 4;
           ndcA.copy(start).project(camera);
+        }
+        const off =
+          (ndcA.x < -1 && ndcB.x < -1) || (ndcA.x > 1 && ndcB.x > 1) || (ndcA.z > 1 && ndcB.z > 1);
+        if (sunInFront && off) {
+          // The crown gap is outside this view. Hang the streak on the sun
+          // so golden hour still gets several shafts in frame.
+          const spread = (i - 2.5) * 0.16;
+          const xFar = sunX + spread;
+          const yFar = Math.min(0.9, sunY - 0.03);
+          const yNear = yFar - 0.7;
+          const xNear = xFar + spread * 0.12;
+          const alongRay = (nx: number, ny: number, dist: number, out: THREE.Vector3) => {
+            ndcB.set(
+              THREE.MathUtils.clamp(nx, -0.9, 0.9),
+              THREE.MathUtils.clamp(ny, -0.15, 0.92),
+              0.5,
+            );
+            ndcB.unproject(camera);
+            ndcB.sub(camera.position);
+            if (ndcB.lengthSq() < 1e-8) ndcB.copy(forward);
+            ndcB.normalize();
+            out.copy(camera.position).addScaledVector(ndcB, dist);
+          };
+          alongRay(xFar, yFar, 30, end);
+          alongRay(xNear, yNear, 10, start);
+          widthDir.setFromMatrixColumn(camera.matrixWorld, 0);
+          widthDir.y = 0;
+          if (widthDir.lengthSq() < 1e-4) widthDir.set(sideX, 0, sideZ);
+          widthDir.normalize();
+          ndcA.copy(start).project(camera);
+          ndcB.copy(end).project(camera);
         }
         const midX = (ndcA.x + ndcB.x) * 0.5;
         const farFromSun = Math.abs(midX - sunX) > 0.82 && Math.abs(ndcB.x - sunX) > 0.7;
