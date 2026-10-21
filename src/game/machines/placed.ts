@@ -3,6 +3,8 @@ import type { ClaimRecord, SaveV1 } from '@/save/schema';
 import type { MinigameViz } from '@/game/minigames/types';
 import type { Watercourse } from '@/game/watercourse';
 import { PALETTE } from '@/render/palette';
+import { addGoldFlake, cutTimber } from '@/render/painterly';
+import { markReflective } from '@/render/reflection';
 
 // Claim machines on the dry bank, built like the town timber: painted grain,
 // iron straps, water in the box, gold sitting in the riffles.
@@ -43,9 +45,13 @@ const REACH: Record<MachineKind, number> = {
   monitor: 2.7,
 };
 
-export function createPlacedMachines(scene: THREE.Scene, courses: readonly Watercourse[]): PlacedMachines {
+export function createPlacedMachines(
+  scene: THREE.Scene,
+  courses: readonly Watercourse[],
+): PlacedMachines {
   const root = new THREE.Group();
   root.name = 'claim-machines';
+  markReflective(root);
   scene.add(root);
   const built = new Map<string, THREE.Group>();
   let live: PlacedMachine[] = [];
@@ -138,7 +144,8 @@ function bankPad(
     }
   }
   const s = query.sample;
-  const side = Math.abs(query.lateral) > 0.2 ? Math.sign(query.lateral) : s.bar === 0 ? 1 : Math.sign(s.bar);
+  const side =
+    Math.abs(query.lateral) > 0.2 ? Math.sign(query.lateral) : s.bar === 0 ? 1 : Math.sign(s.bar);
   const out = side === 0 ? 1 : side;
   const dist = s.halfWidth + 3.8;
   return {
@@ -154,33 +161,17 @@ function key(m: PlacedMachine): string {
   return `${m.claimId}:${m.kind}`;
 }
 
-const grain = woodTextures();
-
 function timber(sx: number, sy: number, dark = false): THREE.MeshStandardMaterial {
-  const map = grain.map.clone();
-  map.repeat.set(sx, sy);
-  const normalMap = grain.normal.clone();
-  normalMap.repeat.set(sx, sy);
-  return new THREE.MeshStandardMaterial({
-    map,
-    normalMap,
-    color: dark ? 0x6a4630 : 0xc48a56,
-    roughness: 0.84,
-    metalness: 0.02,
-  });
+  return cutTimber(sx, sy, dark);
 }
 
-function iron(): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({ color: 0x6a6058, roughness: 0.42, metalness: 0.64 });
-}
-
-function goldMat(): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({
-    color: PALETTE.gold,
-    emissive: PALETTE.gold,
-    emissiveIntensity: 0.55,
+function iron(): THREE.MeshPhysicalMaterial {
+  return new THREE.MeshPhysicalMaterial({
+    color: 0x8d8680,
     roughness: 0.32,
-    metalness: 0.62,
+    metalness: 0.92,
+    clearcoat: 0.45,
+    clearcoatRoughness: 0.28,
   });
 }
 
@@ -218,8 +209,22 @@ const waterMat = new THREE.ShaderMaterial({
   `,
 });
 
-function box(w: number, h: number, d: number, mat: THREE.Material, x: number, y: number, z: number): THREE.Mesh {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+function stamp(geom: THREE.BufferGeometry): THREE.BufferGeometry {
+  const uv = geom.getAttribute('uv');
+  if (uv && !geom.getAttribute('uv2')) geom.setAttribute('uv2', uv);
+  return geom;
+}
+
+function box(
+  w: number,
+  h: number,
+  d: number,
+  mat: THREE.Material,
+  x: number,
+  y: number,
+  z: number,
+): THREE.Mesh {
+  const mesh = new THREE.Mesh(stamp(new THREE.BoxGeometry(w, h, d)), mat);
   mesh.position.set(x, y, z);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
@@ -235,15 +240,20 @@ function water(w: number, len: number, x: number, y: number, z: number): THREE.M
   return mesh;
 }
 
-function flakes(parent: THREE.Group, count: number, x0: number, z0: number, dz: number, y: number): void {
-  const mat = goldMat();
+function flakes(
+  parent: THREE.Group,
+  count: number,
+  x0: number,
+  z0: number,
+  dz: number,
+  y: number,
+): void {
   for (let i = 0; i < count; i++) {
-    const flake = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), mat);
-    flake.scale.set(1.5, 0.35, 1.1);
-    flake.position.set(x0 + ((i % 3) - 1) * 0.08, y, z0 + i * dz);
-    flake.name = `flake-${i}`;
-    flake.castShadow = true;
-    parent.add(flake);
+    const holder = new THREE.Group();
+    holder.name = `flake-${i}`;
+    addGoldFlake(holder, i % 3 === 0 ? 0.042 : 0.028, 0, 0, 0);
+    holder.position.set(x0 + ((i % 3) - 1) * 0.08, y, z0 + i * dz);
+    parent.add(holder);
   }
 }
 
@@ -259,7 +269,12 @@ function buildProp(kind: MachineKind): THREE.Group {
   return g;
 }
 
-function buildRocker(g: THREE.Group, wood: THREE.Material, dark: THREE.Material, metal: THREE.Material): void {
+function buildRocker(
+  g: THREE.Group,
+  wood: THREE.Material,
+  dark: THREE.Material,
+  metal: THREE.Material,
+): void {
   const body = new THREE.Group();
   body.name = 'rocker-body';
   body.position.y = 0.62;
@@ -271,12 +286,17 @@ function buildRocker(g: THREE.Group, wood: THREE.Material, dark: THREE.Material,
   body.add(box(0.86, 0.04, 0.04, dark, 0, 0.08, 0.05));
   body.add(box(0.86, 0.04, 0.04, dark, 0, 0.08, 0.3));
   body.add(water(0.78, 0.9, 0, 0.1, 0.02));
+  body.add(box(0.72, 0.2, 0.36, dark, 0, 0.32, -0.48));
+  body.add(box(0.9, 0.025, 0.04, metal, 0, 0.22, -0.15));
   flakes(body, 5, 0, -0.25, 0.14, 0.12);
   const handle = box(0.08, 0.08, 0.7, dark, 0.55, 0.2, 0);
   body.add(handle);
   g.add(body);
   for (const side of [-0.34, 0.34]) {
-    const rocker = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.035, 6, 14, Math.PI), dark);
+    const rocker = new THREE.Mesh(
+      stamp(new THREE.TorusGeometry(0.34, 0.035, 6, 14, Math.PI)),
+      dark,
+    );
     rocker.rotation.y = Math.PI / 2;
     rocker.position.set(side, 0.34, 0);
     rocker.castShadow = true;
@@ -286,7 +306,12 @@ function buildRocker(g: THREE.Group, wood: THREE.Material, dark: THREE.Material,
   g.add(box(0.08, 0.04, 0.9, metal, 0.34, 0.04, 0));
 }
 
-function buildSluice(g: THREE.Group, wood: THREE.Material, dark: THREE.Material, metal: THREE.Material): void {
+function buildSluice(
+  g: THREE.Group,
+  wood: THREE.Material,
+  dark: THREE.Material,
+  metal: THREE.Material,
+): void {
   const race = new THREE.Group();
   race.name = 'sluice-body';
   race.rotation.x = -0.07;
@@ -302,7 +327,7 @@ function buildSluice(g: THREE.Group, wood: THREE.Material, dark: THREE.Material,
   flakes(race, 6, 0, -0.85, 0.36, 0.13);
   const hopper = box(0.7, 0.28, 0.48, dark, 0, 0.22, -1.35);
   race.add(hopper);
-  const mound = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6), timber(1, 1, true));
+  const mound = new THREE.Mesh(stamp(new THREE.SphereGeometry(0.16, 8, 6)), timber(1, 1, true));
   mound.scale.set(1.2, 0.45, 0.8);
   mound.position.set(0, 0.32, -1.32);
   race.add(mound);
@@ -315,7 +340,12 @@ function buildSluice(g: THREE.Group, wood: THREE.Material, dark: THREE.Material,
   g.add(box(0.04, 0.08, 3.2, metal, 0.28, 0.5, 0.15));
 }
 
-function buildTom(g: THREE.Group, wood: THREE.Material, dark: THREE.Material, metal: THREE.Material): void {
+function buildTom(
+  g: THREE.Group,
+  wood: THREE.Material,
+  dark: THREE.Material,
+  metal: THREE.Material,
+): void {
   const race = new THREE.Group();
   race.rotation.x = -0.05;
   race.position.y = 0.5;
@@ -332,7 +362,7 @@ function buildTom(g: THREE.Group, wood: THREE.Material, dark: THREE.Material, me
   grizzly.name = 'grizzly';
   grizzly.position.set(0, 1.02, 1.45);
   for (let i = 0; i < 6; i++) {
-    const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.7, 6), metal);
+    const rod = new THREE.Mesh(stamp(new THREE.CylinderGeometry(0.012, 0.012, 0.7, 6)), metal);
     rod.rotation.z = Math.PI / 2;
     rod.position.set(0, 0, -0.22 + i * 0.09);
     rod.castShadow = true;
@@ -345,8 +375,13 @@ function buildTom(g: THREE.Group, wood: THREE.Material, dark: THREE.Material, me
   g.add(box(0.08, 0.22, 0.08, dark, 0.28, 0.11, -1.9));
 }
 
-function buildMonitor(g: THREE.Group, wood: THREE.Material, dark: THREE.Material, metal: THREE.Material): void {
-  const legL = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 1.35, 6), dark);
+function buildMonitor(
+  g: THREE.Group,
+  wood: THREE.Material,
+  dark: THREE.Material,
+  metal: THREE.Material,
+): void {
+  const legL = new THREE.Mesh(stamp(new THREE.CylinderGeometry(0.045, 0.055, 1.35, 6)), dark);
   legL.position.set(-0.28, 0.62, -0.15);
   legL.rotation.z = 0.18;
   legL.castShadow = true;
@@ -355,13 +390,13 @@ function buildMonitor(g: THREE.Group, wood: THREE.Material, dark: THREE.Material
   legR.rotation.z = -0.18;
   g.add(legL, legR);
   g.add(box(0.7, 0.08, 0.08, wood, 0, 1.15, -0.1));
-  const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.09, 0.85, 10), metal);
+  const nozzle = new THREE.Mesh(stamp(new THREE.CylinderGeometry(0.05, 0.09, 0.85, 10)), metal);
   nozzle.name = 'nozzle';
   nozzle.rotation.x = Math.PI / 2;
   nozzle.position.set(0, 1.05, 0.35);
   nozzle.castShadow = true;
   g.add(nozzle);
-  const hose = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.035, 8, 16, Math.PI), dark);
+  const hose = new THREE.Mesh(stamp(new THREE.TorusGeometry(0.42, 0.035, 8, 16, Math.PI)), dark);
   hose.rotation.y = Math.PI / 2;
   hose.rotation.z = 0.4;
   hose.position.set(-0.35, 0.7, -0.15);
@@ -383,15 +418,21 @@ function buildMonitor(g: THREE.Group, wood: THREE.Material, dark: THREE.Material
   spray.position.set(0, 1.02, 1.15);
   spray.visible = false;
   g.add(spray);
-  const berm = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.55, 0.7), timber(2, 1, true));
+  const berm = new THREE.Mesh(stamp(new THREE.BoxGeometry(1.4, 0.55, 0.7)), timber(2, 1, true));
   berm.position.set(0, 0.22, 1.7);
   berm.name = 'berm';
   berm.castShadow = true;
   berm.receiveShadow = true;
   g.add(berm);
+  flakes(g, 6, 0, 1.48, 0.1, 0.52);
 }
 
-function animate(group: THREE.Group, kind: MachineKind, viz: MinigameViz | null, time: number): void {
+function animate(
+  group: THREE.Group,
+  kind: MachineKind,
+  viz: MinigameViz | null,
+  time: number,
+): void {
   waterMat.uniforms.uTime!.value = time;
   const showGold = (until: number) => {
     group.traverse((obj) => {
@@ -437,67 +478,4 @@ function animate(group: THREE.Group, kind: MachineKind, viz: MinigameViz | null,
     }
     showGold(viz?.kind === 'monitor' ? 1 + viz.gold * 5 : 3);
   }
-}
-
-function woodTextures(): { map: THREE.CanvasTexture; normal: THREE.CanvasTexture } {
-  const canvas = document.createElement('canvas');
-  canvas.width = 256;
-  canvas.height = 256;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) {
-    const blank = new THREE.CanvasTexture(canvas);
-    return { map: blank, normal: blank };
-  }
-  ctx.fillStyle = '#a56b3c';
-  ctx.fillRect(0, 0, 256, 256);
-  for (let i = 0; i < 42; i++) {
-    ctx.strokeStyle = i % 3 === 0 ? '#5c3a22' : i % 3 === 1 ? '#d7a15a' : '#7a4a28';
-    ctx.globalAlpha = 0.28 + (i % 5) * 0.08;
-    ctx.lineWidth = 2 + (i % 4);
-    ctx.beginPath();
-    const y = (i * 41) % 256;
-    ctx.moveTo(0, y);
-    ctx.bezierCurveTo(70, y + (i % 7) - 3, 170, y - (i % 5), 256, y + (i % 4) - 1);
-    ctx.stroke();
-  }
-  ctx.globalAlpha = 0.5;
-  ctx.fillStyle = '#3e2616';
-  ctx.beginPath();
-  ctx.ellipse(78, 96, 11, 6, 0.4, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.ellipse(186, 188, 8, 5, -0.3, 0, Math.PI * 2);
-  ctx.fill();
-  const map = new THREE.CanvasTexture(canvas);
-  map.wrapS = map.wrapT = THREE.RepeatWrapping;
-  map.colorSpace = THREE.SRGBColorSpace;
-  map.anisotropy = 4;
-
-  const src = ctx.getImageData(0, 0, 256, 256).data;
-  const lum = (x: number, y: number) => {
-    const i = ((y & 255) * 256 + (x & 255)) * 4;
-    return src[i]! * 0.3 + src[i + 1]! * 0.59 + src[i + 2]! * 0.11;
-  };
-  const normalCanvas = document.createElement('canvas');
-  normalCanvas.width = 256;
-  normalCanvas.height = 256;
-  const ng = normalCanvas.getContext('2d');
-  const normal = new THREE.CanvasTexture(normalCanvas);
-  if (ng) {
-    const img = ng.createImageData(256, 256);
-    for (let y = 0; y < 256; y++) {
-      for (let x = 0; x < 256; x++) {
-        const dx = lum(x + 1, y) - lum(x - 1, y);
-        const dy = lum(x, y + 1) - lum(x, y - 1);
-        const i = (y * 256 + x) * 4;
-        img.data[i] = Math.max(0, Math.min(255, 128 + dx));
-        img.data[i + 1] = Math.max(0, Math.min(255, 128 - dy));
-        img.data[i + 2] = 255;
-        img.data[i + 3] = 255;
-      }
-    }
-    ng.putImageData(img, 0, 0);
-  }
-  normal.wrapS = normal.wrapT = THREE.RepeatWrapping;
-  return { map, normal };
 }

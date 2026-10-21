@@ -284,18 +284,21 @@ const TERRAIN_FS = /* glsl */ `
       float kind = uPay[i].w;
       vec3 tint = gravel;
       float amt = 0.62;
+      float fleck = smoothstep(0.78, 0.95, noise(worldXZ * 11.0 + kind * 2.0));
       if (kind < 1.5) {
-        tint = dirt * vec3(0.16, 0.14, 0.12);
-        amt = 0.82;
+        tint = dirt * vec3(0.08, 0.07, 0.06);
+        amt = 0.9;
+        tint += vec3(1.15, 0.72, 0.16) * fleck;
       } else if (kind < 2.5) {
-        tint = gravel * vec3(0.92, 0.86, 0.76);
-        amt = 0.74;
+        tint = gravel * vec3(1.05, 0.92, 0.7);
+        amt = 0.8;
+        tint += vec3(0.9, 0.55, 0.12) * fleck * 0.85;
       } else if (kind < 3.5) {
-        tint = rock * vec3(1.42, 1.36, 1.18);
-        amt = 0.58;
+        tint = vec3(0.92, 0.9, 0.84);
+        amt = 0.72;
       } else {
-        tint = rock * vec3(0.62, 0.66, 0.7);
-        amt = 0.7;
+        tint = rock * vec3(0.45, 0.5, 0.58);
+        amt = 0.78;
       }
       float grit = noise(worldXZ * 2.8 + kind * 3.0);
       w *= smoothstep(0.12, 0.62, grit * 0.65 + w);

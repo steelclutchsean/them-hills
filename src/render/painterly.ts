@@ -233,6 +233,32 @@ export function timberDarkMaterial(): THREE.MeshStandardMaterial {
   return applyWood(lit('sierra-timber-dark', PALETTE.timberDark, 0.9), true);
 }
 
+/** A unique timber material so machines can repeat the town planks without tinting the buildings. */
+export function cutTimber(
+  repeatU: number,
+  repeatV: number,
+  weathered: boolean,
+): THREE.MeshStandardMaterial {
+  const tex = weathered ? (woodOld ??= woodTextures(true)) : (woodFresh ??= woodTextures(false));
+  const map = tex.map.clone();
+  const normalMap = tex.normal.clone();
+  const aoMap = tex.ao.clone();
+  map.repeat.set(repeatU, repeatV);
+  normalMap.repeat.set(repeatU, repeatV);
+  aoMap.repeat.set(repeatU, repeatV);
+  const mat = new THREE.MeshStandardMaterial({
+    map,
+    normalMap,
+    aoMap,
+    color: 0xffffff,
+    roughness: weathered ? 0.92 : 0.78,
+    metalness: 0.02,
+    aoMapIntensity: weathered ? 1.15 : 0.9,
+  });
+  mat.normalScale.set(1.15, 1.15);
+  return mat;
+}
+
 const goldGlintUniforms = { uTime: { value: 0 } };
 
 /** Shared metallic flake. The glint child is what the bloom pass catches. */
