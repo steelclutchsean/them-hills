@@ -141,6 +141,9 @@
         display: flex;
         gap: 8px;
       }
+      body[data-journal='1'] .panel-card {
+        width: min(560px, calc(100vw - 32px));
+      }
       body[data-map='1'] .panel-card {
         top: 18px;
         transform: translateX(-50%);

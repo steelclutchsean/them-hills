@@ -13,7 +13,9 @@ import {
   type MinigameAudio,
   type MinigameProgress,
   type MinigameViz,
+  type StageOptions,
 } from './minigames';
+import type { WorkMethod } from '@/save/schema';
 
 // Four-step prospecting loop. Each step is its own minigame module under
 // `src/game/minigames/`; this controller is just a thin orchestrator that
@@ -30,9 +32,91 @@ export type StepKind = 'dig' | 'classify' | 'pan' | 'collect' | 'strike' | 'extr
 
 /** Stages played for a stream prospect — the classic 4-step panning flow. */
 const PANNING_STEPS: readonly StepKind[] = ['dig', 'classify', 'pan', 'collect'] as const;
-/** Stages played for a mine prospect — 3-step pickaxe flow. */
-const MINING_STEPS: readonly StepKind[] = ['strike', 'extract', 'collect'] as const;
 
+const STAGE_FACTORY: Record<StepKind, () => Minigame> = {
+  dig: createDigMinigame,
+  classify: createClassifyMinigame,
+  pan: createPanMinigame,
+  collect: createCollectMinigame,
+  strike: createStrikeMinigame,
+  extract: createExtractMinigame,
+};
+
+export interface ProspectPlan {
+  steps: StepKind[];
+  options: StageOptions[];
+  yieldScale: number;
+  extraDigs: number;
+}
+
+/** Which stages run, and how the yield changes, for the tool in hand. */
+export function planStages(opts: {
+  context: SiteContext;
+  tutorial: boolean;
+  method: WorkMethod;
+  asPick: boolean;
+}): ProspectPlan {
+  if (opts.context === 'mining') {
+    return {
+      steps: ['strike', 'extract', 'collect'],
+      options: [{ asPick: opts.asPick || opts.method === 'hardrock' }, {}, {}],
+      yieldScale: opts.method === 'hardrock' ? 1.35 : opts.asPick ? 1.12 : 1,
+      extraDigs: 0,
+    };
+  }
+  if (opts.tutorial) {
+    return {
+      steps: ['dig', 'pan'],
+      options: [{ tutorial: true }, { tutorial: true, wash: 'pan' }],
+      yieldScale: 1,
+      extraDigs: 0,
+    };
+  }
+  switch (opts.method) {
+    case 'rocker':
+      return {
+        steps: ['dig', 'classify'],
+        options: [{ asPick: opts.asPick }, { rocker: true }],
+        yieldScale: 1.65,
+        extraDigs: 0,
+      };
+    case 'sluice':
+      return {
+        steps: ['dig', 'pan'],
+        options: [{ asPick: opts.asPick }, { wash: 'sluice' }],
+        yieldScale: 2.2,
+        extraDigs: 1,
+      };
+    case 'long_tom':
+      return {
+        steps: ['dig', 'pan', 'collect'],
+        options: [{ asPick: opts.asPick }, { wash: 'long_tom' }, {}],
+        yieldScale: 2.75,
+        extraDigs: 1,
+      };
+    case 'hydraulic':
+      return {
+        steps: ['dig', 'pan'],
+        options: [{ asPick: true }, { wash: 'sluice' }],
+        yieldScale: 3.9,
+        extraDigs: 4,
+      };
+    case 'hardrock':
+      return {
+        steps: ['dig', 'classify', 'pan', 'collect'],
+        options: [{ asPick: true }, {}, { wash: 'pan' }, {}],
+        yieldScale: 1.08,
+        extraDigs: 0,
+      };
+    default:
+      return {
+        steps: [...PANNING_STEPS],
+        options: [{ asPick: opts.asPick }, {}, { wash: 'pan' }, {}],
+        yieldScale: 1,
+        extraDigs: 0,
+      };
+  }
+}
 export type SiteContext = 'panning' | 'mining';
 
 // Per-prospect base yield at full richness. Real numbers come from economy-model.md;
@@ -84,6 +168,8 @@ export interface ProspectingResult {
   stageScores: readonly number[];
   /** Combined skillBonus (geometric mean of stageScores). */
   skillBonus: number;
+  /** Extra site digs this method consumes (a tom or a monitor strips more ground). */
+  extraDigs: number;
 }
 
 export interface ProspectingControllerOpts {
@@ -113,6 +199,12 @@ export interface ProspectingController {
     yieldMultiplier: number;
     /** Per-tool tiers — each minigame reads the relevant one for evolution. */
     toolTiers: EquipmentState['ownedTiers'];
+    /** Which way of working is in the player's hands. */
+    method?: WorkMethod;
+    /** First prospect: one swing and a short wash. */
+    tutorial?: boolean;
+    /** A purchased pick, separate from shovel tier 3. */
+    asPick?: boolean;
   }): boolean;
   update(dt: number, input: ProspectingFrameInput): ProspectingResult | null;
   cancel(): void;
@@ -138,6 +230,9 @@ interface Session {
   stageIdx: number;
   stages: readonly Minigame[];
   stageScores: number[];
+  stageOptions: readonly StageOptions[];
+  yieldScale: number;
+  extraDigs: number;
   /** Latest progress snapshot from the active stage. Drives the HUD. */
   current: MinigameProgress;
   /** When non-null: this stage just finished and we're waiting for the
@@ -195,7 +290,8 @@ export function createProspectingController(
     // is running out. Curve runs digsRemaining → digCountFactor.
     const digRatio = session.maxDigs > 0 ? session.digsRemaining / session.maxDigs : 0;
     const digCountFactor = 0.4 + 0.6 * Math.max(0, Math.min(1, digRatio));
-    let totalGrams = BASE_YIELD_GRAMS * digCountFactor * skillBonus * session.yieldMultiplier;
+    let totalGrams =
+      BASE_YIELD_GRAMS * digCountFactor * skillBonus * session.yieldMultiplier * session.yieldScale;
 
     // Rig the very first prospect ever: at least one visible flake.
     if (session.firstEver && totalGrams < 0.05) {
@@ -214,6 +310,7 @@ export function createProspectingController(
       reward,
       stageScores: [...session.stageScores],
       skillBonus,
+      extraDigs: session.extraDigs,
     };
     session = null;
     wasInteractDown = false;
@@ -232,33 +329,39 @@ export function createProspectingController(
       firstEver,
       yieldMultiplier,
       toolTiers,
+      method = 'pan',
+      tutorial = false,
+      asPick = false,
     }) {
       if (session !== null) return false;
-      // Build the per-context step list + factory list. The collect stage
-      // is identical between contexts (snuffer pluck).
-      const steps = context === 'mining' ? MINING_STEPS : PANNING_STEPS;
-      const stages: Minigame[] =
-        context === 'mining'
-          ? [createStrikeMinigame(), createExtractMinigame(), createCollectMinigame()]
-          : [
-              createDigMinigame(),
-              createClassifyMinigame(),
-              createPanMinigame(),
-              createCollectMinigame(),
-            ];
+      const plan = planStages({ context, tutorial, method, asPick });
+      const steps = plan.steps;
+      const stages: Minigame[] = steps.map((step) => STAGE_FACTORY[step]());
       // Per-stage tool tier — each stage reads the tool that matters for
       // it. Mining: strike → shovel (pickaxe at T3), extract → detector
       // (find the seam), collect → snuffer.
-      const stageTiers: readonly number[] =
-        context === 'mining'
-          ? [toolTiers.shovel, toolTiers.detector, toolTiers.snuffer]
-          : [toolTiers.shovel, toolTiers.classifier, toolTiers.pan, toolTiers.snuffer];
+      const tierFor = (step: StepKind): number => {
+        switch (step) {
+          case 'dig':
+          case 'strike':
+            return toolTiers.shovel;
+          case 'classify':
+            return toolTiers.classifier;
+          case 'pan':
+            return toolTiers.pan;
+          case 'extract':
+            return toolTiers.detector;
+          case 'collect':
+            return toolTiers.snuffer;
+        }
+      };
+      const stageTiers: readonly number[] = steps.map(tierFor);
       // Per-stage yield multipliers from those same tools. Pre-computed
       // once at start so finalizeReward doesn't have to look them up.
       const stageTierMults: readonly number[] = steps.map((step) =>
         getStageTierMultiplier(step, toolTiers),
       );
-      stages[0]!.start(stageTiers[0]!);
+      stages[0]!.start(stageTiers[0] ?? 1, plan.options[0]);
       session = {
         siteId,
         context,
@@ -273,6 +376,9 @@ export function createProspectingController(
         stageIdx: 0,
         stages,
         stageScores: [],
+        stageOptions: plan.options,
+        yieldScale: plan.yieldScale,
+        extraDigs: plan.extraDigs,
         current: { progress: 0, message: '', panTapsRemaining: 0 },
         pendingConfirm: null,
       };
@@ -305,7 +411,12 @@ export function createProspectingController(
             return finalizeReward();
           }
           const next = session.stages[session.stageIdx];
-          if (next) next.start(session.stageTiers[session.stageIdx] ?? 1);
+          if (next) {
+            next.start(
+              session.stageTiers[session.stageIdx] ?? 1,
+              session.stageOptions[session.stageIdx],
+            );
+          }
           const nextStep = session.steps[session.stageIdx]!;
           console.log(`[prospect] → entering ${nextStep}`);
           // Consume the confirm press so the new stage doesn't see it.

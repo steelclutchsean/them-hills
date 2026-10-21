@@ -1,4 +1,4 @@
-import { CURRENT_SAVE_VERSION, defaultSettings, type SaveV1 } from './schema';
+import { CURRENT_SAVE_VERSION, defaultFieldwork, defaultSettings, type SaveV1 } from './schema';
 
 // Migrators run in sequence from saved-version up to CURRENT_SAVE_VERSION.
 // Each one returns the same blob with `version` bumped and any new fields
@@ -56,6 +56,29 @@ const migrators: Record<number, MigratorFn> = {
     version: 4,
     settings: defaultSettings(),
   }),
+  // v4 → v5: claims, journal, work method, and the tools that change
+  // how a prospect plays. Position, carry gold, and wallet stay as they
+  // were. New tool keys start unowned.
+  4: (v4) => {
+    const equipment = (v4.equipment as Record<string, unknown>) ?? {};
+    const owned = (equipment.ownedTiers as Record<string, unknown>) ?? {};
+    const fieldwork = (v4.fieldwork as Record<string, unknown> | undefined) ?? defaultFieldwork();
+    return {
+      ...v4,
+      version: 5,
+      equipment: {
+        ...equipment,
+        ownedTiers: {
+          pick: 0,
+          rocker: 0,
+          longTom: 0,
+          hydraulic: 0,
+          ...owned,
+        },
+      },
+      fieldwork,
+    };
+  },
 };
 
 export function migrate(raw: unknown): SaveV1 {

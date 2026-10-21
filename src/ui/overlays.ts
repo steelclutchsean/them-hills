@@ -2,7 +2,7 @@
 // (Tab inventory, M map, H help, Esc pause). The boot card is static HTML
 // so it paints before any script runs.
 
-export type PanelId = 'none' | 'pause' | 'help' | 'inventory' | 'map';
+export type PanelId = 'none' | 'pause' | 'help' | 'inventory' | 'map' | 'journal';
 
 export interface OverlayController {
   showTitle(onStart: () => void): void;
@@ -12,14 +12,18 @@ export interface OverlayController {
   toggle(id: Exclude<PanelId, 'none'>): void;
   close(): void;
   setInventory(lines: readonly string[]): void;
+  setJournal(lines: readonly string[]): void;
 }
 
 const CONTROLS: readonly string[] = [
   'WASD move · Shift sprint · Space jump',
   'Mouse look after you click into the world',
   'E use what’s in front of you · F or right-click digs at a site',
+  'In the pan, tilt and swirl — sand leaves in the band, gold spills if you tip too far',
   'Left-click picks gold flakes out of the pan',
-  'Tab inventory · M map · H help · Esc pause',
+  'F in the creek counts colors · E on a pay streak stakes a claim',
+  '[ ] swaps pan, rocker, sluice, long tom once you own them',
+  'Tab pack · J journal · M map · H help · Esc pause',
 ];
 
 export function reportBoot(pct: number, label: string): Promise<void> {
@@ -30,6 +34,19 @@ export function reportBoot(pct: number, label: string): Promise<void> {
   return new Promise((resolve) => {
     requestAnimationFrame(() => resolve());
   });
+}
+
+function fillLines(id: string, lines: readonly string[]): void {
+  const body = document.getElementById(id);
+  if (!body) return;
+  body.replaceChildren();
+  const list = document.createElement('ul');
+  for (const line of lines) {
+    const item = document.createElement('li');
+    item.textContent = line;
+    list.appendChild(item);
+  }
+  body.appendChild(list);
 }
 
 export function mountOverlays(opts: {
@@ -56,6 +73,7 @@ export function mountOverlays(opts: {
   function render(id: PanelId): void {
     panel = id;
     document.body.dataset.map = id === 'map' ? '1' : '0';
+    document.body.dataset.journal = id === 'journal' ? '1' : '0';
     if (id === 'none') {
       scrim.hidden = true;
       card.hidden = true;
@@ -75,7 +93,8 @@ export function mountOverlays(opts: {
       return;
     }
     const title = document.createElement('h2');
-    title.textContent = id === 'pause' ? 'Paused' : id === 'help' ? 'Controls' : 'Pack';
+    title.textContent =
+      id === 'pause' ? 'Paused' : id === 'help' ? 'Controls' : id === 'journal' ? 'Journal' : 'Pack';
     card.appendChild(title);
     if (id === 'help' || id === 'pause') {
       const list = document.createElement('ul');
@@ -86,9 +105,9 @@ export function mountOverlays(opts: {
       }
       card.appendChild(list);
     }
-    if (id === 'inventory') {
+    if (id === 'inventory' || id === 'journal') {
       const body = document.createElement('div');
-      body.id = 'panel-inventory';
+      body.id = id === 'journal' ? 'panel-journal' : 'panel-inventory';
       card.appendChild(body);
     }
     if (id === 'pause') {
@@ -173,14 +192,10 @@ export function mountOverlays(opts: {
     toggle,
     close,
     setInventory(lines) {
-      const body = document.getElementById('panel-inventory');
-      if (!body) return;
-      body.replaceChildren();
-      for (const line of lines) {
-        const p = document.createElement('p');
-        p.textContent = line;
-        body.appendChild(p);
-      }
+      fillLines('panel-inventory', lines);
+    },
+    setJournal(lines: readonly string[]) {
+      fillLines('panel-journal', lines);
     },
   };
 }

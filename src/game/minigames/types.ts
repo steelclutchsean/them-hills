@@ -181,11 +181,23 @@ export type MinigameUpdate =
   | { kind: 'in_progress'; progress: MinigameProgress }
   | { kind: 'complete'; score: number; progress: MinigameProgress };
 
+/** Per-stage knobs. The view models still key off `viz.kind`, so a rocker
+ *  reuses the classify meter and a sluice reuses the pan. */
+export interface StageOptions {
+  tutorial?: boolean;
+  /** Classify rhythm is a rocker box instead of a sieve. */
+  rocker?: boolean;
+  /** How the pan stage wants to be washed. */
+  wash?: 'pan' | 'sluice' | 'long_tom';
+  /** Dig or strike uses the pick. */
+  asPick?: boolean;
+}
+
 export interface Minigame {
   /** Reset state for a new stage entry. `toolTier` is the relevant tool
-   *  tier (e.g. shovel for dig). Stubs ignore it; later milestones use it
-   *  to widen sweet zones / change mechanics. */
-  start(toolTier: number): void;
+   *  tier (e.g. shovel for dig). `options` selects tutorial and the
+   *  work-method variant. */
+  start(toolTier: number, options?: StageOptions): void;
   update(ctx: MinigameContext): MinigameUpdate;
 }
 

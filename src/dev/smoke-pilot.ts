@@ -50,7 +50,14 @@ export interface ThemHillsProbe {
   frameLuma: number;
   peakCarryGrams: number;
   graphics: string;
+  saveVersion: number;
+  panTier: number;
+  claimCount: number;
   save: () => Promise<void>;
+  /** A v4-shaped copy of the live save, for the migration smoke. */
+  exportLegacyV4: () => unknown;
+  buyUpgrade: (category: string) => boolean;
+  stakeClaim: () => { ok: boolean; reason: string };
   /** Teleport to a named review camera. Returns false for an unknown name. */
   applyShot?: (name: string) => boolean;
 }
@@ -232,7 +239,7 @@ export function createSmokePilot(search = window.location.search): {
   }
 
   function driveMeter(viz: Extract<MinigameViz, { kind: 'dig' | 'strike' }>): SmokeDrive {
-    const distance = Math.abs(viz.indicator - 0.5);
+    const distance = Math.abs(viz.indicator - viz.sweetCenter);
     if (distance > 0.28) digArmed = true;
     if (digArmed && distance < 0.04) {
       digArmed = false;

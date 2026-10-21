@@ -32,6 +32,10 @@ export const ALL_CATEGORIES: readonly EquipmentCategory[] = [
   'gear',
   'headlamp',
   'dredge',
+  'pick',
+  'rocker',
+  'longTom',
+  'hydraulic',
 ];
 
 /** Per-tier multipliers (T1=1.00, T2=1.45, T3=1.95). Index by `tier - 1`. */
@@ -80,6 +84,8 @@ export interface TierUpgrade {
   label: string;
   /** Marker for upgrades that need a quest before purchase becomes available. */
   questGated?: true;
+  /** Quest id that clears `questGated` once it is turned in. */
+  gateQuest?: string;
 }
 
 export interface CategoryInfo {
@@ -151,6 +157,42 @@ export const EQUIPMENT: Record<EquipmentCategory, CategoryInfo> = {
     displayName: 'Headlamp',
     upgrades: [{ fromTier: 1, toTier: 2, cost: 150, label: 'See in the dark' }],
   },
+  pick: {
+    category: 'pick',
+    displayName: 'Pick',
+    upgrades: [
+      { fromTier: 0, toTier: 1, cost: 180, label: 'Single jack — one heavy strike' },
+      { fromTier: 1, toTier: 2, cost: 700, label: 'Double jack' },
+      { fromTier: 2, toTier: 3, cost: 2200, label: 'Hard-rock kit' },
+    ],
+  },
+  rocker: {
+    category: 'rocker',
+    displayName: 'Rocker box',
+    upgrades: [
+      { fromTier: 0, toTier: 1, cost: 320, label: 'Rocker — rock a beat instead of panning' },
+      { fromTier: 1, toTier: 2, cost: 900, label: 'Rocker with an apron' },
+    ],
+  },
+  longTom: {
+    category: 'longTom',
+    displayName: 'Long tom',
+    upgrades: [{ fromTier: 0, toTier: 1, cost: 1100, label: 'Long tom — slow wash, a whole bar' }],
+  },
+  hydraulic: {
+    category: 'hydraulic',
+    displayName: 'Hydraulic monitor',
+    upgrades: [
+      {
+        fromTier: 0,
+        toTier: 1,
+        cost: 3800,
+        label: 'Monitor and hose',
+        questGated: true,
+        gateQuest: 'pete_monitor',
+      },
+    ],
+  },
   dredge: {
     category: 'dredge',
     displayName: 'Dredge',
@@ -186,4 +228,10 @@ export function getNextUpgrade(
  */
 export function computeYieldMultiplier(ownedTiers: EquipmentState['ownedTiers']): number {
   return getGlobalYieldMultiplier(ownedTiers);
+}
+
+/** Shovel tier the mine gate should see. A purchased pick opens the boards. */
+export function mineAccessTier(owned: EquipmentState['ownedTiers']): number {
+  if (owned.pick >= 1 || owned.shovel >= 3) return 3;
+  return owned.shovel;
 }

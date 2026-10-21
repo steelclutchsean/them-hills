@@ -18,7 +18,11 @@ export type DialogueAction =
   | { kind: 'leave' }
   | { kind: 'restAtInn'; cost: number }
   | { kind: 'acceptQuest'; questId: string; acceptedNode?: string }
-  | { kind: 'turnInQuest'; questId: string; completeNode?: string };
+  | { kind: 'turnInQuest'; questId: string; completeNode?: string }
+  | { kind: 'giveLesson' }
+  | { kind: 'hearRumor' }
+  | { kind: 'hireHand' }
+  | { kind: 'fileLode'; mineId: string; x: number; z: number };
 
 export interface DialogueOption {
   text: string;
@@ -47,6 +51,8 @@ export interface DialogueSession {
   /** Counter incremented every time the player enters a "tips" node, so each
    * visit shows a different rotating line. */
   tipIndex: number;
+  /** Body filled in when a rumor or lesson resolves at runtime. */
+  pendingBody?: string;
 }
 
 const INNKEEPER_TIPS = [
@@ -63,6 +69,7 @@ const INNKEEPER_TIPS = [
  * time (see resolveBody). Anything else is shown verbatim.
  */
 const TIP_MARKER = '__INNKEEPER_TIP__';
+const DYNAMIC = '__DYNAMIC__';
 
 export const INNKEEPER_DIALOGUE: DialogueTree = {
   root: {
@@ -91,6 +98,7 @@ export const INNKEEPER_DIALOGUE: DialogueTree = {
         disabledHint: '(not enough cash)',
       },
       { text: "What's the talk in town?", action: { kind: 'goto', nodeId: 'tips' } },
+      { text: 'Any rumor off the creek?', action: { kind: 'hearRumor' } },
       { text: 'Goodbye.', action: { kind: 'leave' } },
     ],
   },
@@ -132,6 +140,14 @@ export const INNKEEPER_DIALOGUE: DialogueTree = {
     speaker: 'Innkeeper Mae',
     body: "Heh — that's some color, alright. Here's your $30, with my thanks. Tell me if you hear of more.",
     options: [{ text: 'Pleasure doing business.', action: { kind: 'leave' } }],
+  },
+  rumor: {
+    speaker: 'Innkeeper Mae',
+    body: DYNAMIC,
+    options: [
+      { text: 'Another.', action: { kind: 'hearRumor' } },
+      { text: 'Goodbye.', action: { kind: 'leave' } },
+    ],
   },
 };
 
@@ -183,6 +199,62 @@ export const OLD_PETE_DIALOGUE: DialogueTree = {
         visible: (save) =>
           isQuestActive(save, 'pete_assayer_loyalty') &&
           !isQuestObjectivesMet(save, 'pete_assayer_loyalty'),
+      },
+      {
+        text: 'Teach me to read a creek.',
+        action: { kind: 'giveLesson' },
+        visible: (save) => !save.fieldwork.rumorsHeard.includes('lesson'),
+      },
+      {
+        text: 'Witness a claim for me.',
+        action: { kind: 'goto', nodeId: 'stakeOffer' },
+        visible: (save) =>
+          save.fieldwork.rumorsHeard.includes('lesson') && isQuestOfferable(save, 'pete_stake'),
+      },
+      {
+        text: 'The claim is filed.',
+        action: { kind: 'turnInQuest', questId: 'pete_stake', completeNode: 'stakeDone' },
+        visible: (save) =>
+          isQuestActive(save, 'pete_stake') && isQuestObjectivesMet(save, 'pete_stake'),
+      },
+      {
+        text: 'I counted the colors.',
+        action: { kind: 'goto', nodeId: 'colorOffer' },
+        visible: (save) => isQuestOfferable(save, 'pete_color'),
+      },
+      {
+        text: 'Six colors, in one pan.',
+        action: { kind: 'turnInQuest', questId: 'pete_color', completeNode: 'colorDone' },
+        visible: (save) =>
+          isQuestActive(save, 'pete_color') && isQuestObjectivesMet(save, 'pete_color'),
+      },
+      {
+        text: 'I want the monitor.',
+        action: { kind: 'goto', nodeId: 'monitorOffer' },
+        visible: (save) =>
+          isQuestCompleted(save, 'pete_stake') && isQuestOfferable(save, 'pete_monitor'),
+      },
+      {
+        text: 'Eight grams, as you asked.',
+        action: { kind: 'turnInQuest', questId: 'pete_monitor', completeNode: 'monitorDone' },
+        visible: (save) =>
+          isQuestActive(save, 'pete_monitor') && isQuestObjectivesMet(save, 'pete_monitor'),
+      },
+      { text: 'What are folks saying?', action: { kind: 'hearRumor' } },
+      {
+        text: 'Hire a hand ($120).',
+        action: { kind: 'hireHand' },
+        enabled: (save) => save.wallet.balance >= 120 && save.fieldwork.hands < 3,
+        disabledHint: '(need $120, and room in the crew)',
+      },
+      {
+        text: 'File a lode on the north mine ($250).',
+        action: { kind: 'fileLode', mineId: 'north', x: -45, z: -45 },
+        visible: (save) =>
+          (save.equipment.ownedTiers.pick >= 1 || save.equipment.ownedTiers.shovel >= 3) &&
+          !save.fieldwork.claims.some((c) => c.kind === 'lode'),
+        enabled: (save) => save.wallet.balance >= 250,
+        disabledHint: '(need $250)',
       },
       { text: 'How long you been out here?', action: { kind: 'goto', nodeId: 'bio' } },
       { text: 'Goodbye.', action: { kind: 'leave' } },
@@ -244,6 +316,89 @@ export const OLD_PETE_DIALOGUE: DialogueTree = {
     body: "Mick already mentioned. Word travels in a town this size. Here's your fifty — and partner, you keep at this rate, you'll be all right out here.",
     options: [{ text: 'Much obliged.', action: { kind: 'leave' } }],
   },
+  stakeOffer: {
+    speaker: 'Old Pete',
+    body: "I'll witness it. Stand where the colors count high — inside bend, gravel bar, bedrock, or the pocket behind a boulder — and file it. First one the county will record for nothing. Come back when it's yours.",
+    options: [
+      { text: "I'll file it.", action: { kind: 'acceptQuest', questId: 'pete_stake', acceptedNode: 'stakeAccepted' } },
+      { text: 'Not yet.', action: { kind: 'goto', nodeId: 'root' } },
+    ],
+  },
+  stakeAccepted: {
+    speaker: 'Old Pete',
+    body: 'Press F until a pan shows its count. Then press E on that ground. Bring me the news.',
+    options: [{ text: 'I will.', action: { kind: 'leave' } }],
+  },
+  stakeDone: {
+    speaker: 'Old Pete',
+    body: "It's yours on the book. Work it, and watch it. Empty claims draw jumpers.",
+    options: [{ text: 'Much obliged.', action: { kind: 'leave' } }],
+  },
+  colorOffer: {
+    speaker: 'Old Pete',
+    body: 'Count the colors in one pan. Six is a streak worth following. Press F in the water — the number is the flakes, not a feeling.',
+    options: [
+      {
+        text: "I'll find six.",
+        action: { kind: 'acceptQuest', questId: 'pete_color', acceptedNode: 'colorAccepted' },
+      },
+      { text: 'Later.', action: { kind: 'goto', nodeId: 'root' } },
+    ],
+  },
+  colorAccepted: {
+    speaker: 'Old Pete',
+    body: 'Inside of the bend. Downstream of a rock. Bedrock if you can find where it cut down. Go count.',
+    options: [{ text: 'Right.', action: { kind: 'leave' } }],
+  },
+  colorDone: {
+    speaker: 'Old Pete',
+    body: "Six. You can see it now. Here's thirty-five, and a word: when the rain comes, count again. The streak walks.",
+    options: [{ text: "I'll remember.", action: { kind: 'leave' } }],
+  },
+  monitorOffer: {
+    speaker: 'Old Pete',
+    body: "A monitor will strip a bar in one pass. It needs a hired hand on the hose, and it eats the ground. Bring me eight grams and I'll sign the store's paper.",
+    options: [
+      {
+        text: "I'll bring eight grams.",
+        action: { kind: 'acceptQuest', questId: 'pete_monitor', acceptedNode: 'monitorAccepted' },
+      },
+      { text: 'Too much iron for me.', action: { kind: 'goto', nodeId: 'root' } },
+    ],
+  },
+  monitorAccepted: {
+    speaker: 'Old Pete',
+    body: 'Eight grams. Any kind. Then the store will sell you the hose.',
+    options: [{ text: 'Understood.', action: { kind: 'leave' } }],
+  },
+  monitorDone: {
+    speaker: 'Old Pete',
+    body: "Signed. Buy the monitor when you can afford the ground it will ruin. Don't run it without a hand.",
+    options: [{ text: 'Thanks, Pete.', action: { kind: 'leave' } }],
+  },
+  rumor: {
+    speaker: 'Old Pete',
+    body: DYNAMIC,
+    options: [
+      { text: 'What else?', action: { kind: 'hearRumor' } },
+      { text: 'Back.', action: { kind: 'goto', nodeId: 'root' } },
+    ],
+  },
+  hired: {
+    speaker: 'Old Pete',
+    body: "They'll watch the claim and shovel a little overnight. One of them can hold a monitor hose. Pay them fair and they'll stay.",
+    options: [{ text: 'Good.', action: { kind: 'leave' } }],
+  },
+  lodeFiled: {
+    speaker: 'Old Pete',
+    body: 'North ridge is on the book as yours. Take a pick inside. The rock pays better on your own ground.',
+    options: [{ text: 'Then I will.', action: { kind: 'leave' } }],
+  },
+  lesson: {
+    speaker: 'Old Pete',
+    body: 'Gold is heavy, so it falls where the water slows. Inside of a bend. Downstream of a boulder. A gravel bar. Anywhere the creek has cut to bedrock. Press F and count the colors — six is a streak. Rain walks that streak downstream, so count again after a storm. Stake what pays. The journal will remember this. Press J.',
+    options: [{ text: "I'll go look.", action: { kind: 'leave' } }],
+  },
   bio: {
     speaker: 'Old Pete',
     body: "Long enough that I knew this stretch before they paved the highway. Came looking for color and never quite gave up looking. Just enough finds to keep the dream warm, ain't it?",
@@ -275,6 +430,7 @@ export function resolveBody(session: DialogueSession): string {
   if (node.body === TIP_MARKER) {
     return INNKEEPER_TIPS[session.tipIndex % INNKEEPER_TIPS.length] ?? '';
   }
+  if (node.body === DYNAMIC) return session.pendingBody ?? '';
   return node.body;
 }
 

@@ -10,7 +10,7 @@ import type { ActiveQuest, GoldStash, ObjectiveState, SaveV1 } from '@/save/sche
 // objective; once all objectives are met the player can turn the quest in
 // at the giver NPC.
 
-export type ObjectiveType = 'collectGold' | 'sellDollars';
+export type ObjectiveType = 'collectGold' | 'sellDollars' | 'stakeClaim' | 'sampleColors';
 
 export interface QuestObjective {
   id: string;
@@ -85,6 +85,55 @@ export const QUESTS: Record<string, QuestDef> = {
       },
     ],
     reward: { dollars: 50 },
+  },
+  pete_stake: {
+    id: 'pete_stake',
+    title: 'File the ground',
+    giverNpc: 'old_pete',
+    description:
+      'Old Pete will witness your first claim. Stake a paying stretch — inside bend, bar, bedrock, or the lee of a boulder. Forty dollars when the papers are in.',
+    objectives: [
+      {
+        id: 'stake_one',
+        description: 'Stake a claim',
+        target: 1,
+        type: 'stakeClaim',
+      },
+    ],
+    reward: { dollars: 40 },
+  },
+  pete_color: {
+    id: 'pete_color',
+    title: 'Count to six',
+    giverNpc: 'old_pete',
+    description:
+      'Pan a sample that shows six colors. Press F in the creek. The count is how many flakes sit in one pan — inside bends and bedrock run higher.',
+    objectives: [
+      {
+        id: 'colors_6',
+        description: 'Record a sample of 6 colors',
+        target: 6,
+        type: 'sampleColors',
+      },
+    ],
+    reward: { dollars: 35 },
+  },
+  pete_monitor: {
+    id: 'pete_monitor',
+    title: 'A monitor for the bar',
+    giverNpc: 'old_pete',
+    description:
+      'Bring Pete eight grams and he will sign for a hydraulic monitor at the store. It strips a bar clean and it needs a hired hand on the hose.',
+    objectives: [
+      {
+        id: 'collect_8g',
+        description: 'Collect 8g of gold',
+        target: 8,
+        type: 'collectGold',
+        param: 'any',
+      },
+    ],
+    reward: { dollars: 120 },
   },
 };
 
@@ -192,10 +241,30 @@ export function applyDollarsToQuestObjectives(
 }
 
 /**
- * Update an active quest's objectives based on a freshly-collected gold stash.
- * Returns the new ActiveQuest record and whether anything changed (used to
- * skip set() calls when nothing advanced).
+ * Flag-style objectives (a claim filed, a color count). Progress becomes
+ * the max of the current value and the new one, so a better sample replaces
+ * a weaker count instead of adding to it.
  */
+export function applyFlagToQuestObjectives(
+  active: ActiveQuest,
+  questDef: QuestDef,
+  type: ObjectiveType,
+  value: number,
+): { updated: ActiveQuest; anyChanged: boolean } {
+  let anyChanged = false;
+  const newObjectives: Record<string, ObjectiveState> = { ...active.objectives };
+  for (const obj of questDef.objectives) {
+    if (obj.type !== type) continue;
+    const cur = newObjectives[obj.id] ?? { progress: 0, complete: false };
+    if (cur.complete) continue;
+    const next = Math.min(obj.target, Math.max(cur.progress, value));
+    if (next === cur.progress && next < obj.target) continue;
+    newObjectives[obj.id] = { progress: next, complete: next >= obj.target };
+    anyChanged = true;
+  }
+  return { updated: { ...active, objectives: newObjectives }, anyChanged };
+}
+
 export function applyGoldToQuestObjectives(
   active: ActiveQuest,
   questDef: QuestDef,

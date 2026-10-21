@@ -62,6 +62,7 @@ export class KeyboardInput {
       e.code === 'Escape' ||
       e.code === 'KeyM' ||
       e.code === 'KeyH' ||
+      e.code === 'KeyJ' ||
       e.code === 'KeyE' ||
       e.code === 'KeyF' ||
       e.code === 'Space'

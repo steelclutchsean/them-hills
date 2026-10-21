@@ -1,9 +1,8 @@
 import * as THREE from 'three';
 import {
-  ALL_CATEGORIES,
-  EQUIPMENT,
   getGlobalYieldMultiplier,
   getNextUpgrade,
+  mineAccessTier,
   type EquipmentCategory,
 } from '@/economy/equipment';
 import { createSpotPriceService } from '@/economy/spot-price';
@@ -49,6 +48,18 @@ import { scatterAssets, updateScatterWind } from '@/game/scatter';
 import { createMotes } from '@/game/motes';
 import { createLightShafts } from '@/game/shafts';
 import { emitGameplay, bindGameplayAudio } from '@/game/events';
+import { createClaimMarkers } from '@/game/claim-markers';
+import { readGround, richestPlacer, stakeable, type BoulderPoint } from '@/game/geology';
+import {
+  buildListings,
+  claimYieldFactor,
+  creekYieldFactor,
+  journalLines,
+  lodeYieldFactor,
+  methodLabel,
+  openingGuide,
+  townQuote,
+} from '@/game/fieldwork';
 import { SKY_SECONDS_PER_DAY, createSkyController, formatClock, getSkyHour } from '@/game/sky';
 import {
   createStream,
@@ -68,7 +79,7 @@ import { createPhysicsWorld, RAPIER } from '@/physics/world';
 import { initSaveSystem, loadSave, saveCurrentState } from '@/save/store';
 import type { SaveV1 } from '@/save/schema';
 import { gameStore } from '@/state/store';
-import { mountHud } from '@/ui/hud';
+import { mountHud, type HudUpdate } from '@/ui/hud';
 import { mountMinimap, type MinimapLandmark, type MinimapStream } from '@/ui/minimap';
 import { createSettingsPanel } from '@/ui/settings';
 import { defaultSettings } from '@/save/schema';
@@ -280,7 +291,7 @@ async function bootstrap(): Promise<void> {
   // Auto-open any mine the player already qualifies for at boot, so they
   // don't get re-blocked after returning to a save where they'd unlocked
   // these mines previously.
-  const loadedShovelTier = gameStore.getState().save.equipment.ownedTiers.shovel;
+  const loadedShovelTier = mineAccessTier(gameStore.getState().save.equipment.ownedTiers);
   for (const m of mines) m.tryUnlock(loadedShovelTier);
 
   // ---- Boulders (along stream banks, in-stream, near mines) ----
@@ -292,6 +303,12 @@ async function bootstrap(): Promise<void> {
     seed: 0xb0,
   });
   console.log(`[boulders] placed ${boulders.count} boulders`);
+  const boulderPoints: BoulderPoint[] = boulders.colliders.map((c) => ({
+    x: c.pos.x,
+    z: c.pos.z,
+    r: c.radius,
+  }));
+  const claimMarkers = createClaimMarkers(renderer.scene);
   // Static ball colliders for each boulder so the player can't walk through
   // them. Bank-side, in-stream, and mine-ring boulders all block — in-stream
   // ones become wadeable obstacles you path around.
@@ -627,10 +644,13 @@ async function bootstrap(): Promise<void> {
   let helpWasDown = false;
   let mapWasDown = false;
   let inventoryWasDown = false;
+  let journalWasDown = false;
   let useToolWasDown = false;
   let digWasDown = false;
   let panWasDown = false;
   let hintText = '';
+  let sawRain = false;
+  let threatAcc = 0;
   let hintUntil = 0;
   let worldTime =
     review?.hour != null ? reviewWorldTime(review.hour) : gameStore.getState().save.world.gameTime;
@@ -717,6 +737,59 @@ async function bootstrap(): Promise<void> {
         publishProbe();
       },
       graphics: getQualityName(),
+      saveVersion: save.version,
+      panTier: save.equipment.ownedTiers.pan,
+      claimCount: save.fieldwork.claims.length,
+      exportLegacyV4: () => {
+        const snap = gameStore.getState().serialize();
+        const owned = { ...snap.equipment.ownedTiers };
+        delete (owned as { pick?: number }).pick;
+        delete (owned as { rocker?: number }).rocker;
+        delete (owned as { longTom?: number }).longTom;
+        delete (owned as { hydraulic?: number }).hydraulic;
+        const { fieldwork: _field, ...rest } = snap;
+        void _field;
+        return {
+          ...rest,
+          version: 4,
+          equipment: { ...snap.equipment, ownedTiers: owned },
+          player: { ...snap.player, position: { x: 4, y: 2, z: -3 } },
+          wallet: { ...snap.wallet, balance: 500 },
+          inventory: {
+            ...snap.inventory,
+            carry: {
+              ...snap.inventory.carry,
+              gold: { flake_g: 1.25, picker_g: 0.2, nugget_g: 0 },
+            },
+          },
+        };
+      },
+      buyUpgrade: (category: string) => {
+        const cat = category as EquipmentCategory;
+        const ownedTier = gameStore.getState().save.equipment.ownedTiers[cat];
+        const next = getNextUpgrade(cat, ownedTier);
+        if (!next || next.questGated) return false;
+        const before = gameStore.getState().save.fieldwork.method;
+        const ok = gameStore.getState().purchaseUpgrade(cat, next.cost, next.toTier, worldTime);
+        const after = gameStore.getState().save.fieldwork.method;
+        if (ok && before !== after) emitGameplay('method-change', { method: after });
+        return ok;
+      },
+      stakeClaim: () => {
+        const spot = richestPlacer(
+          STREAM_CONFIGS,
+          gameStore.getState().save.fieldwork.payShift,
+          boulderPoints,
+        );
+        const result = gameStore.getState().stakePlacer(spot.x, spot.z, spot.read, worldTime);
+        if (result.ok && result.claimId) {
+          emitGameplay('claim-staked', {
+            claimId: result.claimId,
+            habitat: result.habitat ?? spot.read.habitat,
+          });
+        }
+        return { ok: result.ok, reason: result.reason };
+      },
       applyShot: (name: string) => {
         const shot = reviewShot(name);
         if (!shot) return false;
@@ -826,10 +899,13 @@ async function bootstrap(): Promise<void> {
       mapWasDown = input.isActive('MAP');
       const inventoryJust = input.isActive('INVENTORY') && !inventoryWasDown;
       inventoryWasDown = input.isActive('INVENTORY');
+      const journalJust = input.isActive('JOURNAL') && !journalWasDown;
+      journalWasDown = input.isActive('JOURNAL');
       if (!inSession) {
         if (helpJust) overlays.toggle('help');
         if (mapJust) overlays.toggle('map');
         if (inventoryJust) overlays.toggle('inventory');
+        if (journalJust) overlays.toggle('journal');
       }
 
       if (pauseJustPressed) {
@@ -1055,13 +1131,33 @@ async function bootstrap(): Promise<void> {
       oldPete.update(worldTime, (dialogue !== null && dialogue.treeId === 'old_pete') || nearPete);
       for (const m of mines) m.update(worldTime, m === nearestMine);
       camp.update(worldTime, nearCamp);
+      claimMarkers.sync(gameStore.getState().save.fieldwork.claims, (x, z) => terrain.getHeightAt(x, z));
+
+      const raining = weather.getView().state === 'rain';
+      if (raining && !sawRain) {
+        gameStore.getState().onRain(worldTime);
+        emitGameplay('creek-rise', { shift: 0.07 });
+      }
+      sawRain = raining;
+      threatAcc += dt;
+      if (threatAcc > 1) {
+        threatAcc = 0;
+        for (const ev of gameStore.getState().tickThreats(worldTime)) {
+          if (ev.kind === 'jumper' || ev.kind === 'theft') {
+            emitGameplay('claim-jumper', { claimId: ev.claimId });
+          }
+          hintText = ev.detail;
+          hintUntil = worldTime + 6;
+        }
+      }
 
       // 8. Survival meter drain + daily site respawn + audio ambient
       const inStreamWater = streams.isPlayerInAnyStream(charPos);
       // Hunger and thirst wait until the player has actually started a
       // prospect. Wandering while lost shouldn't empty the meters.
       if (gameStore.getState().save.progression.stats.totalPansPerformed > 0) {
-        gameStore.getState().tickMeters(dt, inStreamWater);
+        const fed = gameStore.getState().save.fieldwork.fedUntil;
+        gameStore.getState().tickMeters(dt, inStreamWater, worldTime < fed);
       }
       // Midnight respawn: when the in-game day index advances, regenerate
       // every stream's sites at fresh positions with a new maxDigs roll.
@@ -1070,6 +1166,7 @@ async function bootstrap(): Promise<void> {
       if (dayNow !== currentDay) {
         currentDay = dayNow;
         streams.setEpoch(currentDay);
+        gameStore.getState().onNewDay(worldTime);
         const hour = getSkyHour(worldTime);
         console.log(
           `[sites] respawned at in-game midnight (day ${currentDay}, worldTime=${worldTime.toFixed(1)}s, hour=${hour.toFixed(2)})`,
@@ -1227,6 +1324,43 @@ async function bootstrap(): Promise<void> {
                   audio.playQuestChime();
                   console.log(`[quest] turned in ${action.questId} for $${reward.toFixed(2)}`);
                 }
+              } else if (action.kind === 'giveLesson') {
+                gameStore.getState().giveLesson(worldTime);
+                dialogue!.pendingBody = undefined;
+                dialogue!.currentNodeId = 'lesson';
+                dialogue!.selectionIdx = 0;
+                emitGameplay('rumor', { id: 'lesson' });
+                audio.playQuestChime();
+              } else if (action.kind === 'hearRumor') {
+                const rumor = gameStore.getState().hearNextRumor(worldTime);
+                dialogue!.pendingBody = rumor?.body ?? "That's all the news I have for now.";
+                dialogue!.currentNodeId = 'rumor';
+                dialogue!.selectionIdx = 0;
+                if (rumor) {
+                  emitGameplay('rumor', { id: rumor.id });
+                  if (rumor.id === 'buckeye') emitGameplay('area-unlock', { streamId: 'buckeye_run' });
+                }
+                audio.playConfirm();
+              } else if (action.kind === 'hireHand') {
+                const ok = gameStore.getState().hireHand(worldTime);
+                if (ok) {
+                  dialogue!.currentNodeId = 'hired';
+                  dialogue!.selectionIdx = 0;
+                  emitGameplay('hire', { hands: gameStore.getState().save.fieldwork.hands });
+                  audio.playConfirm();
+                }
+              } else if (action.kind === 'fileLode') {
+                const filed = gameStore.getState().fileLode(action.mineId, action.x, action.z, worldTime);
+                if (filed.ok) {
+                  dialogue!.currentNodeId = 'lodeFiled';
+                  dialogue!.selectionIdx = 0;
+                  emitGameplay('claim-staked', { claimId: `lode_${action.mineId}`, habitat: 'bedrock' });
+                  audio.playConfirm();
+                } else {
+                  dialogue!.pendingBody = filed.reason;
+                  dialogue!.currentNodeId = 'rumor';
+                  dialogue!.selectionIdx = 0;
+                }
               }
             }
           }
@@ -1236,30 +1370,48 @@ async function bootstrap(): Promise<void> {
           storeOpen = false;
           console.log('[store] left general store');
         } else {
-          if (toolNextJustPressed) {
-            storeSelectionIdx = (storeSelectionIdx + 1) % ALL_CATEGORIES.length;
+          const listings = buildListings(gameStore.getState().save);
+          if (listings.length > 0) {
+            storeSelectionIdx = ((storeSelectionIdx % listings.length) + listings.length) % listings.length;
+          }
+          if (toolNextJustPressed && listings.length > 0) {
+            storeSelectionIdx = (storeSelectionIdx + 1) % listings.length;
             audio.playUITap();
           }
-          if (toolPrevJustPressed) {
-            storeSelectionIdx =
-              (storeSelectionIdx - 1 + ALL_CATEGORIES.length) % ALL_CATEGORIES.length;
+          if (toolPrevJustPressed && listings.length > 0) {
+            storeSelectionIdx = (storeSelectionIdx - 1 + listings.length) % listings.length;
             audio.playUITap();
           }
-          if (interactJustPressed) {
-            const category = ALL_CATEGORIES[storeSelectionIdx]!;
-            const ownedTier = gameStore.getState().save.equipment.ownedTiers[category];
-            const next = getNextUpgrade(category, ownedTier);
-            if (next && !next.questGated) {
-              const ok = gameStore
-                .getState()
-                .purchaseUpgrade(category, next.cost, next.toTier, worldTime);
+          if (interactJustPressed && listings.length > 0) {
+            const row = listings[storeSelectionIdx];
+            if (row && row.affordable && row.nextCost !== null && !row.questGated) {
+              const before = gameStore.getState().save.fieldwork.method;
+              let ok = false;
+              if (row.kind === 'upgrade') {
+                const category = row.id as EquipmentCategory;
+                const ownedTier = gameStore.getState().save.equipment.ownedTiers[category];
+                const next = getNextUpgrade(category, ownedTier);
+                if (next) {
+                  ok = gameStore.getState().purchaseUpgrade(category, next.cost, next.toTier, worldTime);
+                }
+              } else if (row.kind === 'supply') {
+                ok = gameStore.getState().buySupply(row.id, worldTime);
+                if (ok) emitGameplay('supply-bought', { id: row.id });
+              } else if (row.kind === 'sell') {
+                ok = gameStore.getState().sellSupply(row.id, worldTime);
+              } else if (row.kind === 'improve') {
+                ok = gameStore.getState().buyImprovement(row.id, worldTime);
+              } else if (row.kind === 'hire') {
+                ok = gameStore.getState().hireHand(worldTime);
+                if (ok) emitGameplay('hire', { hands: gameStore.getState().save.fieldwork.hands });
+              }
+              const after = gameStore.getState().save.fieldwork.method;
+              if (ok && before !== after) emitGameplay('method-change', { method: after });
               if (ok) {
                 audio.playConfirm();
-                console.log(
-                  `[store] purchased ${category} ${next.label} for $${next.cost.toFixed(2)}`,
-                );
+                console.log(`[store] ${row.kind} ${row.id}`);
               } else {
-                console.log(`[store] insufficient funds for ${category} ${next.label}`);
+                console.log(`[store] could not buy ${row.id}`);
               }
             }
           }
@@ -1278,7 +1430,12 @@ async function bootstrap(): Promise<void> {
               .sellAllCarry(
                 activeVendor!.id,
                 activeVendor!.multipliers,
-                gameStore.getState().save.economy.spotPrice.current,
+                townQuote(
+                  gameStore.getState().save.economy.spotPrice.current,
+                  gameStore.getState().save.fieldwork.townBias,
+                  weather.getView().state,
+                  getSkyHour(worldTime),
+                ),
                 worldTime,
               );
             gameStore.getState().markFirstSale();
@@ -1303,6 +1460,15 @@ async function bootstrap(): Promise<void> {
             gameStore.getState().addGoldToCarry(result.reward);
             gameStore.getState().applyGoldToQuests(result.reward);
             gameStore.getState().touchSite(result.siteId, worldTime);
+            for (let extra = 0; extra < result.extraDigs; extra++) {
+              gameStore.getState().touchSite(result.siteId, worldTime);
+            }
+            gameStore.getState().workClaimsNear(
+              character.getPosition().x,
+              character.getPosition().z,
+              worldTime,
+              nearestMine?.id ?? null,
+            );
             const totalG = result.reward.flake_g + result.reward.picker_g + result.reward.nugget_g;
             presentProspectFind({
               audio,
@@ -1332,7 +1498,7 @@ async function bootstrap(): Promise<void> {
         dialogue = startDialogue('old_pete', OLD_PETE_DIALOGUE);
         console.log('[dialogue] opened old_pete');
       } else if (nearMine && nearestMine && interactJustPressed) {
-        const shovelTier = gameStore.getState().save.equipment.ownedTiers.shovel;
+        const shovelTier = mineAccessTier(gameStore.getState().save.equipment.ownedTiers);
         if (nearestMine.tryUnlock(shovelTier)) {
           console.log(`[mine] ${nearestMine.id} opened — pickaxe knocked the boards loose`);
         } else if (nearestMine.isOpen()) {
@@ -1341,7 +1507,7 @@ async function bootstrap(): Promise<void> {
           console.log(`[mine] ${nearestMine.id} sealed — needs a pickaxe (Shovel T3)`);
         }
       } else if (nearCamp && interactJustPressed) {
-        gameStore.getState().restAtCamp();
+        gameStore.getState().restAtCamp(worldTime);
         worldTime += CAMP_REST_TIME_ADVANCE;
         console.log(
           `[camp] rested — meters refilled, time advanced ${(CAMP_REST_TIME_ADVANCE / 3600).toFixed(0)}h`,
@@ -1364,12 +1530,35 @@ async function bootstrap(): Promise<void> {
           // M6: only Gear is the "global" tool multiplier now — the rest
           // (pan/shovel/classifier/snuffer/detector) apply per-stage
           // inside the prospect controller.
-          const globalMult = getGlobalYieldMultiplier(
-            gameStore.getState().save.equipment.ownedTiers,
-          );
+          const ownedNow = gameStore.getState().save.equipment.ownedTiers;
+          const fieldNow = gameStore.getState().save.fieldwork;
+          const globalMult = getGlobalYieldMultiplier(ownedNow);
           const survivalMult = computeSurvivalYieldFactor(gameStore.getState().save.player.meters);
           const siteBonus = nearestSite.site.bonusYield ?? 1.0;
-          const yieldMultiplier = globalMult * survivalMult * siteBonus;
+          const siteRead = readGround(
+            STREAM_CONFIGS,
+            nearestSite.site.position.x,
+            nearestSite.site.position.z,
+            fieldNow.payShift,
+            boulderPoints,
+          );
+          const geo = isMineSite
+            ? lodeYieldFactor(fieldNow.claims, nearestMine?.id ?? null)
+            : creekYieldFactor(gameStore.getState().save, siteRead) *
+              claimYieldFactor(
+                fieldNow.claims,
+                nearestSite.site.position.x,
+                nearestSite.site.position.z,
+                siteRead.habitat,
+              );
+          let method = fieldNow.method;
+          if (method === 'hydraulic' && fieldNow.hands < 1) {
+            method = 'pan';
+            hintText = 'The monitor needs a hired hand on the hose.';
+            hintUntil = worldTime + 4;
+          }
+          const tutorial = !gameStore.getState().save.progression.tutorialCompleted && !isMineSite;
+          const yieldMultiplier = globalMult * survivalMult * siteBonus * geo;
           prospect.start({
             siteId: nearestSite.site.id,
             context: isMineSite ? 'mining' : 'panning',
@@ -1378,7 +1567,10 @@ async function bootstrap(): Promise<void> {
             actionCount,
             firstEver,
             yieldMultiplier,
-            toolTiers: gameStore.getState().save.equipment.ownedTiers,
+            toolTiers: ownedNow,
+            method,
+            tutorial,
+            asPick: ownedNow.pick >= 1,
           });
           audio.playSplash();
           emitGameplay('prospect-start', { siteId: nearestSite.site.id });
@@ -1397,10 +1589,43 @@ async function bootstrap(): Promise<void> {
             ? '□'
             : 'X'
           : 'E';
+      const accessTier = mineAccessTier(gameStore.getState().save.equipment.ownedTiers);
       const minePromptText =
         nearestMine && nearestMine.isOpen()
           ? 'Mine is open — walk inside'
-          : 'Mine sealed — needs a pickaxe';
+          : accessTier >= 3
+            ? 'Open the mine'
+            : 'Mine sealed — buy a pick or a pickaxe';
+      const groundHere = readGround(
+        STREAM_CONFIGS,
+        charPos.x,
+        charPos.z,
+        gameStore.getState().save.fieldwork.payShift,
+        boulderPoints,
+      );
+      const stakeCost = gameStore.getState().save.fieldwork.claims.length === 0
+        ? 0
+        : gameStore.getState().save.fieldwork.claims.length === 1
+          ? 60
+          : 180;
+      const canStake =
+        !nearestSite &&
+        groundHere.streamId !== null &&
+        stakeable(groundHere.habitat) &&
+        gameStore.getState().save.fieldwork.claims.length < 3 &&
+        gameStore.getState().save.wallet.balance >= stakeCost;
+      if (!inSession && canStake && interactJustPressed) {
+        const filed = gameStore.getState().stakePlacer(charPos.x, charPos.z, groundHere, worldTime);
+        hintText = filed.ok ? `Filed: ${filed.reason}` : filed.reason;
+        hintUntil = worldTime + 4.5;
+        if (filed.ok && filed.claimId) {
+          emitGameplay('claim-staked', {
+            claimId: filed.claimId,
+            habitat: filed.habitat ?? groundHere.habitat,
+          });
+          audio.playConfirm();
+        }
+      }
       const promptInfo = inSession
         ? null
         : nearestVendor
@@ -1416,8 +1641,16 @@ async function bootstrap(): Promise<void> {
                   : nearCamp
                     ? { text: 'Rest at Camp (4h)', glyph: interactGlyph }
                     : nearestSite
-                      ? { text: 'Prospect', glyph: interactGlyph }
-                      : null;
+                      ? {
+                          text: `Prospect the ${groundHere.label}`,
+                          glyph: interactGlyph,
+                        }
+                      : canStake
+                        ? {
+                            text: `Stake this ${groundHere.label} (${stakeCost === 0 ? 'free' : `$${stakeCost}`})`,
+                            glyph: interactGlyph,
+                          }
+                        : null;
 
       const digDown = input.isActive('DIG');
       const digJust = digDown && !digWasDown;
@@ -1427,7 +1660,39 @@ async function bootstrap(): Promise<void> {
       panWasDown = panDown;
       const useJust = useToolDown && !useToolWasDown;
       useToolWasDown = useToolDown;
-      if (!inSession && !promptInfo && (interactJustPressed || useJust || digJust || panJust)) {
+      if (!inSession && !uiBlocked && panJust && groundHere.dist < 3.5) {
+        const sampled = gameStore.getState().recordSample(groundHere, charPos.x, charPos.z, worldTime);
+        hintText = sampled.line;
+        hintUntil = worldTime + 5;
+        emitGameplay('sample', { colors: sampled.colors, habitat: sampled.habitat });
+        if (sampled.unlocked) emitGameplay('area-unlock', { streamId: sampled.unlocked });
+        audio.playConfirm();
+      }
+      if (!inSession && !uiBlocked && !inStoreSession && toolNextJustPressed) {
+        const before = gameStore.getState().save.fieldwork.method;
+        const next = gameStore.getState().cycleMethod(1);
+        if (next !== before) {
+          emitGameplay('method-change', { method: next });
+          hintText = `Working with a ${methodLabel(next).toLowerCase()}.`;
+          hintUntil = worldTime + 2.5;
+          audio.playUITap();
+        }
+      }
+      if (!inSession && !uiBlocked && !inStoreSession && toolPrevJustPressed) {
+        const before = gameStore.getState().save.fieldwork.method;
+        const next = gameStore.getState().cycleMethod(-1);
+        if (next !== before) {
+          emitGameplay('method-change', { method: next });
+          hintText = `Working with a ${methodLabel(next).toLowerCase()}.`;
+          hintUntil = worldTime + 2.5;
+          audio.playUITap();
+        }
+      }
+      if (
+        !inSession &&
+        !promptInfo &&
+        (interactJustPressed || useJust || digJust || (panJust && groundHere.dist >= 3.5))
+      ) {
         hintText = streams.isInStreamZone(charPos.x, charPos.z, 6)
           ? 'Nothing to work here. Follow the creek to a gold ring, then press E.'
           : 'Nothing here. Coyote Creek is east — follow the gold beam.';
@@ -1440,31 +1705,29 @@ async function bootstrap(): Promise<void> {
         save.inventory.carry.gold.flake_g +
         save.inventory.carry.gold.picker_g +
         save.inventory.carry.gold.nugget_g;
-      const progress = save.progression;
       let guide: { title: string; detail: string } | null = null;
       let beam: { x: number; z: number } | null = null;
-      if (!progress.firstSaleCompleted && !params.has('shot')) {
-        if (progress.stats.totalPansPerformed === 0) {
-          guide = {
-            title: 'First claim',
-            detail:
-              'Walk east to the gold beam in Coyote Creek. Stand on the ring and press E. Shift sprints.',
-          };
-          const coyote = streams.streams.find((s) => s.id === 'coyote_creek');
-          let bestD = Infinity;
-          for (const site of coyote?.sites ?? []) {
-            const d = Math.hypot(site.position.x - charPos.x, site.position.z - charPos.z);
-            if (d < bestD) {
-              bestD = d;
-              beam = { x: site.position.x, z: site.position.z };
+      if (!params.has('shot')) {
+        const opening = openingGuide(save);
+        if (opening) {
+          guide = { title: opening.title, detail: opening.detail };
+          if (opening.beam === 'creek') {
+            const coyote = streams.streams.find((s) => s.id === 'coyote_creek');
+            let bestD = Infinity;
+            for (const site of coyote?.sites ?? []) {
+              const d = Math.hypot(site.position.x - charPos.x, site.position.z - charPos.z);
+              if (d < bestD) {
+                bestD = d;
+                beam = { x: site.position.x, z: site.position.z };
+              }
             }
+          } else if (opening.beam === 'assayer') {
+            beam = { x: smokeVendor.x, z: smokeVendor.z };
+          } else if (opening.beam === 'pete') {
+            beam = { x: oldPete.position.x, z: oldPete.position.z };
+          } else if (opening.beam === 'store') {
+            beam = { x: generalStore.position.x, z: generalStore.position.z };
           }
-        } else if (carryGramsNow > 1e-4) {
-          guide = {
-            title: 'Cash it in',
-            detail: 'Walk west to the Town Assayer (gold sign) and press E to sell.',
-          };
-          beam = { x: smokeVendor.x, z: smokeVendor.z };
         }
       }
       if (beam) {
@@ -1475,12 +1738,19 @@ async function bootstrap(): Promise<void> {
       }
       if (overlays.current() === 'inventory') {
         const g = save.inventory.carry.gold;
+        const vault = save.inventory.vault.gold;
+        const vaultG = vault.flake_g + vault.picker_g + vault.nugget_g;
         overlays.setInventory([
           `Flake ${g.flake_g.toFixed(3)} g · Picker ${g.picker_g.toFixed(3)} g · Nugget ${g.nugget_g.toFixed(3)} g`,
           `Wallet $${save.wallet.balance.toFixed(2)}`,
+          vaultG > 0 ? `Cache ${vaultG.toFixed(3)} g` : 'Cache empty',
           `Shovel T${save.equipment.ownedTiers.shovel} · Pan T${save.equipment.ownedTiers.pan} · Classifier T${save.equipment.ownedTiers.classifier} · Snuffer T${save.equipment.ownedTiers.snuffer}`,
-          'Tools are used at a gold ring. Press E there to dig.',
+          `${methodLabel(save.fieldwork.method)} in hand · ${save.fieldwork.claims.length} claim${save.fieldwork.claims.length === 1 ? '' : 's'}`,
+          'Press E on a gold ring. Press F in the creek to count colors. J is the journal.',
         ]);
+      }
+      if (overlays.current() === 'journal') {
+        overlays.setJournal(journalLines(save));
       }
 
       let vendorOverlay: ReturnType<typeof buildVendorOverlay> | null = null;
@@ -1488,17 +1758,31 @@ async function bootstrap(): Promise<void> {
         vendorOverlay = buildVendorOverlay(
           activeVendor,
           save.inventory.carry.gold,
-          save.economy.spotPrice.current,
+          townQuote(
+            save.economy.spotPrice.current,
+            save.fieldwork.townBias,
+            weather.getView().state,
+            getSkyHour(worldTime),
+          ),
         );
       }
 
-      let storeOverlay: ReturnType<typeof buildStoreOverlay> | null = null;
+      let storeOverlay: HudUpdate['store'] = null;
       if (storeOpen) {
-        storeOverlay = buildStoreOverlay(
-          save.equipment.ownedTiers,
-          save.wallet.balance,
-          storeSelectionIdx,
-        );
+        storeOverlay = {
+          rows: buildListings(save).map((row) => ({
+            category: row.id,
+            displayName: row.displayName,
+            ownedTier: 0,
+            ownedLabel: row.ownedLabel,
+            nextLabel: row.nextLabel,
+            nextCost: row.nextCost,
+            affordable: row.affordable,
+            questGated: row.questGated,
+          })),
+          selectedIndex: storeSelectionIdx,
+          walletBalance: save.wallet.balance,
+        };
       }
 
       let dialogueOverlay: ReturnType<typeof buildDialogueOverlay> | null = null;
@@ -1530,7 +1814,7 @@ async function bootstrap(): Promise<void> {
         bearingDeg: bearingFromYaw(cameraRig.getYaw()),
         prompt: shownPrompt,
         guide,
-        toolsLabel: `Shovel T${save.equipment.ownedTiers.shovel} · Pan T${save.equipment.ownedTiers.pan}`,
+        toolsLabel: `${methodLabel(save.fieldwork.method)} · Shovel T${save.equipment.ownedTiers.shovel} · Pan T${save.equipment.ownedTiers.pan}`,
         vendor: vendorOverlay,
         store: storeOverlay,
         dialogue: dialogueOverlay,
@@ -1562,14 +1846,17 @@ async function bootstrap(): Promise<void> {
   loop.start();
 
   // ---- Persistence ----
-  const autosaveTimer = window.setInterval(() => {
-    saveCurrentState(buildSaveSnapshot()).catch((e) => console.error('[save] autosave failed', e));
-  }, 60_000);
+  const freezeSave = params.get('freezeSave') === '1';
+  if (!freezeSave) {
+    const autosaveTimer = window.setInterval(() => {
+      saveCurrentState(buildSaveSnapshot()).catch((e) => console.error('[save] autosave failed', e));
+    }, 60_000);
 
-  window.addEventListener('beforeunload', () => {
-    window.clearInterval(autosaveTimer);
-    saveCurrentState(buildSaveSnapshot()).catch(() => undefined);
-  });
+    window.addEventListener('beforeunload', () => {
+      window.clearInterval(autosaveTimer);
+      saveCurrentState(buildSaveSnapshot()).catch(() => undefined);
+    });
+  }
 
   console.log('[bootstrap] Them Hills ready (overhaul phase 1 — lighting pipeline)');
   console.log(
@@ -1614,43 +1901,6 @@ function buildVendorOverlay(
     grossDollars: gross,
     canSell: totalG > 1e-6,
   };
-}
-
-// Snapshot of the General Store UI for the HUD: one row per category showing
-// owned tier, next-upgrade cost (if any), and an "AFFORD" flag.
-function buildStoreOverlay(
-  ownedTiers: Record<EquipmentCategory, number>,
-  walletBalance: number,
-  selectionIdx: number,
-): {
-  rows: {
-    category: EquipmentCategory;
-    displayName: string;
-    ownedTier: number;
-    nextLabel: string;
-    nextCost: number | null;
-    affordable: boolean;
-    questGated: boolean;
-  }[];
-  selectedIndex: number;
-  walletBalance: number;
-} {
-  const rows = ALL_CATEGORIES.map((category) => {
-    const ownedTier = ownedTiers[category];
-    const next = getNextUpgrade(category, ownedTier);
-    const nextCost = next ? next.cost : null;
-    const affordable = next !== null && !next.questGated && walletBalance >= next.cost;
-    return {
-      category,
-      displayName: EQUIPMENT[category].displayName,
-      ownedTier,
-      nextLabel: next ? next.label : 'Maxed',
-      nextCost,
-      affordable,
-      questGated: next?.questGated === true,
-    };
-  });
-  return { rows, selectedIndex: selectionIdx, walletBalance };
 }
 
 // Spatial-grid index of every scatter placement, used by the ground-cover

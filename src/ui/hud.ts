@@ -47,6 +47,7 @@ export interface HudUpdate {
       category: string;
       displayName: string;
       ownedTier: number;
+      ownedLabel?: string;
       nextLabel: string;
       nextCost: number | null;
       affordable: boolean;
@@ -354,7 +355,9 @@ const STYLE = `
   .hud-vendor { border-color: rgba(212, 166, 71, 0.7); }
   .hud-vendor .step-label { color: #d4a647; }
   .hud-store {
-    width: 520px;
+    width: 560px;
+    max-height: 70vh;
+    overflow: auto;
     border-color: rgba(74, 140, 42, 0.7);
     text-align: left;
   }
@@ -766,10 +769,10 @@ export function mountHud(root: HTMLElement): MountedHud {
           msg.textContent = `[${glyph}]  ${s.prospect.message}`;
           prospect.appendChild(msg);
 
-          if (s.prospect.step === 'pan') {
+          if (s.prospect.step === 'pan' && s.prospect.panTapsRemaining > 0) {
             const extra = document.createElement('div');
             extra.className = 'step-extra';
-            extra.textContent = `${s.prospect.panTapsRemaining} swirl${s.prospect.panTapsRemaining === 1 ? '' : 's'} remaining`;
+            extra.textContent = `${s.prospect.panTapsRemaining} wash${s.prospect.panTapsRemaining === 1 ? '' : 'es'} of sand left`;
             prospect.appendChild(extra);
           }
         }
@@ -918,7 +921,7 @@ export function mountHud(root: HTMLElement): MountedHud {
           const row = document.createElement('div');
           row.className = `store-row ${idx === s.store!.selectedIndex ? 'selected' : ''}`;
           const left = document.createElement('span');
-          left.innerHTML = `<span class="store-name">${r.displayName}</span><span class="store-owned">T${r.ownedTier}</span>`;
+          left.innerHTML = `<span class="store-name">${r.displayName}</span><span class="store-owned">${r.ownedLabel ?? `T${r.ownedTier}`}</span>`;
           row.appendChild(left);
           const right = document.createElement('span');
           if (r.nextCost === null) {
@@ -941,6 +944,7 @@ export function mountHud(root: HTMLElement): MountedHud {
         const cycleGlyph = s.device === 'gamepad' ? 'D-pad' : '↑↓';
         footer.textContent = `[${cycleGlyph}] cycle    [${glyph}] buy    [Esc] leave`;
         store.appendChild(footer);
+        store.querySelector('.store-row.selected')?.scrollIntoView({ block: 'nearest' });
       } else {
         store.hidden = true;
       }

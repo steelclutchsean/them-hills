@@ -1,4 +1,4 @@
-import type { Minigame, MinigameUpdate, MinigameViz } from './types';
+import type { Minigame, MinigameUpdate, MinigameViz, StageOptions } from './types';
 
 // Dig minigame — timing-meter swing. An indicator oscillates left/right
 // across a horizontal bar. When the player taps INTERACT, score the
@@ -34,6 +34,7 @@ const TIER_PROFILES: Record<1 | 2 | 3, TierProfile> = {
 
 // Full back-and-forth cycle in seconds. Shorter = faster + harder.
 const CYCLE_TIME = 1.5;
+const TUTORIAL_CYCLE = 1.8;
 const SCORE_FLOOR = 0.5;
 const SCORE_CENTER = 2.0;
 const SCORE_DROP_PER_HALFWIDTH = 0.5;
@@ -48,11 +49,19 @@ export function createDigMinigame(): Minigame {
   let sessionTime = 0;
   let lastSwingAt = -999;
   let lastSwingScore = 0;
+  let tutorial = false;
+  let drift = 0;
+  let cycle = CYCLE_TIME;
 
   function indicatorPosition(t: number): number {
     // Ping-pong 0 → 1 → 0 → 1 → ...
-    const phase = (t / CYCLE_TIME) % 2;
+    const phase = (t / cycle) % 2;
     return phase < 1 ? phase : 2 - phase;
+  }
+
+  function sweetCenter(): number {
+    if (drift <= 0) return 0.5;
+    return 0.5 + Math.sin(sessionTime * 1.15) * drift;
   }
 
   function scoreSwing(distanceFromCenter: number): number {
@@ -67,9 +76,22 @@ export function createDigMinigame(): Minigame {
   }
 
   return {
-    start(toolTier: number) {
+    start(toolTier: number, options?: StageOptions) {
       const t = Math.max(1, Math.min(3, Math.floor(toolTier))) as 1 | 2 | 3;
-      profile = TIER_PROFILES[t];
+      tutorial = options?.tutorial === true;
+      if (tutorial) {
+        profile = { swings: 1, sweetHalfWidth: 0.18, isPickaxe: false };
+        drift = 0;
+        cycle = TUTORIAL_CYCLE;
+      } else if (options?.asPick) {
+        profile = { swings: 1, sweetHalfWidth: 0.1, isPickaxe: true };
+        drift = 0.05;
+        cycle = 1.35;
+      } else {
+        profile = TIER_PROFILES[t];
+        drift = t === 1 ? 0.1 : 0.06;
+        cycle = CYCLE_TIME;
+      }
       swingsDone = 0;
       swingScores = [];
       sessionTime = 0;
@@ -79,9 +101,10 @@ export function createDigMinigame(): Minigame {
     update({ dt, justPressedInteract, audio, effects }): MinigameUpdate {
       sessionTime += dt;
       const indicator = indicatorPosition(sessionTime);
+      const sweet = sweetCenter();
 
       if (justPressedInteract && swingsDone < profile.swings) {
-        const d = Math.abs(indicator - 0.5);
+        const d = Math.abs(indicator - sweet);
         const score = scoreSwing(d);
         swingScores.push(score);
         swingsDone += 1;
@@ -111,7 +134,7 @@ export function createDigMinigame(): Minigame {
       const viz: MinigameViz = {
         kind: 'dig',
         indicator,
-        sweetCenter: 0.5,
+        sweetCenter: sweet,
         sweetHalfWidth: profile.sweetHalfWidth,
         swingsRemaining,
         lastSwingFlashSec: sessionTime - lastSwingAt,
@@ -119,9 +142,11 @@ export function createDigMinigame(): Minigame {
         isPickaxe: profile.isPickaxe,
       };
 
-      const message = profile.isPickaxe
-        ? 'TAP at the center — pickaxe crit for bonus seam'
-        : `TAP at the center — ${swingsRemaining} swing${swingsRemaining === 1 ? '' : 's'} left`;
+      const message = tutorial
+        ? 'TAP the center — one swing to break the gravel'
+        : profile.isPickaxe
+          ? 'TAP the moving pocket — a centered strike opens a seam'
+          : `The gravel pocket is moving — TAP it — ${swingsRemaining} swing${swingsRemaining === 1 ? '' : 's'}`;
       const reported = {
         progress: swingsDone / profile.swings,
         message,

@@ -1,4 +1,4 @@
-import type { Minigame, MinigameUpdate, MinigameViz } from './types';
+import type { Minigame, MinigameUpdate, MinigameViz, StageOptions } from './types';
 
 // Classify minigame — rhythmic shake of the classifier sieve. A beat
 // pulses on a fixed cadence (~2 Hz); the player taps INTERACT on the
@@ -40,6 +40,7 @@ const TIER_PROFILES: Record<1 | 2 | 3, TierProfile> = {
 };
 
 const BEAT_PERIOD_SEC = 0.5;
+const ROCKER_PERIOD_SEC = 0.68;
 const SCORE_FLOOR = 0.5;
 const SCORE_CENTER = 2.0;
 const SCORE_DROP_PER_WINDOW = 0.5;
@@ -50,14 +51,16 @@ export function createClassifyMinigame(): Minigame {
   let sessionTime = 0;
   let lastTapAt = -999;
   let lastTapScore = 0;
+  let rocker = false;
+  let beatPeriod = BEAT_PERIOD_SEC;
 
   function beatPhase(t: number): number {
-    return (t / BEAT_PERIOD_SEC) % 1;
+    return (t / beatPeriod) % 1;
   }
   function distanceToBeat(t: number): number {
     // Beat moment lands at phase = 0.5 each cycle. Distance to beat is
     // |phase - 0.5| × period (seconds).
-    return Math.abs(beatPhase(t) - 0.5) * BEAT_PERIOD_SEC;
+    return Math.abs(beatPhase(t) - 0.5) * beatPeriod;
   }
   function scoreTap(distanceSec: number): number {
     return Math.max(
@@ -67,9 +70,16 @@ export function createClassifyMinigame(): Minigame {
   }
 
   return {
-    start(toolTier: number) {
+    start(toolTier: number, options?: StageOptions) {
       const t = Math.max(1, Math.min(3, Math.floor(toolTier))) as 1 | 2 | 3;
-      profile = TIER_PROFILES[t];
+      rocker = options?.rocker === true;
+      if (rocker) {
+        profile = { tapsTotal: 4, tightWindowSec: 0.2, layerCount: 1, floorScore: 0.65 };
+        beatPeriod = ROCKER_PERIOD_SEC;
+      } else {
+        profile = TIER_PROFILES[t];
+        beatPeriod = BEAT_PERIOD_SEC;
+      }
       tapScores = [];
       sessionTime = 0;
       lastTapAt = -999;
@@ -106,7 +116,7 @@ export function createClassifyMinigame(): Minigame {
       const viz: MinigameViz = {
         kind: 'classify',
         beatPhase: beatPhase(sessionTime),
-        beatPeriod: BEAT_PERIOD_SEC,
+        beatPeriod,
         tapsRemaining,
         layerCount: profile.layerCount,
         currentLayer,
@@ -117,7 +127,9 @@ export function createClassifyMinigame(): Minigame {
 
       const layerLabel =
         profile.layerCount === 1 ? '' : currentLayer === 0 ? ' (upper sieve)' : ' (lower sieve)';
-      const message = `TAP on the beat${layerLabel} — ${tapsRemaining} left`;
+      const message = rocker
+        ? `ROCK the box on the beat — ${tapsRemaining} left`
+        : `TAP on the beat${layerLabel} — ${tapsRemaining} left`;
       const reported = {
         progress: tapsDone / profile.tapsTotal,
         message,

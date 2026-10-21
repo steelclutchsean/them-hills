@@ -18,6 +18,17 @@ export interface GameplayEvents {
   find: { grams: number };
   'prospect-start': { siteId: string };
   sell: { vendorId: string; earned: number };
+  /** A wash pulse in the pan: tilt is the pan radius 0..1, rhythm is 0..1, spilled means gold slid off. */
+  'pan-wash': { tilt: number; rhythm: number; spilled: boolean };
+  sample: { colors: number; habitat: string };
+  'claim-staked': { claimId: string; habitat: string };
+  'claim-jumper': { claimId: string };
+  'creek-rise': { shift: number };
+  'method-change': { method: string };
+  rumor: { id: string };
+  hire: { hands: number };
+  'supply-bought': { id: string };
+  'area-unlock': { streamId: string };
 }
 
 type Handler<K extends keyof GameplayEvents> = (payload: GameplayEvents[K]) => void;

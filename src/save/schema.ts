@@ -14,14 +14,20 @@
 //   - New `settings` block holds player preferences for audio mix, look
 //     sensitivity, and graphics. Defaults match the previously
 //     hardcoded values so behavior is unchanged for fresh saves.
+// v5 changes:
+//   - `fieldwork` holds the work method, claims, color samples, journal,
+//     rumors, crew, and the town price bias. Position, carry gold, and
+//     wallet are untouched.
+//   - Equipment gains pick, rocker, longTom, and hydraulic. Missing keys
+//     migrate as unowned (0).
 
-export const CURRENT_SAVE_VERSION = 4;
-export const BUILD_VERSION = '0.2.0-overhaul-phase1';
+export const CURRENT_SAVE_VERSION = 5;
+export const BUILD_VERSION = '0.3.0-gameplay';
 
 // ---------- Top-level shape ----------
 
 export interface SaveV1 {
-  version: 4;
+  version: 5;
   metadata: SaveMetadata;
   player: PlayerState;
   inventory: InventoryState;
@@ -34,6 +40,7 @@ export interface SaveV1 {
   progression: ProgressionState;
   rngSeeds: RngSeedState;
   settings: SettingsState;
+  fieldwork: FieldworkState;
 }
 
 // ---------- Settings ----------
@@ -94,7 +101,14 @@ export interface PlayerState {
 
 // ---------- Inventory ----------
 
-export type ConsumableId = 'berries' | 'mushrooms' | 'meal_ration' | 'water_canteen' | 'firewood';
+export type ConsumableId =
+  | 'berries'
+  | 'mushrooms'
+  | 'meal_ration'
+  | 'water_canteen'
+  | 'firewood'
+  | 'coffee'
+  | 'nails';
 
 export interface InventoryState {
   carry: {
@@ -153,6 +167,14 @@ export interface EquipmentState {
      *  in-game point-light headlamp used at night, in storms, and inside
      *  the mine cave. Not part of the yield-multiplier calculation. */
     headlamp: 1 | 2;
+    /** 0 = not owned. A pick changes the dig into one heavy strike and opens a mine. */
+    pick: 0 | 1 | 2 | 3;
+    /** 0 = not owned. A rocker replaces the pan wash with a rocking beat. */
+    rocker: 0 | 1 | 2;
+    /** 0 = not owned. A long tom is a slow, high-volume wash. */
+    longTom: 0 | 1;
+    /** 0 = not owned. Hydraulic mining strips a bar and needs a hired hand. */
+    hydraulic: 0 | 1;
   };
   sluiceDeployment?: {
     siteId: string;
@@ -283,13 +305,94 @@ export interface RngSeedState {
   collectorVisitSeed: number;
 }
 
+// ---------- Fieldwork (v5) ----------
+
+export type Habitat = 'inside_bend' | 'gravel_bar' | 'bedrock' | 'boulder_lee' | 'tail' | 'barren';
+
+export type WorkMethod = 'pan' | 'rocker' | 'sluice' | 'long_tom' | 'hydraulic' | 'hardrock';
+
+export interface ClaimImprovements {
+  camp: 0 | 1 | 2;
+  cache: boolean;
+  rocker: boolean;
+  sluice: boolean;
+  longTom: boolean;
+}
+
+export interface ClaimRecord {
+  id: string;
+  kind: 'placer' | 'lode';
+  /** Creek id, or a mine id for a lode. */
+  streamId: string;
+  x: number;
+  z: number;
+  habitat: Habitat;
+  /** 1 fresh, falling as the claim is worked. */
+  pay: number;
+  stakedAt: number;
+  name: string;
+  improvements: ClaimImprovements;
+  /** Game time a jumper showed up, or null. */
+  jumperSince: number | null;
+}
+
+export interface ColorSample {
+  id: string;
+  streamId: string | null;
+  x: number;
+  z: number;
+  habitat: Habitat;
+  colors: number;
+  gameTime: number;
+}
+
+export interface JournalEntry {
+  id: string;
+  title: string;
+  body: string;
+  gameTime: number;
+}
+
+export interface FieldworkState {
+  method: WorkMethod;
+  claims: ClaimRecord[];
+  hands: number;
+  samples: ColorSample[];
+  journal: JournalEntry[];
+  rumorsHeard: string[];
+  unlockedStreams: string[];
+  /** Downstream shift of each creek's pay streak. Rain increases it. */
+  payShift: Record<string, number>;
+  lastJumperRoll: number;
+  /** Town price multiplier walked once per in-game day. */
+  townBias: number;
+  /** Hunger does not drain until this game time. */
+  fedUntil: number;
+}
+
+export function defaultFieldwork(): FieldworkState {
+  return {
+    method: 'pan',
+    claims: [],
+    hands: 0,
+    samples: [],
+    journal: [],
+    rumorsHeard: [],
+    unlockedStreams: ['coyote_creek'],
+    payShift: { coyote_creek: 0, buckeye_run: 0 },
+    lastJumperRoll: 0,
+    townBias: 1,
+    fedUntil: 0,
+  };
+}
+
 // ---------- Defaults ----------
 
 export function createDefaultSave(): SaveV1 {
   const now = Date.now();
   const seed = Math.floor(Math.random() * 2 ** 31);
   return {
-    version: 4,
+    version: 5,
     metadata: {
       createdAt: now,
       lastSavedAt: now,
@@ -329,6 +432,10 @@ export function createDefaultSave(): SaveV1 {
         snuffer: 1,
         gear: 1,
         headlamp: 1,
+        pick: 0,
+        rocker: 0,
+        longTom: 0,
+        hydraulic: 0,
       },
     },
     world: {
@@ -380,6 +487,17 @@ export function createDefaultSave(): SaveV1 {
       collectorVisitSeed: seed ^ 0x9abc,
     },
     settings: defaultSettings(),
+    fieldwork: {
+      ...defaultFieldwork(),
+      journal: [
+        {
+          id: 'welcome',
+          title: 'A new creek',
+          body: 'Coyote Creek is east. The first pan is one swing, then a short wash. Press J anytime for this journal.',
+          gameTime: 0,
+        },
+      ],
+    },
   };
 }
 

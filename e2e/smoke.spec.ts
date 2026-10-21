@@ -11,12 +11,21 @@ interface Probe {
   frameLuma: number;
   peakCarryGrams: number;
   graphics?: string;
+  saveVersion?: number;
+  panTier?: number;
+  claimCount?: number;
   applyShot?: (name: string) => boolean;
 }
 
 declare global {
   interface Window {
-    __themHills?: Probe & { save(): Promise<void>; graphics?: string };
+    __themHills?: Probe & {
+      save(): Promise<void>;
+      graphics?: string;
+      exportLegacyV4?: () => unknown;
+      buyUpgrade?: (category: string) => boolean;
+      stakeClaim?: () => { ok: boolean; reason: string };
+    };
   }
 }
 
@@ -46,6 +55,9 @@ async function readProbe(page: Page): Promise<Probe> {
       error: probe.error,
       frameLuma: probe.frameLuma,
       peakCarryGrams: probe.peakCarryGrams,
+      saveVersion: probe.saveVersion,
+      panTier: probe.panTier,
+      claimCount: probe.claimCount,
     };
   });
 }
@@ -209,5 +221,92 @@ test('captures fixed cameras', async ({ page }) => {
     await page.waitForTimeout(400);
     await page.screenshot({ path: `test-results/visual/${shot}.png` });
   }
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+test('migrates a v4 save, buys a tool, and stakes a claim', async ({ page }) => {
+  test.setTimeout(180_000);
+  const errors = trackErrors(page);
+  await page.goto('/?freezeSave=1');
+  await page.waitForSelector('#boot-start', { timeout: 120_000 });
+  await page.waitForFunction(() => typeof window.__themHills?.exportLegacyV4 === 'function', undefined, {
+    timeout: 30_000,
+  });
+  await page.evaluate(async () => {
+    const legacy = window.__themHills?.exportLegacyV4();
+    if (!legacy) throw new Error('no legacy snapshot');
+    await new Promise<void>((resolve, reject) => {
+      const open = indexedDB.open('keyval-store');
+      open.onupgradeneeded = () => {
+        const db = open.result;
+        if (!db.objectStoreNames.contains('keyval')) db.createObjectStore('keyval');
+      };
+      open.onerror = () => reject(open.error ?? new Error('indexedDB open failed'));
+      open.onsuccess = () => {
+        const db = open.result;
+        const tx = db.transaction('keyval', 'readwrite');
+        tx.objectStore('keyval').put(legacy, 'themhills:save:slot1');
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        tx.onerror = () => reject(tx.error ?? new Error('indexedDB write failed'));
+      };
+    });
+  });
+
+  await page.goto('/');
+  await page.waitForSelector('#boot-start', { timeout: 120_000 });
+  await page.locator('#boot-start').click();
+  await waitReady(page);
+  const migrated = await page.evaluate(() => {
+    const probe = window.__themHills;
+    if (!probe) throw new Error('probe missing');
+    return {
+      saveVersion: probe.saveVersion,
+      wallet: probe.wallet,
+      carryGrams: probe.carryGrams,
+      x: probe.position.x,
+      z: probe.position.z,
+      panTier: probe.panTier,
+      claimCount: probe.claimCount,
+    };
+  });
+  expect(migrated.saveVersion).toBe(5);
+  expect(migrated.wallet).toBeGreaterThan(499);
+  expect(migrated.carryGrams).toBeGreaterThan(1.4);
+  expect(Math.hypot(migrated.x - 4, migrated.z - -3)).toBeLessThan(8);
+  expect(migrated.panTier).toBe(1);
+  expect(migrated.claimCount).toBe(0);
+
+  const bought = await page.evaluate(() => window.__themHills?.buyUpgrade('pan') ?? false);
+  expect(bought).toBe(true);
+  const staked = await page.evaluate(() => window.__themHills?.stakeClaim() ?? { ok: false, reason: 'missing' });
+  expect(staked.ok, staked.reason).toBe(true);
+
+  await page.evaluate(async () => {
+    await window.__themHills?.save();
+  });
+  await page.goto('/');
+  await page.waitForSelector('#boot-start', { timeout: 120_000 });
+  await page.locator('#boot-start').click();
+  await waitReady(page);
+  const kept = await page.evaluate(() => {
+    const probe = window.__themHills;
+    if (!probe) throw new Error('probe missing');
+    return {
+      saveVersion: probe.saveVersion,
+      panTier: probe.panTier,
+      claimCount: probe.claimCount,
+      wallet: probe.wallet,
+      carryGrams: probe.carryGrams,
+    };
+  });
+  expect(kept.saveVersion).toBe(5);
+  expect(kept.panTier).toBe(2);
+  expect(kept.claimCount).toBe(1);
+  expect(kept.wallet).toBeGreaterThan(290);
+  expect(kept.wallet).toBeLessThan(310);
+  expect(kept.carryGrams).toBeGreaterThan(1.4);
   expect(errors, errors.join('\n')).toEqual([]);
 });
