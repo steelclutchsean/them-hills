@@ -954,6 +954,18 @@ async function bootstrap(): Promise<void> {
         if (!claim) return false;
         claim.jumperSince = worldTime;
         gameStore.getState().hydrate(saveNow);
+        const machine = layout(saveNow, courses).find((m) => m.kind === 'rocker') ?? layout(saveNow, courses)[0];
+        if (machine) {
+          const fx = -Math.sin(machine.yaw);
+          const fz = -Math.cos(machine.yaw);
+          const px = machine.x - fx * 4.6;
+          const pz = machine.z - fz * 4.6;
+          character.placeAt(px, terrain.getHeightAt(px, pz) + 0.95, pz);
+          character.setYaw(machine.yaw);
+          cameraRig.setAvoidance(false);
+          cameraRig.setYawPitch(machine.yaw + 0.42, -0.2);
+          cameraRig.setArmLength(6.4);
+        }
         return true;
       },
       applyShot: (name: string) => {
@@ -2120,8 +2132,9 @@ async function bootstrap(): Promise<void> {
           : 'Nothing here. Coyote Creek is east — follow the gold beam.';
         hintUntil = worldTime + 3.5;
       }
-      const shownPrompt =
-        promptInfo ?? (hintText && worldTime < hintUntil ? { text: hintText, glyph: '…' } : null);
+      const shownPrompt = inSession
+        ? null
+        : (promptInfo ?? (hintText && worldTime < hintUntil ? { text: hintText, glyph: '…' } : null));
 
       const carryGramsNow =
         save.inventory.carry.gold.flake_g +

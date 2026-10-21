@@ -101,12 +101,12 @@ export function createCameraModeController(camera: THREE.PerspectiveCamera): Cam
   function machineFrame(charPos: THREE.Vector3, focus: THREE.Vector3, step: string): void {
     const spec =
       step === 'sluice'
-        ? { back: 4.15, side: 1.85, height: 0.72, fov: 38, look: 0.15 }
+        ? { back: 5.2, side: 2.2, height: 0.38, fov: 40, look: -0.08 }
         : step === 'tom'
-          ? { back: 5.1, side: 2.15, height: 0.85, fov: 36, look: 0.2 }
+          ? { back: 6.15, side: 2.5, height: 0.48, fov: 38, look: -0.05 }
           : step === 'monitor'
-            ? { back: 4.7, side: 2.05, height: 0.95, fov: 40, look: 0.45 }
-            : { back: 3.7, side: 1.7, height: 0.7, fov: 40, look: 0.25 };
+            ? { back: 5.7, side: 2.4, height: 0.55, fov: 40, look: 0.12 }
+            : { back: 4.65, side: 2.0, height: 0.36, fov: 42, look: -0.06 };
     forward.set(focus.x - charPos.x, 0, focus.z - charPos.z);
     if (forward.lengthSq() < 0.04) {
       forward.set(-Math.sin(lockedYaw), 0, -Math.cos(lockedYaw));
