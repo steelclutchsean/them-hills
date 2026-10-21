@@ -233,6 +233,110 @@ export function timberDarkMaterial(): THREE.MeshStandardMaterial {
   return applyWood(lit('sierra-timber-dark', PALETTE.timberDark, 0.9), true);
 }
 
+let innWood: THREE.MeshStandardMaterial | null = null;
+let innWoodStain: THREE.MeshStandardMaterial | null = null;
+
+/** Hand-authored inn boards: grain, knots, bottom grime, and a groove normal. */
+export function innTimber(stained = false): THREE.MeshStandardMaterial {
+  if (!innWood) {
+    const size = 256;
+    const albedo = document.createElement('canvas');
+    albedo.width = size;
+    albedo.height = size;
+    const ctx = albedo.getContext('2d');
+    if (!ctx) throw new Error('[painterly] canvas 2d unavailable');
+    const sky = ctx.createLinearGradient(0, 0, 0, size);
+    sky.addColorStop(0, '#e4c79a');
+    sky.addColorStop(0.45, '#b9834e');
+    sky.addColorStop(1, '#6d4a2c');
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, size, size);
+    for (let y = 0; y < size; y += 2) {
+      const g = 90 + ((y * 13) % 50);
+      ctx.fillStyle = `rgba(${g + 40}, ${g - 10}, ${g - 40}, 0.18)`;
+      ctx.fillRect(0, y, size, 1);
+    }
+    for (let k = 0; k < 7; k++) {
+      const x = (k * 47 + 20) % size;
+      const y = (k * 31 + 12) % size;
+      const ring = ctx.createRadialGradient(x, y, 1, x, y, 10 + (k % 4) * 3);
+      ring.addColorStop(0, 'rgba(62, 36, 18, 0.85)');
+      ring.addColorStop(1, 'rgba(62, 36, 18, 0)');
+      ctx.fillStyle = ring;
+      ctx.beginPath();
+      ctx.arc(x, y, 12, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = 'rgba(48, 62, 40, 0.45)';
+    for (let i = 0; i < 18; i++) {
+      ctx.fillRect((i * 37) % size, size - 30 - (i % 5) * 8, 18 + (i % 4) * 6, 6);
+    }
+    const normal = document.createElement('canvas');
+    normal.width = size;
+    normal.height = size;
+    const nctx = normal.getContext('2d');
+    if (!nctx) throw new Error('[painterly] canvas 2d unavailable');
+    const pixels = nctx.createImageData(size, size);
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const groove = Math.sin(y * 0.45) * 0.65;
+        const nx = Math.sin(x * 0.2 + y * 0.05) * 0.25;
+        const ny = groove;
+        const nz = 1;
+        const len = Math.hypot(nx, ny, nz);
+        const o = (y * size + x) * 4;
+        pixels.data[o] = Math.round((nx / len) * 127 + 128);
+        pixels.data[o + 1] = Math.round((ny / len) * 127 + 128);
+        pixels.data[o + 2] = Math.round((nz / len) * 127 + 128);
+        pixels.data[o + 3] = 255;
+      }
+    }
+    nctx.putImageData(pixels, 0, 0);
+    const aoCanvas = document.createElement('canvas');
+    aoCanvas.width = size;
+    aoCanvas.height = size;
+    const octx = aoCanvas.getContext('2d');
+    if (!octx) throw new Error('[painterly] canvas 2d unavailable');
+    octx.fillStyle = '#d0d0d0';
+    octx.fillRect(0, 0, size, size);
+    octx.fillStyle = '#3a3a3a';
+    octx.fillRect(0, 0, size, 10);
+    octx.fillRect(0, size - 14, size, 14);
+    const dirt = octx.createLinearGradient(0, size * 0.55, 0, size);
+    dirt.addColorStop(0, 'rgba(255,255,255,0)');
+    dirt.addColorStop(1, 'rgba(20,20,20,0.72)');
+    octx.fillStyle = dirt;
+    octx.fillRect(0, 0, size, size);
+    const map = new THREE.CanvasTexture(albedo);
+    map.colorSpace = THREE.SRGBColorSpace;
+    map.wrapS = THREE.RepeatWrapping;
+    map.wrapT = THREE.RepeatWrapping;
+    map.anisotropy = 4;
+    const normalMap = new THREE.CanvasTexture(normal);
+    normalMap.colorSpace = THREE.NoColorSpace;
+    normalMap.wrapS = THREE.RepeatWrapping;
+    normalMap.wrapT = THREE.RepeatWrapping;
+    const aoMap = new THREE.CanvasTexture(aoCanvas);
+    aoMap.colorSpace = THREE.NoColorSpace;
+    aoMap.wrapS = THREE.RepeatWrapping;
+    aoMap.wrapT = THREE.RepeatWrapping;
+    innWood = new THREE.MeshStandardMaterial({
+      map,
+      normalMap,
+      aoMap,
+      color: 0xffffff,
+      roughness: 0.84,
+      metalness: 0.02,
+      aoMapIntensity: 1.05,
+      normalScale: new THREE.Vector2(1.35, 1.35),
+    });
+    innWoodStain = innWood.clone();
+    innWoodStain.color.set(0x6e4e32);
+    innWoodStain.aoMapIntensity = 1.25;
+  }
+  return stained ? innWoodStain! : innWood!;
+}
+
 /** A unique timber material so machines can repeat the town planks without tinting the buildings. */
 export function cutTimber(
   repeatU: number,

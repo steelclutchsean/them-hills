@@ -32,7 +32,7 @@ const SHOTS: Record<string, ReviewShot> = {
   dusk: { x: 8, z: -14, yaw: 0.35, pitch: 0.24, hour: 18.7, arm: 5, pose: 'idle' },
   night: { x: -4, z: 7.2, yaw: 0.85, pitch: 0.4, hour: 21.4, arm: 6.5, pose: 'idle' },
   dawn: { x: 2, z: -8, yaw: -1.7, pitch: 0.04, hour: 6.55, arm: 12, pose: 'idle', free: true },
-  inn: { x: -10.4, z: 19.2, yaw: 0.28, pitch: 0.14, hour: 10, arm: 11, pose: 'idle', free: true },
+  inn: { x: -13, z: 15.2, yaw: -0.08, pitch: 0.22, hour: 10, arm: 7.2, pose: 'idle', free: true },
   town: { x: -2.5, z: 26, yaw: 0.42, pitch: 0.1, hour: 10.5, arm: 16, pose: 'idle', free: true },
   vista: { x: 52, z: 58, yaw: 2.55, pitch: 0.08, hour: 11, arm: 14, pose: 'idle', free: true },
   creekbank: {

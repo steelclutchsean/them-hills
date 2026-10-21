@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { PALETTE } from '@/render/palette';
 import {
   canvasMaterial,
+  innTimber,
   stoneMaterial,
   timberDarkMaterial,
   timberMaterial,
@@ -164,7 +165,7 @@ function addLog(
   const geom = new THREE.CylinderGeometry(0.105, 0.098, length, 8);
   if (axis === 'x') geom.rotateZ(Math.PI / 2);
   else geom.rotateX(Math.PI / 2);
-  parent.add(mesh(geom, timberMaterial(), x, y, z));
+  parent.add(mesh(geom, y < 1.05 ? innTimber(true) : innTimber(false), x, y, z));
   if (!caps) return;
   const capGeom = new THREE.CircleGeometry(0.09, 8);
   const mat = endGrainMat();
@@ -254,19 +255,50 @@ function addInnFront(
 }
 
 function addShakeRoof(parent: THREE.Object3D, width: number, depth: number, peakY: number): void {
-  const dark = timberDarkMaterial();
-  const rows = 8;
+  const dark = innTimber(true);
+  const mid = innTimber(false);
+  const rows = 9;
+  const shakeW = 0.36;
   for (const side of [-1, 1]) {
     for (let r = 0; r < rows; r++) {
       const t = r / (rows - 1);
-      const z = side * (0.18 + t * (depth * 0.55 + 0.55));
-      const sag = Math.sin(t * Math.PI) * 0.07;
-      const y = peakY - t * 1.05 - sag + ((r * 3) % 4) * 0.01;
-      const shake = mesh(new THREE.BoxGeometry(width + 0.95, 0.04, 0.32), dark, 0, y, z);
-      shake.rotation.x = -side * 0.4;
-      parent.add(shake);
+      const z = side * (0.15 + t * (depth * 0.58 + 0.62));
+      const y = peakY - t * 1.12 + ((r * 3) % 3) * 0.012;
+      const count = Math.ceil((width + 1.1) / shakeW);
+      for (let i = 0; i < count; i++) {
+        const x = -width / 2 - 0.4 + i * shakeW + (r % 2) * shakeW * 0.5;
+        const shake = mesh(
+          new THREE.BoxGeometry(shakeW * 0.92, 0.045, 0.28),
+          (i + r) % 3 === 0 ? dark : mid,
+          x,
+          y,
+          z,
+        );
+        shake.rotation.x = -side * (0.38 + (i % 4) * 0.015);
+        shake.rotation.z = ((i % 5) - 2) * 0.02;
+        parent.add(shake);
+      }
     }
   }
+}
+
+function bevelBoard(w: number, h: number, depth: number): THREE.BufferGeometry {
+  const shape = new THREE.Shape();
+  shape.moveTo(-w / 2, -h / 2);
+  shape.lineTo(w / 2, -h / 2);
+  shape.lineTo(w / 2, h / 2);
+  shape.lineTo(-w / 2, h / 2);
+  shape.closePath();
+  const geom = new THREE.ExtrudeGeometry(shape, {
+    depth,
+    bevelEnabled: true,
+    bevelThickness: 0.018,
+    bevelSize: 0.016,
+    bevelSegments: 2,
+    curveSegments: 1,
+  });
+  geom.translate(0, 0, -depth / 2);
+  return geom;
 }
 
 function addStoneCourse(parent: THREE.Object3D, width: number, depth: number): void {
@@ -443,8 +475,25 @@ export function buildCabin(opts: {
     addLog(root, hx, y, 0, depth - 0.2, 'z', false);
   }
 
-  const door = mesh(new THREE.BoxGeometry(0.72, 1.45, 0.08), dark, 0, 0.95, hz + 0.08);
+  const door = new THREE.Mesh(bevelBoard(0.78, 1.55, 0.07), innTimber(true));
+  door.position.set(0, 0.98, hz + 0.1);
+  door.castShadow = true;
   root.add(door);
+  for (const [px, py] of [
+    [-0.16, 1.22],
+    [0.16, 1.22],
+    [-0.16, 0.72],
+    [0.16, 0.72],
+  ] as const) {
+    const panel = new THREE.Mesh(bevelBoard(0.26, 0.38, 0.025), innTimber(false));
+    panel.position.set(px, py, hz + 0.15);
+    panel.castShadow = true;
+    root.add(panel);
+  }
+  const hinge = new THREE.BoxGeometry(0.05, 0.16, 0.03);
+  root.add(mesh(hinge, stone, -0.36, 1.35, hz + 0.16));
+  root.add(mesh(hinge, stone, -0.36, 0.7, hz + 0.16));
+  root.add(mesh(new THREE.SphereGeometry(0.035, 8, 6), stone, 0.28, 0.95, hz + 0.18));
   const jambL = mesh(new THREE.BoxGeometry(0.08, 1.55, 0.12), wood, -0.4, 0.95, hz + 0.06);
   const jambR = mesh(new THREE.BoxGeometry(0.08, 1.55, 0.12), wood, 0.4, 0.95, hz + 0.06);
   const header = mesh(new THREE.BoxGeometry(0.9, 0.1, 0.12), wood, 0, 1.7, hz + 0.06);
@@ -452,7 +501,17 @@ export function buildCabin(opts: {
   addWindow(root, width * 0.28, 1.35, hz + 0.02, 0);
   addWindow(root, hx + 0.02, 1.4, 0.15, Math.PI / 2);
 
-  root.add(mesh(new THREE.BoxGeometry(width * 0.78, 0.08, 1.25), wood, 0, 0.36, hz + 0.72));
+  const deckZ = hz + 0.72;
+  for (let i = 0; i < 6; i++) {
+    const board = mesh(
+      new THREE.BoxGeometry(width * 0.76, 0.045, 0.18),
+      i % 2 === 0 ? innTimber(false) : innTimber(true),
+      0,
+      0.34,
+      deckZ - 0.5 + i * 0.2,
+    );
+    root.add(board);
+  }
   const porchPost = new THREE.CylinderGeometry(0.07, 0.085, 2.15, 8);
   const postL = -width * 0.32;
   const postR = width * 0.32;
