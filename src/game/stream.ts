@@ -225,9 +225,11 @@ const FRAG_SHADER = /* glsl */ `
     float rippleLine = smoothstep(0.46, 0.52, n1) * smoothstep(0.64, 0.54, n1);
     base *= 1.0 - rippleLine * 0.22;
 
-    float edge = smoothstep(0.55, 0.94, t);
-    float foamNoise = noise(worldXZ * 3.8 - scroll * 1.3);
-    float foamMask = edge * smoothstep(0.28, 0.72, foamNoise);
+    // A wide wet band, then broken low foam. The old edge was a hard white ring.
+    float shore = smoothstep(0.62, 0.98, t);
+    float wet = smoothstep(0.42, 0.74, t) * (1.0 - smoothstep(0.86, 1.0, t));
+    float foamNoise = noise(worldXZ * 2.1 - scroll * 0.45);
+    float foamMask = shore * smoothstep(0.64, 0.92, foamNoise) * 0.22;
     // Riffles are the shallow runs. Streaks follow the spline tangent.
     float riffle = smoothstep(0.85, 0.28, vDepth);
     float across = dot(worldXZ, vec2(flow.y, -flow.x));
@@ -331,10 +333,12 @@ const FRAG_SHADER = /* glsl */ `
       reflected = cool;
       reflectAmt = mix(0.34, 0.9, smoothstep(0.06, 0.62, fres));
       reflectAmt *= mix(0.22, 1.0, smoothstep(0.08, 0.55, depthFactor));
+      reflectAmt *= mix(1.0, 0.3, smoothstep(0.68, 0.98, t));
     } else {
       reflectAmt *= 0.35;
     }
     base = mix(base, reflected, reflectAmt);
+    base = mix(base, vec3(0.32, 0.28, 0.22), wet * 0.72);
     float foamAmt = clamp(max(foamMask, lip), 0.0, 0.88);
     // Keep the rock lips. Don't paint the mirror out with sheet foam.
     if (mirrorHit > 0.5) foamAmt = max(lip * 0.85, min(foamAmt, 0.32));
@@ -361,8 +365,9 @@ const FRAG_SHADER = /* glsl */ `
     lit = mix(lit, lit * uSunColor, 0.16 * uSunIntensity * shadow);
 
     float alpha = mix(0.18, 0.97, smoothstep(0.02, 0.48, depthFactor));
-    alpha = max(alpha, foamMask * 0.92);
-    alpha = mix(alpha, min(1.0, alpha + 0.2), fres);
+    alpha *= mix(1.0, 0.22, smoothstep(0.58, 1.0, t));
+    alpha = max(alpha, lip * 0.72);
+    alpha = mix(alpha, min(1.0, alpha + 0.12), fres * (1.0 - shore));
 
     gl_FragColor = vec4(lit, alpha);
     #ifdef USE_FOG

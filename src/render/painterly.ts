@@ -612,6 +612,37 @@ export function addGoldFlake(
   parent.add(glint);
 }
 
+/** A fleck in a pan. Metal, no bloom, no glint shell. */
+export function addPanFleck(
+  parent: THREE.Object3D,
+  x: number,
+  y: number,
+  z: number,
+  radius = 0.009,
+): void {
+  const flake = new THREE.Mesh(new THREE.SphereGeometry(radius, 6, 4), panFleckMaterial());
+  flake.scale.set(1.35, 0.32, 1.05);
+  flake.position.set(x, y, z);
+  flake.castShadow = false;
+  flake.receiveShadow = false;
+  parent.add(flake);
+}
+
+function panFleckMaterial(): THREE.MeshStandardMaterial {
+  const hit = shared.get('pan-fleck');
+  if (hit instanceof THREE.MeshStandardMaterial) return hit;
+  const mat = new THREE.MeshStandardMaterial({
+    name: 'pan-fleck',
+    color: 0xb8893e,
+    metalness: 0.82,
+    roughness: 0.4,
+    emissive: 0x000000,
+    emissiveIntensity: 0,
+  });
+  shared.set('pan-fleck', mat);
+  return mat;
+}
+
 export function stoneMaterial(): THREE.MeshStandardMaterial {
   return lit('sierra-stone', PALETTE.rockLight, 0.93);
 }

@@ -45,7 +45,7 @@ const SHOTS: Record<string, ReviewShot> = {
     pose: 'idle',
     free: true,
   },
-  prospector: { x: 2.2, z: 4.2, yaw: 0.6, pitch: 0.18, hour: 9, arm: 2.8, pose: 'pan' },
+  prospector: { x: 2.2, z: 4.2, yaw: 0.6, pitch: -0.02, hour: 9, arm: 4.8, pose: 'pan' },
   // Character stands on the ridge. The gameplay camera then locks inside the drift.
   lode: { x: -45, z: -42, yaw: Math.PI, pitch: 0.08, hour: 14, arm: 3.2, pose: 'idle', free: true },
 };

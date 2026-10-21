@@ -58,7 +58,7 @@ function rangeMaterial(map: THREE.Texture): THREE.MeshStandardMaterial {
     fog: true,
     side: THREE.DoubleSide,
   });
-  mat.customProgramCacheKey = () => 'them-hills-range-3';
+  mat.customProgramCacheKey = () => 'them-hills-range-4';
   mat.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
       .replace(
@@ -97,9 +97,10 @@ function rangeMaterial(map: THREE.Texture): THREE.MeshStandardMaterial {
          #include <fog_fragment>
          float themDist = length(vWorldPos.xz);
          float themLow = 1.0 - smoothstep(14.0, 46.0, vWorldPos.y);
-         float themFog = smoothstep(40.0, 180.0, themDist) * mix(0.12, 0.78, themLow);
-         gl_FragColor.rgb = mix(themLit, gl_FragColor.rgb, clamp(themFog, 0.0, 0.82));
-         gl_FragColor.rgb = max(gl_FragColor.rgb, themAlbedo * 0.45);`,
+         float themFog = smoothstep(26.0, 150.0, themDist) * mix(0.55, 1.0, themLow);
+         gl_FragColor.rgb = mix(themLit, gl_FragColor.rgb, clamp(themFog, 0.0, 1.0));
+         float peakKeep = smoothstep(18.0, 42.0, vWorldPos.y);
+         gl_FragColor.rgb = mix(gl_FragColor.rgb, max(gl_FragColor.rgb, themAlbedo * 0.5), peakKeep);`,
       );
   };
   return mat;

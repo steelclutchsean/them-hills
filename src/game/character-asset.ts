@@ -3,7 +3,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { seatHat } from '@/game/hat-fit';
 import { upgradeLoadedMaterials } from '@/render/materials';
-import { addGoldFlake } from '@/render/painterly';
+import { addPanFleck } from '@/render/painterly';
 
 // Loads the Quaternius Ranger outfit and builds a face in the ranger skin
 // tone onto the Head bone. The pauldron and hood stay hidden.
@@ -236,26 +236,40 @@ function attachHandTools(hand: THREE.Object3D | undefined): {
 
   const pan = new THREE.Group();
   pan.name = 'held-pan';
-  const bowl = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.2, 0.15, 0.045, 14),
-    new THREE.MeshStandardMaterial({ color: 0x8d7764, metalness: 0.45, roughness: 0.38 }),
-  );
+  const iron = new THREE.MeshStandardMaterial({
+    color: 0x2a2724,
+    metalness: 0.74,
+    roughness: 0.46,
+  });
+  const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.15, 0.045, 14), iron);
   // Opening faces the grip's +Y, which the wrist aims at the camera's look point.
   bowl.position.y = 0.14;
   const rim = new THREE.Mesh(
     new THREE.TorusGeometry(0.19, 0.012, 6, 16),
-    new THREE.MeshStandardMaterial({ color: 0xc2ad8e, metalness: 0.72, roughness: 0.32 }),
+    new THREE.MeshStandardMaterial({ color: 0x3e3a34, metalness: 0.62, roughness: 0.4 }),
   );
   rim.rotation.x = Math.PI / 2;
   rim.position.y = 0.162;
-  pan.add(bowl, rim);
-  // A pile in the middle of the bowl, big enough to read as the find.
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2 + 0.4;
-    const hero = i < 4;
-    const radius = hero ? 0.105 : 0.062;
-    const ring = hero ? 0.015 + (i % 2) * 0.028 : 0.055;
-    addGoldFlake(pan, radius, Math.cos(a) * ring, 0.205, Math.sin(a) * ring * 0.66);
+  const water = new THREE.Mesh(
+    new THREE.CircleGeometry(0.145, 18),
+    new THREE.MeshStandardMaterial({
+      color: 0x2a4a4e,
+      roughness: 0.24,
+      metalness: 0.06,
+      transparent: true,
+      opacity: 0.82,
+      depthWrite: false,
+    }),
+  );
+  water.name = 'pan-water';
+  water.rotation.x = -Math.PI / 2;
+  water.position.y = 0.158;
+  water.renderOrder = 2;
+  pan.add(bowl, rim, water);
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2 + 0.35;
+    const ring = 0.018 + (i % 4) * 0.028;
+    addPanFleck(pan, Math.cos(a) * ring, 0.166, Math.sin(a) * ring * 0.7, 0.006 + (i % 3) * 0.002);
   }
   pan.visible = false;
 
@@ -277,7 +291,7 @@ async function attachModeledHead(headBone: THREE.Object3D): Promise<boolean> {
   return true;
 }
 
-/** Pore and blush albedo. Eyes, brows, and the nose are meshes, not paint. */
+/** Warm skin with a soft shade under the brow. The crown stays plain; the hat covers it. */
 function skinAlbedo(): THREE.CanvasTexture {
   const size = 128;
   const canvas = document.createElement('canvas');
@@ -287,18 +301,24 @@ function skinAlbedo(): THREE.CanvasTexture {
   if (!ctx) throw new Error('[character] canvas 2d unavailable');
   ctx.fillStyle = '#c48a62';
   ctx.fillRect(0, 0, size, size);
-  for (let i = 0; i < 700; i++) {
-    const x = (i * 47) % size;
-    const y = (i * 19) % size;
-    const tone = 30 + (i % 9) * 6;
-    ctx.fillStyle = `rgba(${tone + 80}, ${tone + 28}, ${tone}, 0.09)`;
-    ctx.fillRect(x, y, 2, 2);
-  }
-  ctx.fillStyle = 'rgba(196, 92, 72, 0.18)';
+  const shade = ctx.createLinearGradient(0, 0, 0, size);
+  shade.addColorStop(0, 'rgba(92, 54, 38, 0)');
+  shade.addColorStop(0.42, 'rgba(92, 54, 38, 0)');
+  shade.addColorStop(0.58, 'rgba(72, 38, 28, 0.18)');
+  shade.addColorStop(1, 'rgba(58, 30, 22, 0.28)');
+  ctx.fillStyle = shade;
+  ctx.fillRect(0, 0, size, size);
+  ctx.fillStyle = 'rgba(196, 92, 72, 0.16)';
   ctx.beginPath();
-  ctx.ellipse(34, 78, 16, 12, 0, 0, Math.PI * 2);
-  ctx.ellipse(94, 78, 16, 12, 0, 0, Math.PI * 2);
+  ctx.ellipse(34, 86, 14, 10, 0, 0, Math.PI * 2);
+  ctx.ellipse(94, 86, 14, 10, 0, 0, Math.PI * 2);
   ctx.fill();
+  for (let i = 0; i < 90; i++) {
+    const x = (i * 47) % size;
+    const y = 78 + ((i * 19) % (size - 78));
+    ctx.fillStyle = 'rgba(110, 62, 42, 0.05)';
+    ctx.fillRect(x, y, 1, 1);
+  }
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
@@ -337,7 +357,7 @@ function createMatchedFace(variant = 0): THREE.Group {
     const ny = y / 0.09;
     const socket = (cx: number): number =>
       Math.exp(-((nx - cx) * (nx - cx)) / 0.02 - ((ny - 0.3) * (ny - 0.3)) / 0.028) * front;
-    z -= (socket(0.36) + socket(-0.36)) * 0.013;
+    z -= (socket(0.36) + socket(-0.36)) * 0.02;
     const brow =
       Math.exp(-((ny - 0.52) * (ny - 0.52)) / 0.016) * front * (1 - Math.min(1, nx * nx * 1.8));
     y += brow * 0.01;
@@ -350,7 +370,7 @@ function createMatchedFace(variant = 0): THREE.Group {
   const skin = new THREE.MeshStandardMaterial({
     map: skinAlbedo(),
     color: 0xffffff,
-    roughness: 0.62,
+    roughness: 0.74,
     metalness: 0,
   });
   const skull = new THREE.Mesh(geom, skin);
@@ -385,32 +405,41 @@ function createMatchedFace(variant = 0): THREE.Group {
     roughness: 0.82,
     metalness: 0,
   });
-  // The pan camera sits in front of the body. On this bone that side is +Z
-  // (measured: local -Z points away from that camera). Eye size stays near
-  // a real eye so the read comes from the model, not an enlarged prop.
+  const lidMat = new THREE.MeshStandardMaterial({ color: 0x8d5c42, roughness: 0.78, metalness: 0 });
+  // The pan camera sits in front of the body. On this bone that side is +Z.
+  // Eyes are small and sit in the carved sockets, with a lid over the top.
   const addEye = (side: number): void => {
     const eye = new THREE.Group();
     eye.name = 'eye';
-    const white = new THREE.Mesh(new THREE.SphereGeometry(0.016, 16, 12), whiteMat);
+    const white = new THREE.Mesh(new THREE.SphereGeometry(0.008, 12, 8), whiteMat);
     white.name = 'eye-white';
     white.renderOrder = 2;
-    const iris = new THREE.Mesh(new THREE.SphereGeometry(0.01, 14, 10), irisMat);
+    const iris = new THREE.Mesh(new THREE.SphereGeometry(0.0042, 10, 8), irisMat);
     iris.name = 'eye-iris';
-    // The close camera looks down onto the face, so the iris sits on the
-    // upper front of the eye instead of the hidden lower pole.
-    iris.position.set(0, 0.008, 0.011);
+    iris.position.set(0, 0.001, 0.0052);
     iris.renderOrder = 3;
-    const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.0055, 10, 8), pupilMat);
+    const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.0022, 8, 6), pupilMat);
     pupil.name = 'eye-pupil';
-    pupil.position.set(0, 0.01, 0.016);
+    pupil.position.set(0, 0.0012, 0.0066);
     pupil.renderOrder = 4;
     eye.add(white, iris, pupil);
-    eye.position.set(side * 0.036, 0.062, 0.108);
+    eye.position.set(side * 0.032, 0.074, 0.078);
     group.add(eye);
-    const browMesh = new THREE.Mesh(new THREE.BoxGeometry(0.042, 0.009, 0.012), browMat);
+    const lid = new THREE.Mesh(
+      new THREE.SphereGeometry(0.011, 8, 6, 0, Math.PI * 2, 0, Math.PI * 0.48),
+      lidMat,
+    );
+    lid.name = 'eyelid';
+    lid.scale.set(1.2, 0.55, 0.85);
+    lid.rotation.x = 0.85;
+    lid.position.set(side * 0.032, 0.079, 0.082);
+    lid.castShadow = true;
+    lid.renderOrder = 3;
+    group.add(lid);
+    const browMesh = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.005, 0.008), browMat);
     browMesh.name = 'brow';
-    browMesh.position.set(side * 0.034, 0.086, 0.112);
-    browMesh.rotation.z = side * -0.22;
+    browMesh.position.set(side * 0.031, 0.088, 0.086);
+    browMesh.rotation.z = side * -0.18;
     browMesh.castShadow = true;
     browMesh.renderOrder = 2;
     group.add(browMesh);
@@ -460,15 +489,31 @@ function createMatchedFace(variant = 0): THREE.Group {
   neck.position.y = -0.02;
   neck.castShadow = true;
   const hair = new THREE.MeshStandardMaterial({ color: 0x2c1810, roughness: 0.92 });
-  const beard = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 8), hair);
+  const beard = new THREE.Group();
   beard.name = 'beard';
-  beard.scale.set(0.92, 0.42, 0.4);
-  beard.position.set(0, -0.016, 0.02);
-  beard.castShadow = true;
+  const chin = new THREE.Mesh(new THREE.SphereGeometry(0.046, 10, 8), hair);
+  chin.name = 'beard-chin';
+  chin.scale.set(0.95, 0.82, 0.7);
+  chin.position.set(0, -0.008, 0.05);
+  const cheekGeom = new THREE.SphereGeometry(0.026, 8, 6);
+  const cheekL = new THREE.Mesh(cheekGeom, hair);
+  cheekL.name = 'beard-cheek';
+  cheekL.scale.set(0.72, 1.15, 0.68);
+  cheekL.position.set(0.04, 0.012, 0.052);
+  const cheekR = cheekL.clone();
+  cheekR.position.x = -0.04;
+  const mustache = new THREE.Mesh(new THREE.SphereGeometry(0.02, 8, 6), hair);
+  mustache.name = 'mustache';
+  mustache.scale.set(1.65, 0.4, 0.72);
+  mustache.position.set(0, 0.016, 0.092);
+  beard.add(chin, cheekL, cheekR, mustache);
+  beard.traverse((obj) => {
+    if (obj instanceof THREE.Mesh) obj.castShadow = true;
+  });
   if (variant === 1) {
     skull.scale.set(1.08, 0.98, 1.05);
-    beard.scale.set(1.08, 0.72, 0.58);
-    beard.position.y = -0.028;
+    beard.scale.set(1.12, 1.16, 1.08);
+    beard.position.y = -0.012;
     skin.color.set(0xc48962);
   } else if (variant === 2) {
     skull.scale.set(0.94, 1.08, 0.92);
@@ -593,7 +638,11 @@ function loadCrewHead(): Promise<THREE.Object3D | null> {
  * A hired hand or a claim jumper: the ranger body, the modeled head, and a
  * hat. `shirt` tints the atlas so a hand and a jumper do not match.
  */
-export async function createCrewVariant(shirt: number, hat: number, variant = 0): Promise<THREE.Group> {
+export async function createCrewVariant(
+  shirt: number,
+  hat: number,
+  variant = 0,
+): Promise<THREE.Group> {
   const source = await loadCrewOutfit();
   const outfit = cloneSkinned(source);
   // The ranger's feet are the glTF origin, and the mesh faces +Z. Crew yaw

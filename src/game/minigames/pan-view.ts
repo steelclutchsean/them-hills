@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { addGoldFlake } from '@/render/painterly';
+import { addPanFleck } from '@/render/painterly';
 import { forceTopDraw } from './_util';
 import type { MinigameViz } from './types';
 
@@ -129,11 +129,16 @@ function makePanVariant(tier: 1 | 2 | 3): TierVariant {
 
   // Mount: lower-center, tilted up slightly so the camera looks INTO it.
   variant.position.set(0, -0.34, -0.5);
-  for (let i = 0; i < 7; i++) {
-    const a = (i / 7) * Math.PI * 2 + 0.3;
-    const radius = i < 3 ? 0.058 : 0.036;
-    const ring = (i < 3 ? 0.12 : 0.28) * panRadius;
-    addGoldFlake(variant, radius, Math.cos(a) * ring, -0.015, Math.sin(a) * ring * 0.7);
+  for (let i = 0; i < 9; i++) {
+    const a = (i / 9) * Math.PI * 2 + 0.3;
+    const ring = (0.18 + (i % 3) * 0.22) * panRadius;
+    addPanFleck(
+      variant,
+      Math.cos(a) * ring,
+      -0.02,
+      Math.sin(a) * ring * 0.72,
+      0.007 + (i % 3) * 0.002,
+    );
   }
   variant.rotation.set(0.45, 0, 0);
 

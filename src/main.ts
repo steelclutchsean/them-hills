@@ -3714,7 +3714,7 @@ async function bootstrap(): Promise<void> {
       const panClose = getReviewPose() === 'pan' || prospect.getSnapshot()?.step === 'pan';
       if (panClose) {
         focusNdc.copy(character.getToolFocus()).project(renderer.camera);
-        renderer.setGradeFocus(focusNdc.x * 0.5 + 0.5, focusNdc.y * 0.5 + 0.5, 0.4);
+        renderer.setGradeFocus(focusNdc.x * 0.5 + 0.5, focusNdc.y * 0.5 + 0.5, 0.12);
         const skull = character.group.getObjectByName('modeled-head');
         if (skull) skull.getWorldPosition(faceLook);
         else {
@@ -3727,10 +3727,10 @@ async function bootstrap(): Promise<void> {
         // camera blows the bowl out and leaves the features flat.
         faceFill.position.copy(faceLook).addScaledVector(faceBehind, -0.55);
         faceFill.position.y += 0.08;
-        faceFill.intensity = 0.85;
+        faceFill.intensity = 0.32;
         faceRim.position.copy(faceLook).addScaledVector(faceBehind, 0.32);
         faceRim.position.y += 0.14;
-        faceRim.intensity = 2.4;
+        faceRim.intensity = 0.48;
       } else {
         renderer.setGradeFocus(0.5, 0.5, 0);
         faceFill.intensity = 0;
