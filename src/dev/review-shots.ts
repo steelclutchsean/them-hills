@@ -24,7 +24,9 @@ export interface ReviewOverride {
 type ReviewShot = Required<Omit<ReviewOverride, 'free'>> & { free?: boolean };
 
 const SHOTS: Record<string, ReviewShot> = {
-  spawn: { x: 0, z: 2, yaw: 0.55, pitch: 0.38, hour: 8.5, arm: 5, pose: 'idle' },
+  // Stand in the meadow with Coyote behind the character, close enough
+  // that the channel is a ribbon and not a line on the horizon.
+  spawn: { x: 18, z: 8, yaw: -1.45, pitch: 0.34, hour: 8.5, arm: 7, pose: 'idle' },
   creek: { x: 26.9, z: 8, yaw: 0.05, pitch: 0.72, hour: 11, arm: 14, pose: 'idle', free: true },
   camp: { x: -3.5, z: 9, yaw: 0.95, pitch: 0.42, hour: 17.2, arm: 6, pose: 'idle' },
   dusk: { x: 8, z: -14, yaw: 0.35, pitch: 0.24, hour: 18.7, arm: 5, pose: 'idle' },

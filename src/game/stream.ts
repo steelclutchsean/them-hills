@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { bindFrameUniforms, FRAME_UNIFORM_GLSL } from '@/render/frame-uniforms';
 import { reflectionUniforms } from '@/render/reflection';
+import { creekProbeUniforms } from '@/render/creek-probe';
 import type { Terrain } from './terrain';
 import { createRng } from './rng';
 import type { Watercourse } from './watercourse';
@@ -35,9 +36,9 @@ export interface StreamConfig {
 
 const SITE_INTERACT_RADIUS = 1.5;
 
-const DEFAULT_SHALLOW = 0x2f8f86;
-const DEFAULT_DEEP = 0x0a3040;
-const DEFAULT_FOAM = 0xf4efe2;
+const DEFAULT_SHALLOW = 0xe0a85a;
+const DEFAULT_DEEP = 0x1e7c78;
+const DEFAULT_FOAM = 0xf7f3e4;
 
 export interface PanningSite {
   id: string;
@@ -124,6 +125,8 @@ const FRAG_SHADER = /* glsl */ `
   uniform sampler2D uReflect;
   uniform mat4 uReflProjView;
   uniform float uHasReflect;
+  uniform samplerCube uProbe;
+  uniform float uHasProbe;
   varying vec3 vWorld;
   varying vec3 vViewDir;
   varying vec2 vFlow;
@@ -159,11 +162,20 @@ const FRAG_SHADER = /* glsl */ `
     vec3 base = mix(uShallow, uDeep, depthFactor);
     base = mix(base, murk, smoothstep(1.05, 1.7, vDepth) * 0.35);
 
-    float n1 = noise(worldXZ * 0.32 - scroll);
-    float n2 = noise(worldXZ * 0.9 - scroll * 1.4 + vec2(4.2, 1.3));
-    float n3 = noise(worldXZ * 2.6 - scroll * 0.55 + vec2(1.7, 8.0));
-    float surface = n1 * 0.5 + n2 * 0.32 + n3 * 0.18;
-    base = mix(base * 0.84, base * 1.16, smoothstep(0.28, 0.72, surface));
+    // Two scrolling layers, cross-faded, so the ripple moves without a seam.
+    float phase = fract(uTime * uFlowSpeed * 0.35);
+    float phaseB = fract(phase + 0.5);
+    float fade = abs(phase * 2.0 - 1.0);
+    vec2 flowUv = worldXZ * 0.85;
+    float nA = noise(flowUv - flow * phase * 3.2);
+    float nB = noise(flowUv - flow * phaseB * 3.2 + vec2(5.1, 2.4));
+    float n1 = mix(nA, nB, fade);
+    float n2 = noise(worldXZ * 1.7 - scroll * 1.6 + vec2(4.2, 1.3));
+    float n3 = noise(worldXZ * 3.4 - scroll * 0.7 + vec2(1.7, 8.0));
+    float surface = n1 * 0.55 + n2 * 0.3 + n3 * 0.15;
+    base = mix(base * 0.7, base * 1.32, smoothstep(0.3, 0.72, surface));
+    float rippleLine = smoothstep(0.46, 0.52, n1) * smoothstep(0.64, 0.54, n1);
+    base *= 1.0 - rippleLine * 0.22;
 
     float edge = smoothstep(0.55, 0.94, t);
     float foamNoise = noise(worldXZ * 3.8 - scroll * 1.3);
@@ -183,19 +195,19 @@ const FRAG_SHADER = /* glsl */ `
       vec2 toFrag = worldXZ - rockXZ;
       float ahead = dot(toFrag, flow);
       float side = abs(toFrag.x * flow.y - toFrag.y * flow.x);
-      float body = 1.0 - smoothstep(radius * 0.2, radius * 1.35, length(toFrag));
-      float trail = smoothstep(-0.05, 0.35, ahead)
-                  * (1.0 - smoothstep(0.15, 2.8, ahead))
-                  * (1.0 - smoothstep(radius * 0.15, radius * 1.6, side));
+      float body = 1.0 - smoothstep(radius * 0.15, radius * 2.6, length(toFrag));
+      float trail = smoothstep(-0.1, 0.45, ahead)
+                  * (1.0 - smoothstep(0.2, 6.4, ahead))
+                  * (1.0 - smoothstep(radius * 0.2, radius * 2.8, side));
       wake = max(wake, max(body, trail));
     }
-    foamMask = max(foamMask, wake * 0.92);
-    base = mix(base, uFoam, foamMask * 0.88);
+    foamMask = max(foamMask, wake);
+    base = mix(base, uFoam, clamp(foamMask, 0.0, 1.0));
 
-    float h0 = noise(worldXZ * 1.1 - scroll);
-    float h1 = noise((worldXZ + vec2(0.12, 0.0)) * 1.1 - scroll);
-    float h2 = noise((worldXZ + vec2(0.0, 0.12)) * 1.1 - scroll);
-    vec3 surfNormal = normalize(vec3((h0 - h1) * 5.0, 1.0, (h0 - h2) * 5.0));
+    float h0 = n1;
+    float h1 = noise(flowUv + vec2(0.16, 0.0) - flow * phase * 3.2);
+    float h2 = noise(flowUv + vec2(0.0, 0.16) - flow * phase * 3.2);
+    vec3 surfNormal = normalize(vec3((h0 - h1) * 7.5, 1.0, (h0 - h2) * 7.5));
     vec3 viewDir = normalize(vViewDir);
     vec3 sunDir = normalize(uSunDir);
     vec3 reflectDir = reflect(-sunDir, surfNormal);
@@ -204,22 +216,42 @@ const FRAG_SHADER = /* glsl */ `
 
     float fres = pow(1.0 - max(dot(viewDir, surfNormal), 0.0), 2.1);
     vec3 reflected = mix(uHemiSky, uFoam, 0.22);
-    if (uHasReflect > 0.5) {
+    float treeAmt = 0.0;
+    if (uHasProbe > 0.5) {
+      vec3 refl = reflect(-viewDir, surfNormal);
+      // Fan across the banks. A single ray from the channel hits sky; the
+      // greenest tap in the fan is the timber actually in the cube.
+      float sweep = along * 0.17;
+      vec3 mirror = textureCube(uProbe, refl).rgb;
+      float best = mirror.g - max(mirror.r, mirror.b);
+      for (int i = 0; i < 5; i++) {
+        float ang = sweep + float(i) * 1.05;
+        vec3 dir = normalize(vec3(cos(ang), 0.42, sin(ang)));
+        vec3 tap = textureCube(uProbe, dir).rgb;
+        float score = tap.g - max(tap.r, tap.b);
+        if (score > best) {
+          best = score;
+          mirror = tap;
+        }
+      }
+      float rl = dot(mirror, vec3(0.2126, 0.7152, 0.0722));
+      reflected = mix(vec3(rl), mirror, 2.4);
+      treeAmt = smoothstep(0.0, 0.08, best);
+    } else if (uHasReflect > 0.5) {
       vec4 clip = uReflProjView * vec4(vWorld, 1.0);
       if (clip.w > 0.0) {
         vec2 uv = clamp(clip.xy / clip.w * 0.5 + 0.5, 0.0, 1.0);
         uv.y = 1.0 - uv.y;
         vec3 mirror = texture2D(uReflect, uv).rgb;
         float rl = dot(mirror, vec3(0.25, 0.6, 0.15));
-        // The mirror target is already tone-mapped. Push the green back
-        // so a second pass does not turn the trees into a gray sheen.
         reflected = mix(vec3(rl), mirror, 1.7);
       }
     }
-    // Without a reflection target, a strong fresnel just paints the creek
-    // the color of the sky and it disappears into the bank.
-    // A floor keeps the mirror readable even when the camera looks down.
-    float reflectAmt = uHasReflect > 0.5 ? max(fres, 0.74) * 0.97 : fres * 0.2;
+    float hasMirror = max(uHasProbe, uHasReflect);
+    // Shallows stay amber over the gravel. A tap that actually hit timber
+    // is allowed to cover more of the water than open sky.
+    float reflectAmt = hasMirror > 0.5 ? mix(0.22, 0.5, fres) * mix(0.55, 1.0, depthFactor) : fres * 0.2;
+    reflectAmt = mix(reflectAmt, max(reflectAmt, 0.74), treeAmt);
     base = mix(base, reflected, reflectAmt);
 
     float cau = noise(worldXZ * 3.4 - scroll * 1.5) * noise(worldXZ * 6.2 + scroll * 0.6);
@@ -242,18 +274,81 @@ const FRAG_SHADER = /* glsl */ `
     vec3 lit = base * mix(0.62, 1.0, shadow);
     lit = mix(lit, lit * uSunColor, 0.16 * uSunIntensity * shadow);
 
-    float alpha = mix(0.9, 0.98, depthFactor);
-    alpha = max(alpha, foamMask * 0.9);
-    alpha = mix(alpha, min(1.0, alpha + 0.28), fres);
+    float alpha = mix(0.42, 0.9, depthFactor);
+    alpha = max(alpha, foamMask * 0.92);
+    alpha = mix(alpha, min(1.0, alpha + 0.2), fres);
 
     gl_FragColor = vec4(lit, alpha);
     #ifdef USE_FOG
       float fogFactor = 1.0 - exp(-fogDensity * fogDensity * vFogDepth * vFogDepth);
-      gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor * 0.55);
-      gl_FragColor.a *= 1.0 - fogFactor;
+      gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor * 0.22);
+      gl_FragColor.a *= 1.0 - fogFactor * 0.35;
     #endif
   }
 `;
+
+let gravelMat: THREE.MeshStandardMaterial | null = null;
+
+function gravelMaterial(): THREE.MeshStandardMaterial {
+  if (gravelMat) return gravelMat;
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('[stream] canvas 2d unavailable');
+  ctx.fillStyle = '#c4a06a';
+  ctx.fillRect(0, 0, size, size);
+  for (let i = 0; i < 90; i++) {
+    const x = (i * 47) % size;
+    const y = (i * 29) % size;
+    const r = 3 + (i % 5);
+    const tone = 120 + (i % 7) * 14;
+    ctx.fillStyle = `rgb(${tone + 40}, ${tone - 10}, ${tone - 50})`;
+    ctx.beginPath();
+    ctx.ellipse(x, y, r, r * 0.72, (i % 5) * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const map = new THREE.CanvasTexture(canvas);
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.wrapS = THREE.RepeatWrapping;
+  map.wrapT = THREE.RepeatWrapping;
+  map.repeat.set(6, 6);
+  gravelMat = new THREE.MeshStandardMaterial({
+    map,
+    color: 0xfff2dc,
+    roughness: 0.94,
+    metalness: 0,
+  });
+  return gravelMat;
+}
+
+function buildBed(course: Watercourse): THREE.BufferGeometry {
+  const samples = course.samples;
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  for (const s of samples) {
+    const nx = -s.tz;
+    const nz = s.tx;
+    const w = s.halfWidth * 0.9;
+    const drop = 0.06 + Math.min(0.28, s.depth * 0.16);
+    for (const side of [-1, 1]) {
+      positions.push(s.x + nx * w * side, s.waterY - drop, s.z + nz * w * side);
+      uvs.push(s.x * 0.18, s.z * 0.18);
+    }
+  }
+  const indices: number[] = [];
+  for (let i = 0; i < samples.length - 1; i++) {
+    const a = i * 2;
+    indices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+  }
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geom.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geom.setIndex(indices);
+  geom.computeVertexNormals();
+  return geom;
+}
 
 function buildRibbon(course: Watercourse): THREE.BufferGeometry {
   const samples = course.samples;
@@ -308,6 +403,8 @@ export function createStream(terrain: Terrain, cfg: StreamConfig, course: Waterc
   uniforms.uReflect = reflectionUniforms.uReflect;
   uniforms.uReflProjView = reflectionUniforms.uReflProjView;
   uniforms.uHasReflect = reflectionUniforms.uHasReflect;
+  uniforms.uProbe = creekProbeUniforms.uProbe;
+  uniforms.uHasProbe = creekProbeUniforms.uHasProbe;
   bindFrameUniforms(uniforms);
 
   const waterMat = new THREE.ShaderMaterial({
@@ -321,6 +418,12 @@ export function createStream(terrain: Terrain, cfg: StreamConfig, course: Waterc
     side: THREE.DoubleSide,
     depthWrite: false,
   });
+
+  const bed = new THREE.Mesh(buildBed(course), gravelMaterial());
+  bed.name = `bed_${cfg.id}`;
+  bed.receiveShadow = true;
+  bed.castShadow = false;
+  group.add(bed);
 
   const waterMesh = new THREE.Mesh(buildRibbon(course), waterMat);
   waterMesh.name = `water_${cfg.id}`;

@@ -182,14 +182,27 @@ export function courseById(courses: readonly Watercourse[], id: string): Waterco
 
 /** Water-surface height of whichever channel is closest. Used by the reflection plane. */
 export function waterLevelNear(courses: readonly Watercourse[], x: number, z: number): number {
+  return nearestWaterPoint(courses, x, z).y;
+}
+
+/** Closest point on a channel, used to park the reflection probe in the creek. */
+export function nearestWaterPoint(
+  courses: readonly Watercourse[],
+  x: number,
+  z: number,
+): { x: number; y: number; z: number } {
+  let bestX = x;
   let bestY = 0;
+  let bestZ = z;
   let bestD = Infinity;
   for (const course of courses) {
     const q = course.nearest(x, z);
     if (q.dist < bestD) {
       bestD = q.dist;
+      bestX = q.sample.x;
       bestY = q.sample.waterY;
+      bestZ = q.sample.z;
     }
   }
-  return bestY;
+  return { x: bestX, y: bestY, z: bestZ };
 }

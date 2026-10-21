@@ -9,7 +9,7 @@ import { createSpotPriceService } from '@/economy/spot-price';
 import { buildTrackerView } from '@/quests/quests';
 import { ASSETS } from '@/game/assets';
 import { placeBoulders } from '@/game/boulders';
-import { buildWatercourses, courseById, waterLevelNear } from '@/game/watercourse';
+import { buildWatercourses, courseById, nearestWaterPoint } from '@/game/watercourse';
 import { createWaterReflection, markSceneReflections, skipReflection } from '@/render/reflection';
 import { dressTown, updateTownDressing, updateTownLights } from '@/game/structures';
 import { bearingFromYaw, createCameraRig } from '@/game/camera-rig';
@@ -129,17 +129,26 @@ import {
   reviewWorldTime,
   setReviewPose,
 } from '@/dev/review-shots';
+import { createCreekProbe } from '@/render/creek-probe';
 import { pulseGold, setFoliageWindTime } from '@/render/painterly';
 import { createSmokePilot } from '@/dev/smoke-pilot';
 import { mountOverlays, reportBoot } from '@/ui/overlays';
 import { presentProspectFind, presentToolImpact } from '@/game/presentation';
 
-/** Reflection target size. Medium and low still mirror the near bank and trees. */
+/** Planar mirror size. The cube probe is what the water actually samples for trees. */
 function mirrorBudget(softwareGl: boolean): { size: number; stride: number } {
   if (!softwareGl) return { size: 288, stride: 1 };
   if (RENDER_QUALITY.ao) return { size: 128, stride: 3 };
   if (RENDER_QUALITY.godrays) return { size: 144, stride: 2 };
   return { size: 112, stride: 4 };
+}
+
+/** Cube of the banks. Software updates it a face-set at a time so the frame returns. */
+function probeBudget(softwareGl: boolean): { size: number; stride: number } {
+  if (!softwareGl) return { size: 96, stride: 2 };
+  if (RENDER_QUALITY.ao) return { size: 64, stride: 4 };
+  if (RENDER_QUALITY.godrays) return { size: 96, stride: 4 };
+  return { size: 48, stride: 5 };
 }
 
 async function bootstrap(): Promise<void> {
@@ -272,17 +281,21 @@ async function bootstrap(): Promise<void> {
     createStream(terrain, cfg, courseById(courses, cfg.id)),
   );
   const waterReflection = createWaterReflection();
+  const creekProbe = createCreekProbe();
   const softwareGl = /swiftshader|llvmpipe|softpipe/i.test(
     glRendererString(renderer.renderer.getContext()),
   );
-  // Low and medium stay real mirrors (banks and the near trees) and update
-  // less often. High on software GL stays smaller so the nine shot pages fit.
-  // The mirror stays on for SwiftShader: skipping the tone-mapping flip is
-  // what lets that pass return a frame.
+  // The cube probe is the reflection on every tier, including software GL.
+  // The planar pass photographed the near meadow and came back gray, and a
+  // second full-scene render blows the software frame budget.
   const mirror = mirrorBudget(softwareGl);
   waterReflection.setSize(mirror.size);
   waterReflection.setStride(mirror.stride);
-  waterReflection.setEnabled(RENDER_QUALITY.reflections);
+  waterReflection.setEnabled(false);
+  const probe = probeBudget(softwareGl);
+  creekProbe.setSize(probe.size);
+  creekProbe.setStride(probe.stride);
+  creekProbe.setEnabled(RENDER_QUALITY.reflections);
   for (const s of streamList) {
     skipReflection(s.group);
     renderer.scene.add(s.group);
@@ -768,7 +781,11 @@ async function bootstrap(): Promise<void> {
           const mirrorMenu = mirrorBudget(softwareGl);
           waterReflection.setSize(mirrorMenu.size);
           waterReflection.setStride(mirrorMenu.stride);
-          waterReflection.setEnabled(RENDER_QUALITY.reflections);
+          waterReflection.setEnabled(false);
+          const probeMenu = probeBudget(softwareGl);
+          creekProbe.setSize(probeMenu.size);
+          creekProbe.setStride(probeMenu.stride);
+          creekProbe.setEnabled(RENDER_QUALITY.reflections);
           setScatterDensity(RENDER_QUALITY.scatter / QUALITY_PRESETS.ultra.scatter);
           grass?.setCount(RENDER_QUALITY.grassTall);
           for (const cover of grassCovers) cover.setCount(RENDER_QUALITY.grassCover);
@@ -1139,7 +1156,11 @@ async function bootstrap(): Promise<void> {
         const mirrorNow = mirrorBudget(softwareGl);
         waterReflection.setSize(mirrorNow.size);
         waterReflection.setStride(mirrorNow.stride);
-        waterReflection.setEnabled(RENDER_QUALITY.reflections);
+        waterReflection.setEnabled(false);
+        const probeNow = probeBudget(softwareGl);
+        creekProbe.setSize(probeNow.size);
+        creekProbe.setStride(probeNow.stride);
+        creekProbe.setEnabled(RENDER_QUALITY.reflections);
         setScatterDensity(RENDER_QUALITY.scatter / QUALITY_PRESETS.ultra.scatter);
         grass?.setCount(RENDER_QUALITY.grassTall);
         for (const cover of grassCovers) cover.setCount(RENDER_QUALITY.grassCover);
@@ -1279,12 +1300,13 @@ async function bootstrap(): Promise<void> {
     grass?.update(grassLight);
     for (const cover of grassCovers) cover.update(grassLight);
     renderer.camera.updateMatrixWorld();
-    waterReflection.update(
-      renderer.renderer,
-      renderer.scene,
-      renderer.camera,
-      waterLevelNear(courses, renderer.camera.position.x, renderer.camera.position.z),
+    const titleWater = nearestWaterPoint(
+      courses,
+      renderer.camera.position.x,
+      renderer.camera.position.z,
     );
+    creekProbe.update(renderer.renderer, renderer.scene, titleWater.x, titleWater.y, titleWater.z);
+    waterReflection.update(renderer.renderer, renderer.scene, renderer.camera, titleWater.y);
   }
 
   // ---- Game loop ----
@@ -2629,12 +2651,13 @@ async function bootstrap(): Promise<void> {
       } else {
         renderer.setGradeFocus(0.5, 0.5, 0);
       }
-      waterReflection.update(
-        renderer.renderer,
-        renderer.scene,
-        renderer.camera,
-        waterLevelNear(courses, renderer.camera.position.x, renderer.camera.position.z),
+      const waterSpot = nearestWaterPoint(
+        courses,
+        renderer.camera.position.x,
+        renderer.camera.position.z,
       );
+      creekProbe.update(renderer.renderer, renderer.scene, waterSpot.x, waterSpot.y, waterSpot.z);
+      waterReflection.update(renderer.renderer, renderer.scene, renderer.camera, waterSpot.y);
       publishProbe();
     },
     render: () => {

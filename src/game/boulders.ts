@@ -189,11 +189,63 @@ export function placeBoulders(opts: PlaceBouldersOpts): BoulderField {
       root.add(mesh);
       placed++;
       colliders.push({ pos: mesh.position.clone(), radius: scale * 0.7 });
-      if (wakes.filter((w) => w.streamId === course.id).length < 8) {
-        wakes.push({ streamId: course.id, rock: new THREE.Vector3(x, z, scale * 0.85) });
+      wakes.push({ streamId: course.id, rock: new THREE.Vector3(x, z, scale * 0.85) });
+    }
+  }
+
+  // One stone in the Coyote pool the creek cameras frame, so the foam
+  // collar is in those shots and not only on a rock a bend away.
+  const coyote = courses.find((c) => c.id === 'coyote_creek');
+  if (coyote) {
+    let pool = coyote.samples[0];
+    let poolDist = Infinity;
+    for (const sample of coyote.samples) {
+      const dist = Math.abs(sample.z - 10);
+      if (dist < poolDist) {
+        poolDist = dist;
+        pool = sample;
+      }
+    }
+    if (pool) {
+      const x = pool.x - pool.tz * pool.halfWidth * 0.28;
+      const z = pool.z + pool.tx * pool.halfWidth * 0.28;
+      if (!blocksEntrance(x, z)) {
+        const scale = 0.72;
+        const material = variantMaterials[0];
+        if (material) {
+          const mesh = new THREE.Mesh(createBoulderGeometry(0xc0c0a), material);
+          mesh.scale.setScalar(scale);
+          mesh.position.set(x, pool.waterY - scale * 0.22, z);
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          root.add(mesh);
+          placed++;
+          colliders.push({ pos: mesh.position.clone(), radius: scale * 0.7 });
+          wakes.push({ streamId: coyote.id, rock: new THREE.Vector3(x, z, scale * 0.85) });
+        }
       }
     }
   }
+
+  // The water shader only has eight wake slots. Keep the rocks nearest the
+  // reviewed stretch of each channel so foam shows up in the creek cameras.
+  const ranked: BoulderWake[] = [];
+  for (const course of courses) {
+    const hero =
+      course.id === 'coyote_creek'
+        ? { x: 25, z: 10 }
+        : { x: 0, z: course.samples[Math.floor(course.samples.length / 2)]?.z ?? 0 };
+    const mine = wakes
+      .filter((w) => w.streamId === course.id)
+      .sort((a, b) => {
+        const da = (a.rock.x - hero.x) ** 2 + (a.rock.y - hero.z) ** 2;
+        const db = (b.rock.x - hero.x) ** 2 + (b.rock.y - hero.z) ** 2;
+        return da - db;
+      });
+    ranked.push(...mine.slice(0, 8));
+  }
+  wakes.length = 0;
+  wakes.push(...ranked);
 
   // Mine-entrance ring — looks like rocks dislodged from carving the
   // entrance, scattered around the timber archway.

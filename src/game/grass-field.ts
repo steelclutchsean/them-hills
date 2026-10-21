@@ -242,6 +242,7 @@ export function createGrassField(terrain: Terrain, opts: GrassFieldOpts): GrassF
   });
 
   const mesh = new THREE.Mesh(instGeom, material);
+  mesh.name = 'grass-field';
   mesh.frustumCulled = false; // per-instance offsets defeat AABB culling
   mesh.castShadow = false;
   mesh.receiveShadow = true;
