@@ -233,12 +233,17 @@ function plantFoot(
 
 function applyTool(rig: CharacterRig, opts: MotionOptions): void {
   if (opts.tool === 'none' || !opts.toolTarget) return;
-  const weight = opts.tool === 'dig' ? 0.38 : opts.tool === 'pan' ? 0.32 : opts.tool === 'rock' ? 0.28 : 0.22;
   const shoulder = rig.shoulderR.bones[0];
   const elbow = rig.elbowR.bones[0];
   const hand = rig.handR.bones[0];
-  if (shoulder && elbow && hand) solveTwoBone(shoulder, elbow, hand, opts.toolTarget, weight);
-  if (hand && (opts.tool === 'dig' || opts.tool === 'pan')) blendGrip(hand, opts.toolTarget, 0.28);
+  if (!shoulder || !elbow || !hand) return;
+  hand.updateWorldMatrix(true, false);
+  const gap = gripOrigin.setFromMatrixPosition(hand.matrixWorld).distanceTo(opts.toolTarget);
+  const cap = opts.tool === 'pan' ? 0.78 : opts.tool === 'dig' ? 0.62 : opts.tool === 'rock' ? 0.42 : 0.34;
+  // Far from the tool, reach for it. Close in, leave the mocap swing alone.
+  const weight = Math.max(0.12, Math.min(cap, (gap - 0.12) / 0.38));
+  solveTwoBone(shoulder, elbow, hand, opts.toolTarget, weight);
+  if (opts.tool === 'dig' || opts.tool === 'pan') blendGrip(hand, opts.toolTarget, Math.min(0.45, weight));
 }
 
 function solveTwoBone(
