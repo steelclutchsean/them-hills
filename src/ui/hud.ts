@@ -459,7 +459,9 @@ const STYLE = `
   .hud-dialogue.is-cinema .dlg-footer,
   .hud-dialogue.is-cinema .dlg-hint { color: #4a3424; }
   body[data-capture='1'] .hud-compass,
-  body[data-capture='1'] .hud-minimap { display: none !important; }
+  body[data-capture='1'] .hud-minimap,
+  body[data-capture='1'] .hud-banner,
+  body[data-capture='1'] .hud-toasts { display: none !important; }
   .hud-dialogue .dlg-layout { display: flex; gap: 12px; align-items: flex-start; }
   .hud-dialogue .dlg-portrait {
     width: 84px;

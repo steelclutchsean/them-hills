@@ -68,7 +68,7 @@ const DEFAULT_FOAM = 0xe7f2ea;
 export interface PanningSite {
   id: string;
   position: THREE.Vector3;
-  marker: THREE.Mesh;
+  marker: THREE.Object3D;
   streamId: string;
   /** Read-only baseline yaw used for the visual "stream direction" hint. */
   streamYaw: number;
@@ -598,8 +598,15 @@ export function createStream(terrain: Terrain, cfg: StreamConfig, course: Waterc
   waterMesh.castShadow = false;
   group.add(waterMesh);
 
-  const ringGeom = new THREE.TorusGeometry(0.4, 0.05, 6, 24);
-  ringGeom.rotateX(-Math.PI / 2);
+  const pebbleGeom = new THREE.DodecahedronGeometry(0.05, 0);
+  const gravelMat = new THREE.MeshStandardMaterial({
+    color: 0x6e5c4a,
+    roughness: 1,
+    metalness: 0,
+    flatShading: true,
+  });
+  const glintGeom = new THREE.SphereGeometry(0.025, 5, 4);
+  const SHOW_GRAVEL = 12;
 
   let sites: PanningSite[] = [];
   let currentEpoch = -1;
@@ -607,7 +614,11 @@ export function createStream(terrain: Terrain, cfg: StreamConfig, course: Waterc
   function regenerateSites(epoch: number): void {
     for (const s of sites) {
       group.remove(s.marker);
-      (s.marker.material as THREE.Material).dispose();
+      s.marker.traverse((child) => {
+        if (child instanceof THREE.Mesh && child.material instanceof THREE.Material) {
+          if (child.material !== gravelMat) child.material.dispose();
+        }
+      });
     }
     sites = [];
 
@@ -627,16 +638,30 @@ export function createStream(terrain: Terrain, cfg: StreamConfig, course: Waterc
       const sz = sample.z + nz * lateral;
       const surface = sample.waterY || terrain.getHeightAt(sx, sz);
       const sitePos = new THREE.Vector3(sx, surface + 0.06, sz);
-
-      const ringMat = new THREE.MeshStandardMaterial({
-        color: 0xc89b3b,
-        emissive: 0x553311,
-        emissiveIntensity: 0.4,
-        roughness: 0.5,
-        flatShading: true,
+      const marker = new THREE.Group();
+      marker.name = 'pay-gravel';
+      const bedY = Math.min(surface, terrain.getHeightAt(sx, sz));
+      marker.position.set(sx, bedY + 0.02, sz);
+      for (let p = 0; p < 6; p++) {
+        const stone = new THREE.Mesh(pebbleGeom, gravelMat);
+        const ang = (p / 6) * Math.PI * 2 + 0.4;
+        const rad = 0.08 + (p % 3) * 0.03;
+        stone.position.set(Math.cos(ang) * rad, 0.01, Math.sin(ang) * rad);
+        stone.scale.set(1, 0.35, 1);
+        stone.rotation.y = ang;
+        marker.add(stone);
+      }
+      const glintMat = new THREE.MeshBasicMaterial({
+        color: 0xd9c7a2,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
       });
-      const marker = new THREE.Mesh(ringGeom, ringMat);
-      marker.position.copy(sitePos);
+      const glint = new THREE.Mesh(glintGeom, glintMat);
+      glint.name = 'pay-glint';
+      glint.position.y = 0.05;
+      marker.add(glint);
+      marker.visible = false;
       group.add(marker);
 
       sites.push({
@@ -673,21 +698,18 @@ export function createStream(terrain: Terrain, cfg: StreamConfig, course: Waterc
       waterMat.uniforms.uTime!.value = time;
       for (const site of sites) {
         const depleted = isDepleted(site.id);
-        if (depleted) {
-          site.marker.visible = false;
-          continue;
-        }
-        site.marker.visible = true;
-        const isFocused = site.id === focusedSiteId;
         const dx = site.position.x - playerPos.x;
         const dz = site.position.z - playerPos.z;
         const dist = Math.hypot(dx, dz);
-        const inRange = dist < SITE_INTERACT_RADIUS;
-        const targetEmissive = isFocused ? 1.4 : inRange ? 0.85 : 0.4;
-        const mat = site.marker.material as THREE.MeshStandardMaterial;
-        mat.emissiveIntensity += (targetEmissive - mat.emissiveIntensity) * 0.15;
-        const pulse = isFocused ? 1.0 + 0.08 * Math.sin(time * 6) : 1.0;
-        site.marker.scale.setScalar(pulse);
+        const near = dist < SHOW_GRAVEL;
+        site.marker.visible = !depleted && near;
+        if (!site.marker.visible) continue;
+        const glint = site.marker.getObjectByName('pay-glint');
+        const mat = glint && glint instanceof THREE.Mesh ? glint.material : null;
+        if (mat instanceof THREE.MeshBasicMaterial) {
+          const close = 1 - Math.min(1, dist / 6);
+          mat.opacity = close * close * 0.55;
+        }
       }
     },
     findNearestSite(playerPos) {

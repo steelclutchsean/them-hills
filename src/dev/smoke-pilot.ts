@@ -195,7 +195,7 @@ export function createSmokePilot(search = window.location.search): {
         }
         if (!world.site) return fail('no panning site');
         stand(world, world.site);
-        if (phaseTime > 3) return fail('prospect never started — not standing on a gold ring');
+        if (phaseTime > 3) return fail('prospect never started — not standing on a pay streak');
         if (phaseTime - lastNudge > 0.35) {
           lastNudge = phaseTime;
           return { ...ZERO, interact: true };

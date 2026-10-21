@@ -26,7 +26,7 @@ import {
   updateTownLights,
 } from '@/game/structures';
 import { buildTownStreet, tickTownStreet } from '@/game/town-street';
-import { addLandform } from '@/game/landform';
+import { addLandform, ridgePinePoints } from '@/game/landform';
 import {
   bankPoint,
   inStreet,
@@ -111,6 +111,8 @@ import {
   fadeFoliageNear,
   setScatterDensity,
   updateScatterWind,
+  plantRidgePines,
+  canopyPoints,
 } from '@/game/scatter';
 import { createMotes } from '@/game/motes';
 import { createLightShafts } from '@/game/shafts';
@@ -689,7 +691,8 @@ async function bootstrap(): Promise<void> {
   const fallenLogs = scatterLogs(renderer.scene, terrain, scatterBudget(32), reject, 0xa7);
   populate
     .then((results) => {
-      const total = results.reduce((sum, r) => sum + r.placed, 0) + fallenLogs.placed;
+      const ridgePlanted = plantRidgePines(renderer.scene, ridgePinePoints());
+      const total = results.reduce((sum, r) => sum + r.placed, 0) + fallenLogs.placed + ridgePlanted;
       console.log(`[scatter] environment populated (${total} instances)`);
       creekProbe.invalidate();
 
@@ -1324,9 +1327,42 @@ async function bootstrap(): Promise<void> {
       const hit = sceneRay
         .intersectObjects(roots, true)
         .find((entry) => solidOccluder(entry.object));
-      if (hit) hits += oy < -0.15 && hit.distance < 9 ? 4 : 1;
+      if (hit) hits += hit.distance < 1.1 ? 12 : oy < -0.15 && hit.distance < 9 ? 4 : 1;
     }
     return hits;
+  }
+
+  function insideCanopy(pos: THREE.Vector3): boolean {
+    for (const crown of canopyPoints()) {
+      const horizontal = Math.hypot(pos.x - crown.x, pos.z - crown.z);
+      if (horizontal > crown.radius * 2.4) continue;
+      if (pos.y > crown.y + crown.radius * 1.8) continue;
+      if (pos.y < crown.y - crown.radius * 2.8) continue;
+      return true;
+    }
+    return false;
+  }
+
+  function shoveOutOfTrees(pos: THREE.Vector3): void {
+    for (let pass = 0; pass < 4; pass++) {
+      let nearest: { x: number; z: number; radius: number } | null = null;
+      let best = Infinity;
+      for (const crown of canopyPoints()) {
+        const d = Math.hypot(pos.x - crown.x, pos.z - crown.z);
+        if (d < best) {
+          best = d;
+          nearest = crown;
+        }
+      }
+      if (!nearest || best > nearest.radius * 2.5) return;
+      const dx = pos.x - nearest.x;
+      const dz = pos.z - nearest.z;
+      const len = Math.max(0.25, Math.hypot(dx, dz));
+      const push = nearest.radius * 2.6 - best + 0.6;
+      pos.x += (dx / len) * push;
+      pos.z += (dz / len) * push;
+      pos.y = Math.max(pos.y, terrain.getHeightAt(pos.x, pos.z) + 1.8);
+    }
   }
 
   /**
@@ -1357,16 +1393,23 @@ async function bootstrap(): Promise<void> {
       pos.y = Math.max(pos.y, terrain.getHeightAt(pos.x, pos.z) + 1.5);
       if (accept && !accept(pos)) continue;
       if (subjects.some((subject) => subject.distanceTo(pos) < 2.6)) continue;
+      shoveOutOfTrees(pos);
       const blocked = subjectBlocked(pos, subjects);
       const clutter = viewClutter(pos, look);
-      const score = (blocked ? 20 : 0) + clutter;
+      const buried = insideCanopy(pos) ? 40 : 0;
+      const score = (blocked ? 20 : 0) + clutter + buried;
       if (score < bestScore) {
         bestScore = score;
         best = pos.clone();
         if (score === 0) break;
       }
     }
-    if (best) cam.copy(best);
+    if (best) {
+      shoveOutOfTrees(best);
+      cam.copy(best);
+    } else {
+      shoveOutOfTrees(cam);
+    }
   }
   let arcBanner: string | null = null;
   let arcStatusLine: string | null = null;
@@ -1702,6 +1745,31 @@ async function bootstrap(): Promise<void> {
           townArc.update(worldTime, 4, 4, false, false);
           dialogue = startDialogue('ada', ADA_DIALOGUE);
           dialogue.currentNodeId = 'offer';
+          const y = terrain.getHeightAt(townArc.companyPos.x + 3.2, townArc.companyPos.z);
+          character.placeAt(townArc.companyPos.x + 3.2, y + 0.2, townArc.companyPos.z);
+          character.setYaw(-Math.PI / 2);
+        } else if (who === 'lease' || who === 'held') {
+          const bought = who === 'lease';
+          const snap = gameStore.getState().serialize();
+          snap.fieldwork = {
+            ...snap.fieldwork,
+            campaign: {
+              ...snap.fieldwork.campaign,
+              act: 4,
+              boughtOut: bought,
+              savedTown: !bought,
+              heard: [...snap.fieldwork.campaign.heard, 'ada', bought ? 'bought-out' : 'stood'],
+            },
+            lode: {
+              ...snap.fieldwork.lode,
+              milled: Math.max(snap.fieldwork.lode.milled, 20),
+              timber: Math.max(snap.fieldwork.lode.timber, 3),
+            },
+          };
+          gameStore.getState().hydrate(snap);
+          townArc.update(worldTime, 4, 4, false, false);
+          dialogue = startDialogue('ada', ADA_DIALOGUE);
+          dialogue.currentNodeId = bought ? 'bought' : 'stood';
           const y = terrain.getHeightAt(townArc.companyPos.x + 3.2, townArc.companyPos.z);
           character.placeAt(townArc.companyPos.x + 3.2, y + 0.2, townArc.companyPos.z);
           character.setYaw(-Math.PI / 2);
@@ -2468,8 +2536,19 @@ async function bootstrap(): Promise<void> {
               }
             }
           }
+          const storeCapture =
+            shotKind === 'street' ||
+            shotKind === 'overview' ||
+            shotKind === 'vista' ||
+            shotKind === 'flood' ||
+            shotKind === 'drought' ||
+            shotKind === 'quench';
           const composed =
-            holdView !== null && !dialogue && arcBanner !== 'fire' && shotKind !== 'rush';
+            holdView !== null &&
+            !dialogue &&
+            arcBanner !== 'fire' &&
+            shotKind !== 'rush' &&
+            !storeCapture;
           if (sceneSubjects.length > 0 && !composed) {
             const mill = townArc.millPos;
             const fire = townArc.firePos;
@@ -3546,8 +3625,8 @@ async function bootstrap(): Promise<void> {
         (interactJustPressed || useJust || digJust || (panJust && groundHere.dist >= 3.5))
       ) {
         hintText = streams.isInStreamZone(charPos.x, charPos.z, 6)
-          ? 'Nothing to work here. Follow the creek to a gold ring, then press E.'
-          : 'Nothing here. Coyote Creek is east — follow the gold beam.';
+          ? 'Nothing to work here. Walk the creek until the gravel glints, then press E.'
+          : 'Nothing here. Coyote Creek is east.';
         hintUntil = worldTime + 3.5;
       }
       const shownPrompt = inSession
@@ -3644,7 +3723,7 @@ async function bootstrap(): Promise<void> {
           vaultG > 0 ? `Cache ${vaultG.toFixed(3)} g` : 'Cache empty',
           `Shovel T${save.equipment.ownedTiers.shovel} · Pan T${save.equipment.ownedTiers.pan} · Classifier T${save.equipment.ownedTiers.classifier} · Snuffer T${save.equipment.ownedTiers.snuffer}`,
           `${methodLabel(save.fieldwork.method)} in hand · ${save.fieldwork.claims.length} claim${save.fieldwork.claims.length === 1 ? '' : 's'}`,
-          'Press E on a gold ring. Press F in the creek to count colors. J is the journal.',
+          'Press E where the gravel glints. Press F in the creek to count colors. J is the journal.',
         ]);
       }
       if (overlays.current() === 'journal') {

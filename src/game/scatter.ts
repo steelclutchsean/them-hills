@@ -81,6 +81,42 @@ export function canopyPoints(): readonly Canopy[] {
   return canopies;
 }
 
+/**
+ * Crossed cards of the valley pine, sunk into the ridge. Darker and grayer
+ * than the near trees so the slope does not read as a row of bright cones.
+ */
+export function plantRidgePines(
+  scene: THREE.Scene,
+  points: readonly { x: number; y: number; z: number }[],
+): number {
+  if (!treeCardMat || points.length === 0) return 0;
+  const previous = scene.getObjectByName('ridge-trees');
+  if (previous) scene.remove(previous);
+  const mat = treeCardMat.clone();
+  mat.emissive = new THREE.Color('#6a7264');
+  mat.emissiveIntensity = 0.72;
+  const mesh = new THREE.InstancedMesh(treeCardGeom, mat, points.length * 2);
+  mesh.name = 'ridge-trees';
+  mesh.castShadow = false;
+  mesh.receiveShadow = true;
+  mesh.frustumCulled = false;
+  const dummy = new THREE.Object3D();
+  points.forEach((p, i) => {
+    const s = 0.9 + (i % 5) * 0.14;
+    const y = p.y - 0.22 + treeCardCenterY * s;
+    for (let card = 0; card < 2; card++) {
+      dummy.position.set(p.x, y, p.z);
+      dummy.rotation.set(0, (i % 7) * 0.45 + card * Math.PI * 0.5, 0);
+      dummy.scale.set(treeCardWidth * s, treeCardHeight * s, 1);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i * 2 + card, dummy.matrix);
+    }
+  });
+  mesh.instanceMatrix.needsUpdate = true;
+  scene.add(mesh);
+  return points.length;
+}
+
 let density = 1;
 
 /** Hide the tail of each scatter so a quality change can reveal instances already placed. */

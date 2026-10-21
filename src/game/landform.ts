@@ -25,35 +25,68 @@ function rangeTile(
   return tex;
 }
 
-function rangeMaps(): { rock: THREE.Texture; scree: THREE.Texture; grass: THREE.Texture } {
-  const rock = rangeTile((ctx, s) => {
-    ctx.fillStyle = '#7a5c48';
+function rangeMaps(): {
+  strata: THREE.Texture;
+  rock: THREE.Texture;
+  detail: THREE.Texture;
+  scree: THREE.Texture;
+  grass: THREE.Texture;
+} {
+  const strata = rangeTile((ctx, s) => {
+    ctx.fillStyle = '#6a5344';
     ctx.fillRect(0, 0, s, s);
-    for (let i = 0; i < 70; i++) {
-      ctx.fillStyle = i % 3 === 0 ? '#2a1c16' : i % 3 === 1 ? '#e4d2bc' : '#8d6a52';
-      ctx.beginPath();
-      ctx.ellipse((i * 47) % s, (i * 29) % s, 12 + (i % 6) * 5, 8 + (i % 4) * 4, i * 0.7, 0, Math.PI * 2);
-      ctx.fill();
+    let y = 0;
+    let i = 0;
+    while (y < s) {
+      const band = 28 + ((i * 17) % 36);
+      ctx.fillStyle = i % 3 === 0 ? '#5a4638' : i % 3 === 1 ? '#7d6552' : '#4a3a30';
+      ctx.fillRect(0, y, s, band);
+      ctx.fillStyle = 'rgba(30, 20, 14, 0.45)';
+      ctx.fillRect(0, y + band - 3, s, 3);
+      y += band;
+      i++;
     }
-    ctx.strokeStyle = '#24160e';
-    ctx.lineWidth = 2;
-    for (let i = 0; i < 16; i++) {
+    ctx.strokeStyle = '#2a1c16';
+    ctx.lineWidth = 3;
+    for (let k = 0; k < 5; k++) {
       ctx.beginPath();
-      const x = (i * 41) % s;
-      const y = (i * 23) % s;
-      ctx.moveTo(x, y);
-      ctx.lineTo(x + 16 + (i % 5) * 4, y + 10 + (i % 3) * 6);
+      ctx.moveTo((k * 50) % s, 0);
+      ctx.lineTo((k * 50 + 30) % s, s);
       ctx.stroke();
     }
   });
-  const scree = rangeTile((ctx, s) => {
-    ctx.fillStyle = '#a89078';
+  const rock = rangeTile((ctx, s) => {
+    ctx.fillStyle = '#6e5846';
     ctx.fillRect(0, 0, s, s);
-    for (let i = 0; i < 140; i++) {
-      ctx.fillStyle = i % 2 === 0 ? '#6e5a48' : '#d2c2aa';
+    for (let i = 0; i < 18; i++) {
+      ctx.fillStyle = i % 3 === 0 ? '#3a2c24' : i % 3 === 1 ? '#8d7360' : '#574438';
+      const w = 48 + (i % 4) * 18;
+      const h = 22 + (i % 3) * 14;
+      ctx.fillRect((i * 37) % (s - 8), (i * 53) % (s - 8), w, h);
+    }
+    ctx.strokeStyle = '#24160e';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 8; i++) {
       ctx.beginPath();
-      ctx.ellipse((i * 37) % s, (i * 19) % s, 3 + (i % 4), 2 + (i % 3), i, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.moveTo((i * 31) % s, (i * 19) % s);
+      ctx.lineTo((i * 31 + 40) % s, (i * 19 + 16) % s);
+      ctx.stroke();
+    }
+  });
+  const detail = rangeTile((ctx, s) => {
+    ctx.fillStyle = '#6a5442';
+    ctx.fillRect(0, 0, s, s);
+    for (let i = 0; i < 500; i++) {
+      ctx.fillStyle = i % 2 === 0 ? '#3e3026' : '#9a846c';
+      ctx.fillRect((i * 17) % s, (i * 29) % s, 2, 2);
+    }
+  });
+  const scree = rangeTile((ctx, s) => {
+    ctx.fillStyle = '#a09080';
+    ctx.fillRect(0, 0, s, s);
+    for (let i = 0; i < 40; i++) {
+      ctx.fillStyle = i % 2 === 0 ? '#6e5c4c' : '#d4c6b4';
+      ctx.fillRect((i * 23) % (s - 10), (i * 19) % (s - 10), 8 + (i % 3) * 4, 5 + (i % 2) * 3);
     }
   });
   const grass = rangeTile((ctx, s) => {
@@ -68,11 +101,13 @@ function rangeMaps(): { rock: THREE.Texture; scree: THREE.Texture; grass: THREE.
     ctx.fillStyle = '#3e4a28';
     for (let i = 0; i < 40; i++) ctx.fillRect((i * 53) % s, (i * 31) % s, 3, 5);
   });
-  return { rock, scree, grass };
+  return { strata, rock, detail, scree, grass };
 }
 
 function rangeMaterial(maps: {
+  strata: THREE.Texture;
   rock: THREE.Texture;
+  detail: THREE.Texture;
   scree: THREE.Texture;
   grass: THREE.Texture;
 }): THREE.MeshStandardMaterial {
@@ -89,9 +124,11 @@ function rangeMaterial(maps: {
     fog: true,
     side: THREE.DoubleSide,
   });
-  mat.customProgramCacheKey = () => 'them-hills-range-6';
+  mat.customProgramCacheKey = () => 'them-hills-range-7';
   mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uStrata = { value: maps.strata };
     shader.uniforms.uRock = { value: maps.rock };
+    shader.uniforms.uDetail = { value: maps.detail };
     shader.uniforms.uScree = { value: maps.scree };
     shader.uniforms.uGrass = { value: maps.grass };
     shader.vertexShader = shader.vertexShader
@@ -111,19 +148,21 @@ function rangeMaterial(maps: {
       .replace(
         '#include <common>',
         `#include <common>
+         uniform sampler2D uStrata;
          uniform sampler2D uRock;
+         uniform sampler2D uDetail;
          uniform sampler2D uScree;
          uniform sampler2D uGrass;
          varying vec3 vWorldPos;
          varying vec3 vWorldN;
          varying float vCrest;
-         vec3 themTri(sampler2D tex, vec3 pos, vec3 n) {
+         vec3 themTri(sampler2D tex, vec3 pos, vec3 n, float scale) {
            vec3 w = abs(n);
            w = pow(w, vec3(4.0));
            w /= max(w.x + w.y + w.z, 1e-4);
-           vec3 x = texture2D(tex, pos.zy * 0.16).rgb;
-           vec3 y = texture2D(tex, pos.xz * 0.16).rgb;
-           vec3 z = texture2D(tex, pos.xy * 0.16).rgb;
+           vec3 x = texture2D(tex, pos.zy * scale).rgb;
+           vec3 y = texture2D(tex, pos.xz * scale).rgb;
+           vec3 z = texture2D(tex, pos.xy * scale).rgb;
            return x * w.x + y * w.y + z * w.z;
          }`,
       )
@@ -133,9 +172,15 @@ function rangeMaterial(maps: {
          {
            vec3 n = normalize(vWorldN);
            float slope = 1.0 - abs(n.y);
-           vec3 rock = themTri(uRock, vWorldPos, n);
-           vec3 scree = themTri(uScree, vWorldPos, n);
-           vec3 grass = themTri(uGrass, vWorldPos, n);
+           float dist = distance(cameraPosition, vWorldPos);
+           float nearDetail = 1.0 - smoothstep(32.0, 120.0, dist);
+           vec3 strata = themTri(uStrata, vWorldPos, n, 0.012);
+           vec3 crag = themTri(uRock, vWorldPos, n, 0.04);
+           vec3 fine = themTri(uDetail, vWorldPos, n, 0.16);
+           vec3 rock = mix(strata, crag, mix(0.22, 0.72, nearDetail));
+           rock = mix(rock, fine, 0.42 * nearDetail);
+           vec3 scree = themTri(uScree, vWorldPos, n, 0.05);
+           vec3 grass = themTri(uGrass, vWorldPos, n, 0.06);
            float rockW = smoothstep(0.34, 0.72, slope);
            float grassW = (1.0 - smoothstep(0.08, 0.42, slope)) * (1.0 - smoothstep(0.45, 0.7, vCrest));
            float screeW = (1.0 - rockW) * (1.0 - grassW);
@@ -187,7 +232,7 @@ function buildRange(
       uv.push(a * 2, u * 2);
       const height01 = crest * amount;
       crestAttr.push(height01);
-      if (height01 > 0.22 && height01 < 0.64 && i % 4 === 0 && j % 2 === 0) {
+      if (height01 > 0.22 && height01 < 0.58 && i % 5 === 0 && j % 3 === 0) {
         trees.push(new THREE.Vector3(x, y, z));
       }
     }
@@ -221,33 +266,11 @@ function buildRange(
   return { geom, trees };
 }
 
-function pineGeometry(): THREE.BufferGeometry {
-  const low = new THREE.ConeGeometry(0.9, 2.4, 6);
-  low.translate(0, 1.5, 0);
-  return low;
-}
+const ridgePines: THREE.Vector3[] = [];
 
-function pineMaterial(): THREE.MeshStandardMaterial {
-  const canvas = document.createElement('canvas');
-  canvas.width = 64;
-  canvas.height = 64;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('[landform] no 2d');
-  ctx.fillStyle = '#243c28';
-  ctx.fillRect(0, 0, 64, 64);
-  ctx.fillStyle = '#4f7d46';
-  for (let i = 0; i < 10; i++) ctx.fillRect(4, i * 6, 56, 3);
-  ctx.fillStyle = '#6e7a38';
-  for (let i = 0; i < 6; i++) ctx.fillRect(8, 4 + i * 10, 24, 3);
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.needsUpdate = true;
-  return new THREE.MeshStandardMaterial({
-    map: tex,
-    roughness: 0.9,
-    flatShading: true,
-    transparent: false,
-  });
+/** Slope points for the valley pine cards. Filled by addLandform. */
+export function ridgePinePoints(): readonly THREE.Vector3[] {
+  return ridgePines;
 }
 
 function rockGeometry(): THREE.BufferGeometry {
@@ -272,30 +295,13 @@ export function addLandform(
   groundY: (x: number, z: number) => number,
 ): void {
   const built = buildRange(groundY);
+  ridgePines.splice(0, ridgePines.length, ...built.trees);
   const range = new THREE.Mesh(built.geom, rangeMaterial(rangeMaps()));
   range.name = 'ridgeline';
   range.castShadow = false;
   range.receiveShadow = true;
   range.frustumCulled = false;
   scene.add(range);
-
-  if (built.trees.length > 0) {
-    const pines = new THREE.InstancedMesh(pineGeometry(), pineMaterial(), built.trees.length);
-    pines.name = 'ridge-trees';
-    pines.castShadow = true;
-    pines.receiveShadow = true;
-    const dummy = new THREE.Object3D();
-    built.trees.forEach((p, i) => {
-      dummy.position.set(p.x, p.y + 0.4, p.z);
-      dummy.rotation.y = (i % 7) * 0.7;
-      const s = 2.2 + (i % 5) * 0.7;
-      dummy.scale.set(s, s * (0.85 + (i % 3) * 0.2), s);
-      dummy.updateMatrix();
-      pines.setMatrixAt(i, dummy.matrix);
-    });
-    pines.instanceMatrix.needsUpdate = true;
-    scene.add(pines);
-  }
 
   const coyote = courses.find((c) => c.id === 'coyote_creek');
   if (!coyote) return;

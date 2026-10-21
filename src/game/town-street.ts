@@ -97,31 +97,28 @@ function clothTexture(hex: string): THREE.CanvasTexture {
 }
 
 function streetTexture(): THREE.CanvasTexture {
+  // Grain only. Hoofprints are stamped in the shader at 12 cm so they
+  // cannot tile into a row of eights.
   return canvasTex((ctx, w, h) => {
-    ctx.fillStyle = '#5a4332';
+    ctx.fillStyle = '#7a624c';
     ctx.fillRect(0, 0, w, h);
-    const tones = ['#2c2016', '#6a5340', '#3e2e22', '#4e3a2a', '#7a624c', '#24180f'];
-    for (let i = 0; i < 3200; i++) {
+    const tones = ['#6a5340', '#8a7058', '#5c4636', '#94785c', '#4a382c', '#a08868'];
+    for (let i = 0; i < 2400; i++) {
       const x = (i * 53) % w;
       const y = (i * 97) % h;
-      ctx.fillStyle = tones[i % tones.length] ?? '#4e3a2a';
-      ctx.fillRect(x, y, 4 + (i % 6), 3 + (i % 4));
+      ctx.fillStyle = tones[i % tones.length] ?? '#6a5340';
+      ctx.globalAlpha = 0.55;
+      ctx.fillRect(x, y, 6 + (i % 9), 4 + (i % 6));
     }
-    ctx.fillStyle = 'rgba(18, 10, 6, 0.78)';
-    ctx.fillRect(w * 0.27, 0, w * 0.09, h);
-    ctx.fillRect(w * 0.56, 0, w * 0.07, h);
-    ctx.strokeStyle = 'rgba(22, 12, 8, 0.92)';
-    ctx.lineWidth = 6;
-    for (let i = 0; i < 42; i++) {
-      const x = (i * 71) % (w - 48);
-      const y = (i * 113) % (h - 36);
+    ctx.globalAlpha = 1;
+    for (let i = 0; i < 80; i++) {
+      ctx.fillStyle = i % 2 === 0 ? '#3f3228' : '#b09678';
+      ctx.globalAlpha = 0.35;
       ctx.beginPath();
-      ctx.ellipse(x, y, 18, 11, 0.35, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.ellipse(x + 26, y + 9, 15, 10, -0.25, 0, Math.PI * 2);
-      ctx.stroke();
+      ctx.arc((i * 89) % w, (i * 57) % h, 2 + (i % 3), 0, Math.PI * 2);
+      ctx.fill();
     }
+    ctx.globalAlpha = 1;
   }, 512, 512);
 }
 
@@ -637,7 +634,7 @@ function streetMaterial(): THREE.MeshStandardMaterial {
     polygonOffsetFactor: -2,
     polygonOffsetUnits: -2,
   });
-  mat.customProgramCacheKey = () => 'them-hills-street-dirt-4';
+  mat.customProgramCacheKey = () => 'them-hills-street-dirt-5';
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uGrass = { value: groundMaps().grass };
     shader.vertexShader = shader.vertexShader.replace(
@@ -652,24 +649,71 @@ function streetMaterial(): THREE.MeshStandardMaterial {
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <common>',
-        '#include <common>\nuniform sampler2D uGrass;\nvarying vec3 vStreetWorld;',
+        `#include <common>
+         uniform sampler2D uGrass;
+         varying vec3 vStreetWorld;
+         vec2 streetHash2(vec2 p) {
+           vec3 q = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
+           q += dot(q, q.yzx + 33.33);
+           return fract((q.xx + q.yz) * q.zy);
+         }
+         vec3 streetHash3(vec2 p) {
+           vec3 q = fract(vec3(p.xyx) * vec3(0.1031, 0.11369, 0.13787));
+           q += dot(q, q.yxz + 19.19);
+           return fract((q.xxy + q.yzz) * q.zyx);
+         }`,
       )
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
          {
            float across = vMapUv.x;
-           float edge = smoothstep(0.0, 0.16, across) * smoothstep(1.0, 0.84, across);
+           float edge = smoothstep(0.0, 0.18, across) * smoothstep(1.0, 0.82, across);
            vec3 grass = texture2D(uGrass, vStreetWorld.xz * 0.85).rgb;
-           vec3 packed = texture2D(map, vStreetWorld.xz * 0.46).rgb;
-           packed *= vec3(0.84, 0.74, 0.6);
-           float grit = fract(sin(dot(floor(vStreetWorld.xz * 7.0), vec2(127.1, 311.7))) * 43758.5453);
-           packed *= mix(0.84, 1.1, grit);
-           diffuseColor.rgb = mix(grass, packed, edge);
+           vec2 world = vStreetWorld.xz;
+           vec2 uv = world * 0.48;
+           vec2 id = floor(uv);
+           vec2 f = fract(uv);
+           vec3 packed = vec3(0.0);
+           float wsum = 0.0;
+           for (int oy = 0; oy <= 1; oy++) {
+             for (int ox = 0; ox <= 1; ox++) {
+               vec2 cell = id + vec2(float(ox), float(oy));
+               vec2 h = streetHash2(cell);
+               float ang = h.x * 6.2831853;
+               vec2 local = f - vec2(float(ox), float(oy));
+               float c = cos(ang);
+               float s = sin(ang);
+               vec2 rot = vec2(c * local.x - s * local.y, s * local.x + c * local.y);
+               vec2 suv = fract(rot + h);
+               float w = smoothstep(1.05, 0.2, length(local - 0.5));
+               packed += texture2D(map, suv).rgb * w;
+               wsum += w;
+             }
+           }
+           packed /= max(wsum, 1e-3);
+           packed = max(packed, vec3(0.3, 0.22, 0.14));
+           float rutA = smoothstep(0.4, 0.0, abs(fract(world.x * 0.11 + 0.2) - 0.36));
+           float rutB = smoothstep(0.36, 0.0, abs(fract(world.x * 0.11 + 0.62) - 0.4));
+           packed *= mix(1.0, 0.84, max(rutA, rutB));
+           vec2 hoofCell = floor(world / 2.4);
+           vec3 hh = streetHash3(hoofCell);
+           vec2 center = (hoofCell + vec2(0.18) + hh.xy * 0.64) * 2.4;
+           vec2 hp = world - center;
+           float hang = hh.x * 6.2831853;
+           float hc = cos(hang);
+           float hs = sin(hang);
+           vec2 hr = vec2(hc * hp.x - hs * hp.y, hs * hp.x + hc * hp.y);
+           float ha = length(vec2(hr.x / 0.035, (hr.y - 0.03) / 0.06));
+           float hb = length(vec2(hr.x / 0.035, (hr.y + 0.03) / 0.06));
+           float mark = clamp(smoothstep(1.05, 0.7, ha) + smoothstep(1.05, 0.7, hb), 0.0, 1.0);
+           mark *= step(0.55, hh.z);
+           packed = mix(packed, packed * vec3(0.72, 0.66, 0.58), mark);
            float puddle = 0.0;
-           puddle = max(puddle, 1.0 - smoothstep(0.28, 1.15, distance(vStreetWorld.xz, vec2(-17.6, -4.6))));
-           puddle = max(puddle, 1.0 - smoothstep(0.32, 1.35, distance(vStreetWorld.xz, vec2(-16.4, 11.5))));
-           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.11, 0.15, 0.15), puddle * edge * 0.88);
+           puddle = max(puddle, 1.0 - smoothstep(0.25, 1.05, distance(world, vec2(-16.8, 7.5))));
+           puddle = max(puddle, 1.0 - smoothstep(0.22, 0.9, distance(world, vec2(-15.4, 21.0))));
+           packed = mix(packed, packed * vec3(0.62, 0.66, 0.64), puddle * 0.55);
+           diffuseColor.rgb = mix(grass, packed, edge);
          }`,
       );
   };

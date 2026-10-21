@@ -363,7 +363,7 @@ export function openingGuide(save: SaveV1): {
   if (fresh) {
     return {
       title: 'First claim',
-      detail: 'Walk east to the gold beam in Coyote Creek. Stand on the ring and press E. Shift sprints.',
+      detail: 'Walk east along Coyote Creek. When the gravel glints underfoot, press E. Shift sprints.',
       beam: 'creek',
     };
   }
