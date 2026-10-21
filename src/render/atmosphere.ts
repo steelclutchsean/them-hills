@@ -79,6 +79,12 @@ const FRAG = /* glsl */ `
     float band = exp(-abs(h) * 6.5);
     sky += uSunColor * band * sunset * 0.42;
 
+    // The dawn sky is HDR-bright, so a mix toward a dim blue never shifts the hue.
+    // Scale the existing light instead: warm next to the sun, blue away from it.
+    float away = smoothstep(-0.05, 0.55, 1.0 - sunDot);
+    float coolAmt = away * lowSun * smoothstep(-0.02, 0.16, h);
+    sky *= mix(vec3(1.0), vec3(0.42, 0.68, 1.28), coolAmt);
+
     // Projected cloud plane. Coverage comes from the weather grade.
     vec2 plane = dir.xz / max(h, 0.12);
     float n1 = noise(plane * 0.22 + vec2(uTime * 0.003, uTime * 0.001));

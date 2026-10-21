@@ -584,6 +584,13 @@ async function bootstrap(): Promise<void> {
   });
   renderer.scene.add(character.group);
   skipReflection(character.group);
+  const faceFill = new THREE.PointLight(0xfff3e2, 0, 2.4, 2);
+  faceFill.name = 'face-fill';
+  const faceRim = new THREE.PointLight(0xb7c6de, 0, 2.2, 2);
+  faceRim.name = 'face-rim';
+  renderer.scene.add(faceFill, faceRim);
+  const faceLook = new THREE.Vector3();
+  const faceBehind = new THREE.Vector3();
 
   // ---- Input ----
   const input = createInputManager();
@@ -1363,7 +1370,7 @@ async function bootstrap(): Promise<void> {
     updateTownLights(sunDir.y);
     setFoliageWindTime(cinemaTime);
     pulseGold(cinemaTime);
-    shafts.update(sunDir, titleLook, true);
+    shafts.update(sunDir, titleLook, true, renderer.camera);
     motes.update(cinemaTime, titleLook, sunDir.y);
     const grassLight = {
       time: cinemaTime,
@@ -1979,7 +1986,7 @@ async function bootstrap(): Promise<void> {
       updateTownLights(sunDirWorld.y);
       setFoliageWindTime(worldTime);
       pulseGold(worldTime);
-      shafts.update(sunDirWorld, charPos, true);
+      shafts.update(sunDirWorld, charPos, true, renderer.camera);
       motes.update(worldTime, charPos, sunDirWorld.y);
 
       headlamp.update({
@@ -2833,9 +2840,27 @@ async function bootstrap(): Promise<void> {
       const panClose = getReviewPose() === 'pan' || prospect.getSnapshot()?.step === 'pan';
       if (panClose) {
         focusNdc.copy(character.getToolFocus()).project(renderer.camera);
-        renderer.setGradeFocus(focusNdc.x * 0.5 + 0.5, focusNdc.y * 0.5 + 0.5, 1);
+        renderer.setGradeFocus(focusNdc.x * 0.5 + 0.5, focusNdc.y * 0.5 + 0.5, 0.4);
+        const skull = character.group.getObjectByName('modeled-head');
+        if (skull) skull.getWorldPosition(faceLook);
+        else {
+          faceLook.copy(character.group.position);
+          faceLook.y += 0.72;
+        }
+        faceBehind.copy(faceLook).sub(renderer.camera.position);
+        if (faceBehind.lengthSq() > 1e-4) faceBehind.normalize();
+        // Sit the fill in front of the face, not in the pan. A light at the
+        // camera blows the bowl out and leaves the features flat.
+        faceFill.position.copy(faceLook).addScaledVector(faceBehind, -0.55);
+        faceFill.position.y += 0.08;
+        faceFill.intensity = 0.85;
+        faceRim.position.copy(faceLook).addScaledVector(faceBehind, 0.32);
+        faceRim.position.y += 0.14;
+        faceRim.intensity = 2.4;
       } else {
         renderer.setGradeFocus(0.5, 0.5, 0);
+        faceFill.intensity = 0;
+        faceRim.intensity = 0;
       }
       const waterSpot = nearestWaterPoint(
         courses,

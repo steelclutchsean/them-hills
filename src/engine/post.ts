@@ -79,21 +79,30 @@ const GodrayShader = {
     varying vec2 vUv;
     void main() {
       vec3 col = texture2D(tDiffuse, vUv).rgb;
-      vec2 delta = (uSun - vUv) / 24.0;
+      vec2 toSun = uSun - vUv;
+      float span = length(toSun);
+      vec2 step = toSun / 24.0;
       float illum = 0.0;
+      float transmit = 1.0;
       vec2 p = vUv;
       for (int i = 0; i < 24; i++) {
-        p += delta;
-        float l = dot(texture2D(tDiffuse, clamp(p, 0.0, 1.0)).rgb, vec3(0.25, 0.55, 0.2));
-        // Only the sun disc is bright enough to seed a ray. The whole dawn
-        // sky sits under this, so trees between the camera and the disc cut shafts.
-        float sky = smoothstep(0.95, 2.4, l);
-        illum += sky * (1.0 - float(i) / 24.0);
+        p += step;
+        vec2 q = clamp(p, 0.0, 1.0);
+        float l = dot(texture2D(tDiffuse, q).rgb, vec3(0.2126, 0.7152, 0.0722));
+        float sunDisc = smoothstep(0.028, 0.0, length(q - uSun));
+        float hot = smoothstep(2.4, 5.0, l);
+        float source = max(sunDisc, hot);
+        float blocked = smoothstep(0.85, 0.22, l) * (1.0 - source);
+        illum += source * transmit;
+        transmit *= mix(1.0, 0.45, blocked);
       }
-      illum /= 24.0;
-      float onScreen = smoothstep(-0.15, 0.02, uSun.x) * smoothstep(1.15, 0.98, uSun.x)
-                     * smoothstep(-0.2, 0.0, uSun.y) * smoothstep(1.15, 0.98, uSun.y);
-      col += vec3(1.0, 0.92, 0.75) * illum * uIntensity * onScreen;
+      illum /= 4.0;
+      float onScreen = smoothstep(-0.2, 0.02, uSun.x) * smoothstep(1.2, 0.98, uSun.x)
+                     * smoothstep(-0.25, 0.0, uSun.y) * smoothstep(1.2, 0.98, uSun.y);
+      float here = dot(col, vec3(0.2126, 0.7152, 0.0722));
+      float shade = 1.0 - smoothstep(0.35, 1.15, here);
+      float reach = smoothstep(0.0, 0.08, span);
+      col += vec3(1.08, 0.64, 0.24) * illum * uIntensity * onScreen * shade * reach * 2.2;
       gl_FragColor = vec4(col, 1.0);
     }
   `,

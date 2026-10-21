@@ -105,9 +105,9 @@ export async function loadCharacter(): Promise<CharacterRig> {
     const modeled = await attachModeledHead(headBone);
     if (!modeled) headBone.add(createProspectorHead());
     const hat = createProspectorHat();
-    hat.position.y = 0.11;
-    // Front of the hat is local -Z. A negative X tilt lifts the brim off the eyes.
-    hat.rotation.x = -0.4;
+    hat.position.y = 0.16;
+    // The face is local +Z. Negative X rotation lifts that brim off the eyes.
+    hat.rotation.x = -0.38;
     headBone.add(hat);
   }
   const handR = bones.get('hand_r');
@@ -272,106 +272,183 @@ function attachHandTools(hand: THREE.Object3D | undefined): {
   };
 }
 
-/** Ranger-matched face. Local -Z is the face, the same way the hat brim points. */
+/** Ranger-matched face. On the head bone the pan camera sees +Z. */
 async function attachModeledHead(headBone: THREE.Object3D): Promise<boolean> {
   headBone.add(createMatchedFace());
   return true;
 }
 
+/** Pore and blush albedo. Eyes, brows, and the nose are meshes, not paint. */
+function skinAlbedo(): THREE.CanvasTexture {
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('[character] canvas 2d unavailable');
+  ctx.fillStyle = '#c48a62';
+  ctx.fillRect(0, 0, size, size);
+  for (let i = 0; i < 700; i++) {
+    const x = (i * 47) % size;
+    const y = (i * 19) % size;
+    const tone = 30 + (i % 9) * 6;
+    ctx.fillStyle = `rgba(${tone + 80}, ${tone + 28}, ${tone}, 0.09)`;
+    ctx.fillRect(x, y, 2, 2);
+  }
+  ctx.fillStyle = 'rgba(196, 92, 72, 0.18)';
+  ctx.beginPath();
+  ctx.ellipse(34, 78, 16, 12, 0, 0, Math.PI * 2);
+  ctx.ellipse(94, 78, 16, 12, 0, 0, Math.PI * 2);
+  ctx.fill();
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
 function createMatchedFace(): THREE.Group {
   const group = new THREE.Group();
   group.name = 'matched-face';
+  const geom = new THREE.SphereGeometry(0.09, 32, 24);
+  geom.scale(1.02, 1.16, 0.96);
+  const pos = geom.getAttribute('position');
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    let y = pos.getY(i);
+    let z = pos.getZ(i);
+    const front = Math.max(0, z / 0.09);
+    const nx = x / 0.09;
+    const ny = y / 0.09;
+    const socket = (cx: number): number =>
+      Math.exp(-((nx - cx) * (nx - cx)) / 0.02 - ((ny - 0.3) * (ny - 0.3)) / 0.028) * front;
+    z -= (socket(0.36) + socket(-0.36)) * 0.013;
+    const brow =
+      Math.exp(-((ny - 0.52) * (ny - 0.52)) / 0.016) * front * (1 - Math.min(1, nx * nx * 1.8));
+    y += brow * 0.01;
+    z += brow * 0.008;
+    const chin = Math.exp(-(nx * nx) / 0.08 - ((ny + 0.55) * (ny + 0.55)) / 0.06) * front;
+    z += chin * 0.012;
+    pos.setXYZ(i, x, y, z);
+  }
+  geom.computeVertexNormals();
   const skin = new THREE.MeshStandardMaterial({
-    color: SKIN_COLOR,
-    roughness: 0.58,
-    metalness: 0.02,
+    map: skinAlbedo(),
+    color: 0xffffff,
+    roughness: 0.62,
+    metalness: 0,
   });
-  const hair = new THREE.MeshStandardMaterial({ color: 0x3a2418, roughness: 0.9 });
-  const dark = new THREE.MeshBasicMaterial({ color: 0x140c09 });
-  const white = new THREE.MeshBasicMaterial({ color: 0xf4efe4 });
-  const iris = new THREE.MeshBasicMaterial({ color: 0x2a1a10 });
-  const catchlight = new THREE.MeshBasicMaterial({ color: 0xfff6e4 });
+  const skull = new THREE.Mesh(geom, skin);
+  skull.name = 'modeled-head';
+  skull.position.y = 0.05;
+  skull.castShadow = true;
+  skull.receiveShadow = true;
 
-  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.062, 0.1, 10), skin);
-  neck.position.y = -0.06;
-  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.092, 18, 14), skin);
-  skull.scale.set(1.02, 1.18, 0.88);
-  skull.position.set(0, 0.058, 0.01);
-  const jaw = new THREE.Mesh(new THREE.SphereGeometry(0.07, 14, 10), skin);
-  jaw.scale.set(0.92, 0.62, 0.86);
-  jaw.position.set(0, -0.012, -0.012);
-  const brow = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.018, 0.03), skin);
-  brow.position.set(0, 0.078, -0.078);
-  brow.rotation.x = -0.35;
-  const cheekL = new THREE.Mesh(new THREE.SphereGeometry(0.028, 8, 6), skin);
-  cheekL.position.set(0.045, 0.02, -0.07);
-  const cheekR = cheekL.clone();
-  cheekR.position.x = -0.045;
-  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.02, 8, 6), skin);
-  nose.scale.set(0.75, 1.15, 1.35);
-  nose.position.set(0, 0.028, -0.092);
-  const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.016, 0.04, 0.018), skin);
-  bridge.position.set(0, 0.05, -0.082);
-  group.add(neck, skull, jaw, brow, cheekL, cheekR, nose, bridge);
+  const whiteMat = new THREE.MeshStandardMaterial({
+    color: 0xf3efe6,
+    roughness: 0.42,
+    metalness: 0,
+  });
+  const irisMat = new THREE.MeshStandardMaterial({
+    color: 0x4a3018,
+    roughness: 0.28,
+    metalness: 0,
+  });
+  const pupilMat = new THREE.MeshStandardMaterial({
+    color: 0x050403,
+    roughness: 0.92,
+    metalness: 0,
+  });
+  const browMat = new THREE.MeshStandardMaterial({
+    color: 0x140c08,
+    roughness: 0.88,
+    metalness: 0,
+  });
+  const nostrilMat = new THREE.MeshStandardMaterial({
+    color: 0x3a2218,
+    roughness: 0.82,
+    metalness: 0,
+  });
+  // The pan camera sits in front of the body. On this bone that side is +Z
+  // (measured: local -Z points away from that camera). Eye size stays near
+  // a real eye so the read comes from the model, not an enlarged prop.
+  const addEye = (side: number): void => {
+    const eye = new THREE.Group();
+    eye.name = 'eye';
+    const white = new THREE.Mesh(new THREE.SphereGeometry(0.016, 16, 12), whiteMat);
+    white.name = 'eye-white';
+    white.renderOrder = 2;
+    const iris = new THREE.Mesh(new THREE.SphereGeometry(0.01, 14, 10), irisMat);
+    iris.name = 'eye-iris';
+    // The close camera looks down onto the face, so the iris sits on the
+    // upper front of the eye instead of the hidden lower pole.
+    iris.position.set(0, 0.008, 0.011);
+    iris.renderOrder = 3;
+    const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.0055, 10, 8), pupilMat);
+    pupil.name = 'eye-pupil';
+    pupil.position.set(0, 0.01, 0.016);
+    pupil.renderOrder = 4;
+    eye.add(white, iris, pupil);
+    eye.position.set(side * 0.036, 0.062, 0.108);
+    group.add(eye);
+    const browMesh = new THREE.Mesh(new THREE.BoxGeometry(0.042, 0.009, 0.012), browMat);
+    browMesh.name = 'brow';
+    browMesh.position.set(side * 0.034, 0.086, 0.112);
+    browMesh.rotation.z = side * -0.22;
+    browMesh.castShadow = true;
+    browMesh.renderOrder = 2;
+    group.add(browMesh);
+  };
+  addEye(1);
+  addEye(-1);
 
-  const socket = new THREE.SphereGeometry(0.024, 8, 6);
-  const socketL = new THREE.Mesh(socket, dark);
-  socketL.position.set(0.034, 0.05, -0.086);
-  const socketR = socketL.clone();
-  socketR.position.x = -0.034;
-  const eyeWhite = new THREE.SphereGeometry(0.018, 10, 8);
-  const eyeL = new THREE.Mesh(eyeWhite, white);
-  eyeL.scale.set(1.15, 0.82, 0.7);
-  eyeL.position.set(0.034, 0.048, -0.1);
-  const eyeR = eyeL.clone();
-  eyeR.position.x = -0.034;
-  const irisGeom = new THREE.SphereGeometry(0.009, 8, 6);
-  const irisL = new THREE.Mesh(irisGeom, iris);
-  irisL.position.set(0.034, 0.046, -0.112);
-  const irisR = irisL.clone();
-  irisR.position.x = -0.034;
-  const glintGeom = new THREE.SphereGeometry(0.0035, 6, 4);
-  const glintL = new THREE.Mesh(glintGeom, catchlight);
-  glintL.position.set(0.039, 0.052, -0.118);
-  const glintR = glintL.clone();
-  glintR.position.x = -0.029;
-  const browGeom = new THREE.BoxGeometry(0.028, 0.008, 0.01);
-  const browMat = new THREE.MeshBasicMaterial({ color: 0x1c120c });
-  const browL = new THREE.Mesh(browGeom, browMat);
-  browL.position.set(0.032, 0.068, -0.09);
-  browL.rotation.z = -0.28;
-  const browR = browL.clone();
-  browR.position.x = -0.032;
-  browR.rotation.z = 0.28;
-  group.add(socketL, socketR, eyeL, eyeR, irisL, irisR, glintL, glintR, browL, browR);
+  const bridge = new THREE.Mesh(new THREE.SphereGeometry(0.016, 12, 10), skin);
+  bridge.name = 'nose';
+  bridge.scale.set(0.55, 1.45, 1.05);
+  bridge.position.set(0, 0.046, 0.104);
+  bridge.castShadow = true;
+  const tip = new THREE.Mesh(new THREE.SphereGeometry(0.014, 12, 10), skin);
+  tip.name = 'nose-tip';
+  tip.scale.set(0.9, 0.72, 1.15);
+  tip.position.set(0, 0.028, 0.128);
+  tip.castShadow = true;
+  const nostrilGeom = new THREE.SphereGeometry(0.006, 8, 6);
+  const nostrilL = new THREE.Mesh(nostrilGeom, nostrilMat);
+  nostrilL.name = 'nostril';
+  nostrilL.scale.set(1.2, 0.6, 0.75);
+  nostrilL.position.set(0.009, 0.02, 0.132);
+  const nostrilR = nostrilL.clone();
+  nostrilR.position.x = -0.009;
+  group.add(bridge, tip, nostrilL, nostrilR);
+
+  const mouth = new THREE.Mesh(
+    new THREE.BoxGeometry(0.034, 0.006, 0.008),
+    new THREE.MeshStandardMaterial({ color: 0x7a3d32, roughness: 0.62 }),
+  );
+  mouth.name = 'mouth';
+  mouth.position.set(0, 0.008, 0.1);
+  group.add(mouth);
 
   const earGeom = new THREE.SphereGeometry(0.022, 8, 6);
   const earL = new THREE.Mesh(earGeom, skin);
-  earL.scale.set(0.45, 1.05, 0.65);
-  earL.position.set(0.092, 0.04, 0.01);
+  earL.scale.set(0.45, 1.05, 0.62);
+  earL.position.set(0.09, 0.058, 0.004);
   const earR = earL.clone();
-  earR.position.x = -0.092;
-  const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.008, 0.01), dark);
-  mouth.position.set(0, -0.02, -0.078);
-  const lip = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.006, 0.008), skin);
-  lip.position.set(0, -0.014, -0.084);
-  group.add(earL, earR, mouth, lip);
+  earR.position.x = -0.09;
+  group.add(earL, earR);
 
-  const beardJaw = new THREE.Mesh(new THREE.SphereGeometry(0.062, 12, 8), hair);
-  beardJaw.scale.set(0.9, 0.7, 0.55);
-  beardJaw.position.set(0, -0.045, -0.02);
-  const mustache = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.012, 0.016), hair);
-  mustache.position.set(0, 0.004, -0.096);
-  const sideGeom = new THREE.BoxGeometry(0.016, 0.055, 0.02);
-  const sideL = new THREE.Mesh(sideGeom, hair);
-  sideL.position.set(0.05, -0.005, -0.05);
-  const sideR = sideL.clone();
-  sideR.position.x = -0.05;
-  group.add(beardJaw, mustache, sideL, sideR);
-
-  group.traverse((obj) => {
-    if (obj instanceof THREE.Mesh) obj.castShadow = true;
-  });
+  const neck = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.048, 0.056, 0.08, 12),
+    new THREE.MeshStandardMaterial({ color: SKIN_COLOR, roughness: 0.7 }),
+  );
+  neck.position.y = -0.02;
+  neck.castShadow = true;
+  const hair = new THREE.MeshStandardMaterial({ color: 0x2c1810, roughness: 0.92 });
+  const beard = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 8), hair);
+  beard.name = 'beard';
+  beard.scale.set(0.92, 0.42, 0.4);
+  beard.position.set(0, -0.016, 0.02);
+  beard.castShadow = true;
+  group.add(skull, neck, beard);
   return group;
 }
 
@@ -430,11 +507,11 @@ function createProspectorHat(color = 0x3e2a17): THREE.Group {
   hat.add(band);
 
   const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.022, 0.018), matBuckle);
-  buckle.position.set(0, 0.158, -0.14);
+  buckle.position.set(0, 0.158, 0.14);
   hat.add(buckle);
 
-  const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.225, 0.245, 0.022, 24), matHat);
-  brim.position.y = 0.147;
+  const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.168, 0.182, 0.016, 24), matHat);
+  brim.position.y = 0.15;
   hat.add(brim);
 
   hat.traverse((o) => {
@@ -469,7 +546,6 @@ export async function createCrewVariant(shirt: number, hat: number): Promise<THR
   const outfit = cloneSkinned(source);
   // The ranger's feet are the glTF origin, and the mesh faces +Z. Crew yaw
   // treats +Z as forward, so this clone stays unrotated and unshifted.
-  const jumper = shirt === 0x8c2f2f;
   const tint = new THREE.Color(shirt);
   outfit.traverse((obj) => {
     const label = obj.name.toLowerCase();
@@ -485,15 +561,9 @@ export async function createCrewVariant(shirt: number, hat: number): Promise<THR
         next instanceof THREE.MeshStandardMaterial &&
         !/eye/i.test(obj.name)
       ) {
-        if (jumper) {
-          // The atlas multiply was swallowing the shirt in shade. Emissive
-          // keeps a red that still reads when the sun misses the bank.
-          next.color.set(shirtMesh ? 0xff4a3a : 0xe0483c);
-          next.emissive.set(0xff2a22);
-          next.emissiveIntensity = shirtMesh ? 2.55 : 1.65;
-        } else {
-          next.color.lerp(tint, shirtMesh ? 0.72 : 0.45);
-        }
+        next.color.lerp(tint, shirtMesh ? 0.72 : 0.45);
+        next.emissive.set(0x000000);
+        next.emissiveIntensity = 0;
       }
       return next;
     });
@@ -504,33 +574,10 @@ export async function createCrewVariant(shirt: number, hat: number): Promise<THR
   const headBone = outfit.getObjectByName('Head');
   if (headBone) {
     const face = head ? head.clone(true) : createProspectorHead();
-    if (jumper) {
-      face.scale.setScalar(1.32);
-      face.traverse((obj) => {
-        if (!(obj instanceof THREE.Mesh) || Array.isArray(obj.material)) return;
-        const mat = obj.material.clone();
-        obj.material = mat;
-        if (mat instanceof THREE.MeshStandardMaterial && mat.color.getHex() === SKIN_COLOR) {
-          mat.emissive.set(0xc48050);
-          mat.emissiveIntensity = 0.95;
-        }
-        if (mat instanceof THREE.MeshBasicMaterial) {
-          const hex = mat.color.getHex();
-          if (hex === 0xf4efe4 || hex === 0x2a1a10 || hex === 0x140c09 || hex === 0xfff6e4) {
-            obj.scale.multiplyScalar(1.9);
-          }
-        }
-      });
-    }
     headBone.add(face);
     const cap = createProspectorHat(hat);
-    if (jumper) {
-      cap.position.y = 0.2;
-      cap.rotation.x = -0.62;
-    } else {
-      cap.position.y = 0.08;
-      cap.rotation.x = -0.22;
-    }
+    cap.position.y = 0.14;
+    cap.rotation.x = -0.32;
     headBone.add(cap);
   }
   for (const name of ['upperarm_l', 'upperarm_r', 'thigh_l', 'thigh_r']) {

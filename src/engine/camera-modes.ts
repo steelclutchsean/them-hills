@@ -39,15 +39,17 @@ export function frameToolShot(
   const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
   const right = new THREE.Vector3(-forward.z, 0, forward.x);
   const pan = step === 'pan';
-  const dist = pan ? 1.16 : 2.05;
-  const side = pan ? 0.28 : 0.48;
-  const height = pan ? 0.28 : 0.55;
+  const dist = pan ? 1.12 : 2.05;
+  const side = pan ? 0.18 : 0.48;
+  const height = pan ? 0.34 : 0.55;
+  // The head bends over the bowl, and the face points down into it. Sit above
+  // the rim so the eyes clear the gold, and keep the bowl in the lower frame.
   camera.position.set(
     focus.x + forward.x * dist + right.x * side,
-    Math.max(focus.y + height, charPos.y + 0.85),
+    pan ? focus.y + height : Math.max(focus.y + height, charPos.y + 0.85),
     focus.z + forward.z * dist + right.z * side,
   );
-  camera.lookAt(focus.x, focus.y + (pan ? 0.46 : 0), focus.z);
+  camera.lookAt(focus.x, focus.y + (pan ? 0.14 : 0), focus.z);
   const fov = pan ? PAN_FOV : DIG_FOV;
   if (camera.fov !== fov) {
     camera.fov = fov;
@@ -88,15 +90,15 @@ export function createCameraModeController(camera: THREE.PerspectiveCamera): Cam
     forward.set(-Math.sin(lockedYaw), 0, -Math.cos(lockedYaw));
     right.set(-forward.z, 0, forward.x);
     const pan = step === 'pan';
-    const dist = pan ? 1.18 : 1.95;
-    const side = pan ? 0.24 : 0.42;
+    const dist = pan ? 1.12 : 1.95;
+    const side = pan ? 0.18 : 0.42;
     const height = pan ? 0.34 : 0.85;
     camera.position.set(
       focus.x + forward.x * dist + right.x * side,
-      Math.max(focus.y + height, charPos.y + 0.9),
+      pan ? focus.y + height : Math.max(focus.y + height, charPos.y + 0.9),
       focus.z + forward.z * dist + right.z * side,
     );
-    camera.lookAt(focus.x, focus.y + (pan ? 0.42 : 0), focus.z);
+    camera.lookAt(focus.x, focus.y + (pan ? 0.14 : 0), focus.z);
     setFov(pan ? PAN_FOV : DIG_FOV);
   }
 

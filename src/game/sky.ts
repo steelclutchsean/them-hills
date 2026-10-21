@@ -282,7 +282,7 @@ export function createSkyController(opts: {
     // the fill toward the sky color at the horizon.
     _ground.set(0x8a5a32);
     const coolShade = smooth01(0.25, -0.05, elev);
-    _ground.lerp(_fog, 0.28 + coolShade * 0.45);
+    _ground.lerp(_fog, Math.min(1, 0.34 + coolShade * 0.7));
     hemi.color.copy(_bg);
     hemi.groundColor.copy(_ground);
     hemi.intensity = ambientIntensity * 1.05;
