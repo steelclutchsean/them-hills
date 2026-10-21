@@ -212,7 +212,12 @@ async function bootstrap(): Promise<void> {
     createStream(terrain, cfg, courseById(courses, cfg.id)),
   );
   const waterReflection = createWaterReflection();
-  waterReflection.setEnabled(RENDER_QUALITY.reflections);
+  // The mirrored scene pass doubles the frame on SwiftShader and the
+  // screenshot capture never returns. Hardware still reflects the banks.
+  const softwareGl = /swiftshader|llvmpipe|softpipe/i.test(
+    glRendererString(renderer.renderer.getContext()),
+  );
+  waterReflection.setEnabled(RENDER_QUALITY.reflections && !softwareGl);
   for (const s of streamList) {
     renderer.scene.add(s.group);
     waterReflection.register(s.water);
@@ -783,7 +788,7 @@ async function bootstrap(): Promise<void> {
       publishProbe();
       requestAnimationFrame(() => {
         renderer.applyGraphics();
-        waterReflection.setEnabled(RENDER_QUALITY.reflections);
+        waterReflection.setEnabled(RENDER_QUALITY.reflections && !softwareGl);
         setScatterDensity(RENDER_QUALITY.scatter / QUALITY_PRESETS.ultra.scatter);
         grass?.setCount(RENDER_QUALITY.grassTall);
         for (const cover of grassCovers) cover.setCount(RENDER_QUALITY.grassCover);
