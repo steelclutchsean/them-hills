@@ -16,8 +16,15 @@ import {
   markTreeMirror,
   reflectionUniforms,
   skipReflection,
+  TREE_MIRROR_LAYER,
 } from '@/render/reflection';
-import { dressTown, seatBarrels, updateTownDressing, updateTownLights } from '@/game/structures';
+import {
+  batchStaticProps,
+  dressTown,
+  seatBarrels,
+  updateTownDressing,
+  updateTownLights,
+} from '@/game/structures';
 import { bearingFromYaw, createCameraRig } from '@/game/camera-rig';
 import { createCamp } from '@/game/camp';
 import { createCharacter } from '@/game/character';
@@ -181,14 +188,6 @@ function mirrorBudget(softwareGl: boolean): { size: number; stride: number } {
   return { size: 112, stride: 5 };
 }
 
-/** Cube of the banks. Software updates it a face-set at a time so the frame returns. */
-function probeBudget(softwareGl: boolean): { size: number; stride: number } {
-  if (!softwareGl) return { size: 96, stride: 2 };
-  if (RENDER_QUALITY.ao) return { size: 64, stride: 4 };
-  if (RENDER_QUALITY.godrays) return { size: 96, stride: 4 };
-  return { size: 48, stride: 5 };
-}
-
 async function bootstrap(): Promise<void> {
   const params = new URLSearchParams(window.location.search);
   if (params.has('debug')) document.body.dataset.debug = '1';
@@ -292,6 +291,9 @@ async function bootstrap(): Promise<void> {
       halfLength: 90,
       orientation: 'NS',
       siteCount: 28,
+      shallowColor: 0x2f8f96,
+      deepColor: 0x0c3a44,
+      foamColor: 0xe7f2ea,
     },
     {
       id: 'buckeye_run',
@@ -302,9 +304,9 @@ async function bootstrap(): Promise<void> {
       halfLength: 90,
       orientation: 'EW',
       siteCount: 24,
-      shallowColor: 0x9bcfb5,
-      deepColor: 0x355c4a,
-      foamColor: 0xeaf5e8,
+      shallowColor: 0x2f8f96,
+      deepColor: 0x0c3a44,
+      foamColor: 0xe7f2ea,
     },
   ];
   const courses = buildWatercourses();
@@ -314,6 +316,9 @@ async function bootstrap(): Promise<void> {
   // ---- Terrain ----
   const terrain = createTerrain(physics.rapier, courses);
   renderer.scene.add(terrain.mesh);
+  terrain.mesh.traverse((obj) => {
+    obj.layers.enable(TREE_MIRROR_LAYER);
+  });
 
   // ---- Streams + sites ----
   const streamList = STREAM_CONFIGS.map((cfg) =>
@@ -332,10 +337,14 @@ async function bootstrap(): Promise<void> {
   waterReflection.setStride(mirror.stride);
   waterReflection.setTreesOnly(softwareGl);
   waterReflection.setEnabled(RENDER_QUALITY.reflections);
-  const probe = probeBudget(softwareGl);
-  creekProbe.setSize(probe.size);
-  creekProbe.setStride(probe.stride);
   creekProbe.setEnabled(RENDER_QUALITY.reflections);
+  const coyoteCourse = courseById(courses, 'coyote_creek');
+  creekProbe.setPoints(
+    [0.3, 0.46, 0.58, 0.72].map((t) => {
+      const sample = coyoteCourse.at(t);
+      return { x: sample.x, y: sample.waterY + 0.45, z: sample.z };
+    }),
+  );
   for (const s of streamList) {
     skipReflection(s.group);
     renderer.scene.add(s.group);
@@ -439,6 +448,25 @@ async function bootstrap(): Promise<void> {
   }
   dressTown(renderer.scene, (x, z) => terrain.getHeightAt(x, z));
   seatBarrels(renderer.scene, (x, z) => terrain.getHeightAt(x, z));
+  const batchRoots: THREE.Object3D[] = [];
+  renderer.scene.traverse((obj) => {
+    if (
+      obj.name === 'inn' ||
+      obj.name === 'general_store' ||
+      obj.name === 'camp' ||
+      obj.name === 'town-dressing' ||
+      obj.name === 'stamp-mill' ||
+      obj.name === 'fire-shed' ||
+      obj.name === 'company-wagon' ||
+      obj.name.startsWith('vendor_')
+    ) {
+      batchRoots.push(obj);
+    }
+  });
+  for (const root of batchRoots) {
+    const removed = batchStaticProps(root);
+    console.log(`[batch] ${root.name} removed ${removed} meshes`);
+  }
   console.log(`[boulders] placed ${boulders.count} boulders`);
   const boulderPoints: BoulderPoint[] = boulders.colliders.map((c) => ({
     x: c.pos.x,
@@ -587,6 +615,7 @@ async function bootstrap(): Promise<void> {
     .then((results) => {
       const total = results.reduce((sum, r) => sum + r.placed, 0) + fallenLogs.placed;
       console.log(`[scatter] environment populated (${total} instances)`);
+      creekProbe.invalidate();
 
       // Build a spatial grid of every scatter placement and create the
       // ground-cover grass layer that fills *between* the megakit detail.
@@ -855,9 +884,6 @@ async function bootstrap(): Promise<void> {
           waterReflection.setStride(mirrorMenu.stride);
           waterReflection.setTreesOnly(softwareGl);
           waterReflection.setEnabled(RENDER_QUALITY.reflections);
-          const probeMenu = probeBudget(softwareGl);
-          creekProbe.setSize(probeMenu.size);
-          creekProbe.setStride(probeMenu.stride);
           creekProbe.setEnabled(RENDER_QUALITY.reflections);
           setScatterDensity(RENDER_QUALITY.scatter / QUALITY_PRESETS.ultra.scatter);
           grass?.setCount(RENDER_QUALITY.grassTall);
@@ -1260,6 +1286,7 @@ async function bootstrap(): Promise<void> {
       graphics: getQualityName(),
       mirrorMode: reflectionUniforms.uMirrorMode.value,
       mirrorHorizon: reflectionUniforms.uHorizon.value,
+      probeReady: creekProbe.ready,
       saveVersion: save.version,
       panTier: save.equipment.ownedTiers.pan,
       claimCount: save.fieldwork.claims.length,
@@ -1679,9 +1706,6 @@ async function bootstrap(): Promise<void> {
         waterReflection.setStride(mirrorNow.stride);
         waterReflection.setTreesOnly(softwareGl);
         waterReflection.setEnabled(RENDER_QUALITY.reflections);
-        const probeNow = probeBudget(softwareGl);
-        creekProbe.setSize(probeNow.size);
-        creekProbe.setStride(probeNow.stride);
         creekProbe.setEnabled(RENDER_QUALITY.reflections);
         setScatterDensity(RENDER_QUALITY.scatter / QUALITY_PRESETS.ultra.scatter);
         grass?.setCount(RENDER_QUALITY.grassTall);
@@ -1810,7 +1834,7 @@ async function bootstrap(): Promise<void> {
     updateTownLights(sunDir.y);
     setFoliageWindTime(cinemaTime);
     pulseGold(cinemaTime);
-    shafts.update(sunDir, titleLook, true, renderer.camera);
+    shafts.update(sunDir, titleLook, true, renderer.camera, 17.55);
     motes.update(cinemaTime, titleLook, sunDir.y);
     const grassLight = {
       time: cinemaTime,
@@ -1828,7 +1852,7 @@ async function bootstrap(): Promise<void> {
       renderer.camera.position.z,
     );
     syncWaterMatrices(renderer.camera, renderer.renderer);
-    creekProbe.update(renderer.renderer, renderer.scene, titleWater.x, titleWater.y, titleWater.z);
+    creekProbe.update(renderer.renderer, renderer.scene, 17.55);
     waterReflection.update(renderer.renderer, renderer.scene, renderer.camera, titleWater.y);
   }
 
@@ -2563,7 +2587,7 @@ async function bootstrap(): Promise<void> {
       updateTownLights(sunDirWorld.y);
       setFoliageWindTime(worldTime);
       pulseGold(worldTime);
-      shafts.update(sunDirWorld, charPos, !driftLit, renderer.camera);
+      shafts.update(sunDirWorld, charPos, !driftLit, renderer.camera, getSkyHour(worldTime));
       motes.update(worldTime, charPos, sunDirWorld.y);
 
       headlamp.update({
@@ -3481,7 +3505,7 @@ async function bootstrap(): Promise<void> {
         renderer.camera.position.z,
       );
       syncWaterMatrices(renderer.camera, renderer.renderer);
-      creekProbe.update(renderer.renderer, renderer.scene, waterSpot.x, waterSpot.y, waterSpot.z);
+      creekProbe.update(renderer.renderer, renderer.scene, getSkyHour(worldTime));
       waterReflection.update(renderer.renderer, renderer.scene, renderer.camera, waterSpot.y);
       publishProbe();
     },
@@ -3515,6 +3539,7 @@ async function bootstrap(): Promise<void> {
         window.__themHills.blackRatio = blackRatio;
         window.__themHills.mirrorMode = reflectionUniforms.uMirrorMode.value;
         window.__themHills.mirrorHorizon = reflectionUniforms.uHorizon.value;
+        window.__themHills.probeReady = creekProbe.ready;
       }
     },
   });

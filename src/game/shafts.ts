@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 import { RENDER_QUALITY } from '@/engine/quality';
+import { canopyPoints } from '@/game/scatter';
 
-// One ribbon per shaft, turned to face the camera. Planes that contain the
-// sun direction are edge-on when you look at the sun, so a fixed cross
-// vanishes in the dawn and golden-hour shots. Depth test lets trees cut them.
+// Volumetric shafts. Each one is a soft quad whose long axis is the sun
+// direction and whose face is turned toward the camera, placed in a gap
+// between tree crowns. They exist at dawn and golden hour only. The cool
+// corner of the sky is not where they sit.
 
 export interface LightShafts {
   group: THREE.Group;
@@ -12,23 +14,108 @@ export interface LightShafts {
     anchor: THREE.Vector3,
     enabled: boolean,
     camera: THREE.Camera,
+    hour: number,
   ): void;
 }
 
-const LENGTH = 9;
-const SIDES = [-8.2, -3.8, 3.8, 8.2];
+const SHAFT_COUNT = 6;
 
-function ribbon(wide: number, narrow: number): THREE.BufferGeometry {
-  const geom = new THREE.PlaneGeometry(1, LENGTH, 1, 6);
-  const pos = geom.getAttribute('position');
-  for (let i = 0; i < pos.count; i++) {
-    const y = pos.getY(i);
-    const along = y / LENGTH + 0.5;
-    const half = (wide + (narrow - wide) * along) * 0.5;
-    pos.setX(i, pos.getX(i) * 2 * half);
+interface Gap {
+  x: number;
+  y: number;
+  z: number;
+}
+
+function shaftNoise(): THREE.CanvasTexture {
+  const size = 64;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('[shafts] canvas 2d unavailable');
+  const image = ctx.createImageData(size, size);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const n =
+        Math.sin(x * 0.37 + y * 0.21) * 0.5 +
+        Math.sin(x * 0.11 - y * 0.47) * 0.3 +
+        Math.sin((x + y) * 0.73) * 0.2;
+      const v = Math.round((n * 0.5 + 0.5) * 255);
+      const i = (y * size + x) * 4;
+      image.data[i] = v;
+      image.data[i + 1] = v;
+      image.data[i + 2] = v;
+      image.data[i + 3] = 255;
+    }
   }
-  geom.computeVertexNormals();
-  return geom;
+  ctx.putImageData(image, 0, 0);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.NoColorSpace;
+  return tex;
+}
+
+function makeQuad(): THREE.Mesh {
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(12), 3));
+  geom.setAttribute('uv', new THREE.BufferAttribute(new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), 2));
+  geom.setIndex([0, 1, 2, 2, 1, 3]);
+  const mesh = new THREE.Mesh(geom);
+  mesh.frustumCulled = false;
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  mesh.renderOrder = 3;
+  return mesh;
+}
+
+function findGaps(origin: THREE.Vector3, sunFlat: THREE.Vector3): Gap[] {
+  const angled: { along: number; side: number; y: number }[] = [];
+  for (const tree of canopyPoints()) {
+    const dx = tree.x - origin.x;
+    const dz = tree.z - origin.z;
+    const along = dx * sunFlat.x + dz * sunFlat.z;
+    if (along < 9 || along > 44) continue;
+    const side = dx * -sunFlat.z + dz * sunFlat.x;
+    if (Math.abs(side) > 22) continue;
+    angled.push({ along, side, y: tree.y });
+  }
+  angled.sort((a, b) => a.side - b.side);
+  const gaps: Gap[] = [];
+  for (let i = 0; i < angled.length - 1; i++) {
+    const a = angled[i];
+    const b = angled[i + 1];
+    if (!a || !b) continue;
+    const sep = b.side - a.side;
+    if (sep < 2.4 || sep > 16) continue;
+    const side = (a.side + b.side) * 0.5;
+    const along = (a.along + b.along) * 0.5;
+    gaps.push({
+      x: origin.x + sunFlat.x * along + -sunFlat.z * side,
+      y: (a.y + b.y) * 0.5,
+      z: origin.z + sunFlat.z * along + sunFlat.x * side,
+    });
+  }
+  const picked: Gap[] = [];
+  const take = (gap: Gap) => {
+    if (picked.some((kept) => Math.hypot(kept.x - gap.x, kept.z - gap.z) < 4.5)) return;
+    picked.push(gap);
+  };
+  for (const gap of gaps) {
+    take(gap);
+    if (picked.length >= SHAFT_COUNT) return picked;
+  }
+  // A lone crown still opens a gap beside it. The shaft sits off the trunk.
+  for (const tree of angled) {
+    const side = tree.side + (tree.side >= 0 ? 3.4 : -3.4);
+    take({
+      x: origin.x + sunFlat.x * tree.along + -sunFlat.z * side,
+      y: tree.y,
+      z: origin.z + sunFlat.z * tree.along + sunFlat.x * side,
+    });
+    if (picked.length >= SHAFT_COUNT) break;
+  }
+  return picked;
 }
 
 export function createLightShafts(): LightShafts {
@@ -41,61 +128,109 @@ export function createLightShafts(): LightShafts {
     side: THREE.DoubleSide,
     blending: THREE.AdditiveBlending,
     fog: false,
+    toneMapped: false,
     uniforms: {
-      uColor: { value: new THREE.Color(0xffc56a) },
-      uStrength: { value: 0.55 },
+      uColor: { value: new THREE.Color(1.15, 0.72, 0.32) },
+      uStrength: { value: 0.72 },
+      uTime: { value: 0 },
+      uNoise: { value: shaftNoise() },
     },
     vertexShader: /* glsl */ `
       varying vec2 vUv;
+      varying float vDist;
       void main() {
         vUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        vec4 viewPos = modelViewMatrix * vec4(position, 1.0);
+        vDist = length(viewPos.xyz);
+        gl_Position = projectionMatrix * viewPos;
       }
     `,
     fragmentShader: /* glsl */ `
       uniform vec3 uColor;
       uniform float uStrength;
+      uniform float uTime;
+      uniform sampler2D uNoise;
       varying vec2 vUv;
+      varying float vDist;
       void main() {
         float across = abs(vUv.x - 0.5) * 2.0;
-        float soft = pow(1.0 - smoothstep(0.0, 0.42, across), 1.8);
-        float along = smoothstep(0.0, 0.06, vUv.y) * smoothstep(1.0, 0.86, vUv.y);
-        gl_FragColor = vec4(uColor, soft * along * uStrength);
+        float soft = pow(1.0 - smoothstep(0.05, 0.92, across), 1.7);
+        float along = smoothstep(0.0, 0.08, vUv.y) * smoothstep(1.0, 0.62, vUv.y);
+        float n = texture2D(uNoise, vUv * vec2(1.2, 2.6) + vec2(0.0, uTime * 0.04)).r;
+        float depthFade = smoothstep(3.0, 9.0, vDist) * (1.0 - smoothstep(36.0, 62.0, vDist));
+        float alpha = soft * along * (0.45 + 0.55 * n) * depthFade * uStrength;
+        if (alpha < 0.004) discard;
+        gl_FragColor = vec4(uColor, alpha);
       }
     `,
   });
 
   const beams: THREE.Mesh[] = [];
-  for (let i = 0; i < SIDES.length; i++) {
-    const wide = i % 2 === 0 ? 0.42 : 0.26;
-    const mesh = new THREE.Mesh(ribbon(wide, 0.08), material);
+  const widths = [0.55, 1.05, 0.72, 1.35, 0.62, 0.95];
+  for (let i = 0; i < SHAFT_COUNT; i++) {
+    const mesh = makeQuad();
     mesh.name = `shaft-${i}`;
-    mesh.frustumCulled = false;
-    mesh.renderOrder = 2;
+    mesh.material = material;
     group.add(mesh);
     beams.push(mesh);
   }
 
-  const near = new THREE.Vector3();
+  const sunFlat = new THREE.Vector3();
+  const axis = new THREE.Vector3();
+  const toCam = new THREE.Vector3();
+  const widthDir = new THREE.Vector3();
+  const start = new THREE.Vector3();
+  const end = new THREE.Vector3();
+  let clock = 0;
 
   return {
     group,
-    update(sunDir, _anchor, enabled, camera) {
-      const elevation = sunDir.y;
-      const show = enabled && RENDER_QUALITY.shafts && elevation > 0.02 && elevation < 0.4;
+    update(sunDir, _anchor, enabled, camera, hour) {
+      clock += 0.016;
+      const dawn = hour > 5.7 && hour < 8.1;
+      const golden = hour > 16.3 && hour < 18.15;
+      const show = enabled && RENDER_QUALITY.shafts && sunDir.y > 0.02 && (dawn || golden);
       group.visible = show;
       if (!show) return;
-      // Bright enough to clear the dawn sky, these ribbons bloom into one
-      // wash and erase the cool side. They stay in the scene at zero strength
-      // so the low-sun gate still runs without painting over that split.
-      material.uniforms.uStrength!.value = 0;
-      camera.updateMatrixWorld();
+      material.uniforms.uTime!.value = clock;
+      sunFlat.set(sunDir.x, 0, sunDir.z);
+      if (sunFlat.lengthSq() < 1e-4) sunFlat.set(1, 0, 0);
+      sunFlat.normalize();
+      const gaps = findGaps(camera.position, sunFlat);
       for (let i = 0; i < beams.length; i++) {
-        const beam = beams[i]!;
-        near.set(SIDES[i]!, 4.2, -18);
-        near.applyMatrix4(camera.matrixWorld);
-        beam.position.copy(near);
-        beam.quaternion.copy(camera.quaternion);
+        const beam = beams[i];
+        const gap = gaps[i];
+        if (!beam || !gap) {
+          if (beam) beam.visible = false;
+          continue;
+        }
+        beam.visible = true;
+        const half = (widths[i] ?? 0.8) * 0.5;
+        start.set(gap.x, gap.y - 1.2, gap.z).addScaledVector(sunDir, -7);
+        end.set(gap.x, gap.y + 0.4, gap.z).addScaledVector(sunDir, 9);
+        axis.subVectors(end, start);
+        toCam.subVectors(camera.position, start);
+        widthDir.crossVectors(axis, toCam);
+        if (widthDir.lengthSq() < 1e-6) widthDir.set(-sunFlat.z, 0, sunFlat.x);
+        widthDir.normalize();
+        const attr = beam.geometry.getAttribute('position') as THREE.BufferAttribute;
+        const place = (index: number, base: THREE.Vector3, span: number) => {
+          attr.setXYZ(
+            index,
+            base.x + widthDir.x * span,
+            base.y + widthDir.y * span,
+            base.z + widthDir.z * span,
+          );
+        };
+        place(0, start, -half);
+        place(1, start, half);
+        place(2, end, -half * 0.45);
+        place(3, end, half * 0.45);
+        attr.needsUpdate = true;
+        beam.position.set(0, 0, 0);
+        beam.quaternion.identity();
+        beam.scale.set(1, 1, 1);
+        beam.updateMatrix();
       }
     },
   };

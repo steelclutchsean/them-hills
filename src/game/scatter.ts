@@ -66,6 +66,21 @@ interface SwayNode {
 }
 
 const swayNodes: SwayNode[] = [];
+
+export interface Canopy {
+  x: number;
+  y: number;
+  z: number;
+  radius: number;
+}
+
+const canopies: Canopy[] = [];
+
+/** Crown centers of the placed trees. Light shafts sit in the gaps between them. */
+export function canopyPoints(): readonly Canopy[] {
+  return canopies;
+}
+
 let density = 1;
 
 /** Hide the tail of each scatter so a quality change can reveal instances already placed. */
@@ -313,6 +328,14 @@ export async function scatterAssets(
       kind: config.lod ?? 'brush',
     });
     root.add(wrap);
+    if (config.lod === 'tree') {
+      canopies.push({
+        x,
+        y: y + worldScale * 2.6,
+        z,
+        radius: worldScale * 1.15,
+      });
+    }
     if (exclusionRadius) {
       positions.push({ x, z, radius: exclusionRadius(worldScale) });
     }
@@ -423,10 +446,13 @@ export function fadeFoliageNear(
     const dist = Math.hypot(dx, dy, dz);
     const along = dist > 0.001 ? (dx * aimX + dy * aimY + dz * aimZ) / dist : 0;
     const inLens = dist * dist <= radiusSq;
-    const closeTree = look !== null && node.kind === 'tree' && dist < Math.max(14, viewDistance * 0.45);
-    const inView = look !== null && node.kind === 'tree' && dist > 0.4 && dist < viewDistance && along > 0.3;
+    const closeTree =
+      look !== null && node.kind === 'tree' && dist < Math.max(14, viewDistance * 0.45);
+    const inView =
+      look !== null && node.kind === 'tree' && dist > 0.4 && dist < viewDistance && along > 0.3;
     if (!inLens && !inView && !closeTree) continue;
-    const fade = inView || closeTree || dist < 4.5 ? 1 : 1 - (dist - 4.5) / Math.max(0.2, radius - 4.5);
+    const fade =
+      inView || closeTree || dist < 4.5 ? 1 : 1 - (dist - 4.5) / Math.max(0.2, radius - 4.5);
     node.obj.traverse((obj) => {
       if (!(obj instanceof THREE.Mesh)) return;
       const current = obj.material;

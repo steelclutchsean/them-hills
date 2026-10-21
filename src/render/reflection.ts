@@ -43,7 +43,7 @@ export interface WaterReflection {
  * needs those trunks. Only the fade clones are touched, so LOD impostors
  * stay hidden, and opacity is restored before the beauty draw.
  */
-function revealFadedMirrorTrees(scene: THREE.Scene): () => void {
+export function revealFadedMirrorTrees(scene: THREE.Scene): () => void {
   const mask = new THREE.Layers();
   mask.set(TREE_MIRROR_LAYER);
   const touched: { mesh: THREE.Mesh; visible: boolean; opacity: number }[] = [];

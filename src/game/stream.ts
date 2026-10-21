@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { bindFrameUniforms, FRAME_UNIFORM_GLSL } from '@/render/frame-uniforms';
 import { reflectionUniforms } from '@/render/reflection';
 import { creekProbeUniforms } from '@/render/creek-probe';
-import { sceneGrabUniforms } from '@/engine/post';
 import type { Terrain } from './terrain';
 import { createRng } from './rng';
 import type { Watercourse } from './watercourse';
@@ -62,9 +61,9 @@ export function syncWaterMatrices(camera: THREE.Camera, renderer?: THREE.WebGLRe
   reflectionUniforms.uHorizon.value = horizon;
 }
 
-const DEFAULT_SHALLOW = 0xe0a85a;
-const DEFAULT_DEEP = 0x1e7c78;
-const DEFAULT_FOAM = 0xf7f3e4;
+const DEFAULT_SHALLOW = 0x2f8f96;
+const DEFAULT_DEEP = 0x0c3a44;
+const DEFAULT_FOAM = 0xe7f2ea;
 
 export interface PanningSite {
   id: string;
@@ -152,14 +151,14 @@ const FRAG_SHADER = /* glsl */ `
   uniform sampler2D uReflect;
   uniform mat4 uReflProjView;
   uniform float uHasReflect;
-  uniform float uMirrorMode;
-  uniform float uHorizon;
-  uniform vec2 uResolution;
-  uniform samplerCube uProbe;
+  uniform samplerCube uProbe0;
+  uniform samplerCube uProbe1;
+  uniform samplerCube uProbe2;
+  uniform samplerCube uProbe3;
   uniform float uHasProbe;
-  uniform sampler2D uScene;
-  uniform sampler2D uSceneDepth;
-  uniform float uHasScene;
+  uniform vec3 uProbePos[4];
+  uniform vec3 uProbeMin[4];
+  uniform vec3 uProbeMax[4];
   uniform sampler2D uFlowMap;
   uniform mat4 uProj;
   uniform mat4 uView;
@@ -172,6 +171,17 @@ const FRAG_SHADER = /* glsl */ `
   #include <packing>
   #include <fog_pars_fragment>
   #include <shadowmap_pars_fragment>
+
+  vec3 boxProject(vec3 dir, vec3 pos, vec3 bMin, vec3 bMax, vec3 probePos) {
+    vec3 safe = dir;
+    if (abs(safe.x) < 1e-4) safe.x = 1e-4;
+    if (abs(safe.y) < 1e-4) safe.y = 1e-4;
+    if (abs(safe.z) < 1e-4) safe.z = 1e-4;
+    vec3 bound = mix(bMin, bMax, step(vec3(0.0), safe));
+    vec3 travel = (bound - pos) / safe;
+    float dist = min(min(travel.x, travel.y), travel.z);
+    return normalize(pos + safe * dist - probePos);
+  }
 
   float hash(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -194,9 +204,10 @@ const FRAG_SHADER = /* glsl */ `
 
     float t = abs(vLateral);
     float depthFactor = smoothstep(0.08, 0.82, clamp(vDepth / 1.65, 0.0, 1.0) * (1.0 - t * t * 0.65));
-    vec3 murk = vec3(0.16, 0.22, 0.2);
+    // Cool green-blue absorption. Gold is the gravel bed showing through
+    // the clear shallows, not a pigment in the water.
     vec3 base = mix(uShallow, uDeep, depthFactor);
-    base = mix(base, murk, smoothstep(1.05, 1.7, vDepth) * 0.35);
+    base = mix(base, uDeep * 0.55, smoothstep(1.05, 1.7, vDepth));
 
     // Two scrolling layers, cross-faded, so the ripple moves without a seam.
     float phase = fract(uTime * uFlowSpeed * 0.35);
@@ -266,22 +277,25 @@ const FRAG_SHADER = /* glsl */ `
     base += uSunColor * (spec * 2.2 * uSunIntensity);
 
     float fres = pow(1.0 - max(dot(viewDir, surfNormal), 0.0), 2.1);
-    vec3 reflected = mix(uHemiSky, uFoam, 0.22);
+    vec3 reflected = uHemiSky;
     float mirrorHit = 0.0;
-    // Software path: the mirror target is this camera's banks and trunks.
-    // Flip it across the water's horizon so the far bank stands in the creek.
-    if (uHasReflect > 0.5 && uMirrorMode > 0.5) {
-      vec2 uv = gl_FragCoord.xy / max(uResolution, vec2(1.0));
-      vec2 mir = vec2(uv.x, 2.0 * uHorizon - uv.y);
-      mir += surfNormal.xz * 0.004;
-      if (mir.x > 0.0 && mir.x < 1.0 && mir.y > 0.0 && mir.y < 1.0) {
-        vec4 samp = texture2D(uReflect, mir);
-        float sampLum = dot(samp.rgb, vec3(0.2126, 0.7152, 0.0722));
-        if (samp.a > 0.3 || sampLum > 0.025) {
-          reflected = samp.rgb;
-          mirrorHit = 1.0;
-        }
-      }
+    if (uHasProbe > 0.5) {
+      vec3 dir = reflect(-viewDir, surfNormal);
+      float d0 = distance(vWorld, uProbePos[0]);
+      float d1 = distance(vWorld, uProbePos[1]);
+      float d2 = distance(vWorld, uProbePos[2]);
+      float d3 = distance(vWorld, uProbePos[3]);
+      float nearest = min(min(d0, d1), min(d2, d3));
+      float w0 = 1.0 - smoothstep(0.0, 16.0, d0 - nearest);
+      float w1 = 1.0 - smoothstep(0.0, 16.0, d1 - nearest);
+      float w2 = 1.0 - smoothstep(0.0, 16.0, d2 - nearest);
+      float w3 = 1.0 - smoothstep(0.0, 16.0, d3 - nearest);
+      vec3 c0 = textureCube(uProbe0, boxProject(dir, vWorld, uProbeMin[0], uProbeMax[0], uProbePos[0])).rgb;
+      vec3 c1 = textureCube(uProbe1, boxProject(dir, vWorld, uProbeMin[1], uProbeMax[1], uProbePos[1])).rgb;
+      vec3 c2 = textureCube(uProbe2, boxProject(dir, vWorld, uProbeMin[2], uProbeMax[2], uProbePos[2])).rgb;
+      vec3 c3 = textureCube(uProbe3, boxProject(dir, vWorld, uProbeMin[3], uProbeMax[3], uProbePos[3])).rgb;
+      reflected = (c0 * w0 + c1 * w1 + c2 * w2 + c3 * w3) / max(w0 + w1 + w2 + w3, 0.001);
+      mirrorHit = 1.0;
     } else if (uHasReflect > 0.5) {
       vec4 clip = uReflProjView * vec4(vWorld, 1.0);
       if (clip.w > 0.2) {
@@ -296,28 +310,10 @@ const FRAG_SHADER = /* glsl */ `
         }
       }
     }
-    // Scene-color flip when the mirror target has no trunk at this point.
-    if (mirrorHit < 0.5 && uHasScene > 0.5) {
-      vec2 uv = gl_FragCoord.xy / max(uResolution, vec2(1.0));
-      vec2 mir = vec2(uv.x, 2.0 * uHorizon - uv.y);
-      mir += surfNormal.xz * 0.012;
-      if (mir.x > 0.0 && mir.x < 1.0 && mir.y > 0.0 && mir.y < 1.0) {
-        reflected = texture2D(uScene, mir).rgb;
-        mirrorHit = 1.0;
-      }
-    }
-    if (mirrorHit < 0.5 && uHasProbe > 0.5) {
-      vec3 refl = reflect(-viewDir, surfNormal);
-      vec3 mirror = textureCube(uProbe, refl).rgb;
-      float rl = dot(mirror, vec3(0.2126, 0.7152, 0.0722));
-      reflected = mix(vec3(rl), mirror, 1.6);
-      mirrorHit = 0.35;
-    }
-    // Looking down the bed stays amber. A grazing view is the mirror, so
-    // trunks on the bank read in the water instead of a flat tint.
-    float reflectAmt = mix(0.16, 0.86, smoothstep(0.04, 0.42, fres));
-    if (mirrorHit > 0.5) reflectAmt = max(reflectAmt, 0.9);
-    else reflectAmt *= 0.35;
+    // Grazing views take the bank. Looking down the bed stays the cool
+    // absorption so the gravel can show through.
+    float reflectAmt = mix(0.05, 0.78, smoothstep(0.08, 0.62, fres));
+    if (mirrorHit < 0.5) reflectAmt *= 0.35;
     base = mix(base, reflected, reflectAmt);
     float foamAmt = clamp(max(foamMask, lip), 0.0, 0.88);
     // Keep the rock lips. Don't paint the mirror out with sheet foam.
@@ -344,7 +340,7 @@ const FRAG_SHADER = /* glsl */ `
     vec3 lit = base * mix(0.62, 1.0, shadow);
     lit = mix(lit, lit * uSunColor, 0.16 * uSunIntensity * shadow);
 
-    float alpha = mix(0.42, 0.9, depthFactor);
+    float alpha = mix(0.14, 0.94, smoothstep(0.04, 0.72, depthFactor));
     alpha = max(alpha, foamMask * 0.92);
     alpha = mix(alpha, min(1.0, alpha + 0.2), fres);
 
@@ -521,14 +517,14 @@ export function createStream(terrain: Terrain, cfg: StreamConfig, course: Waterc
   uniforms.uReflect = reflectionUniforms.uReflect;
   uniforms.uReflProjView = reflectionUniforms.uReflProjView;
   uniforms.uHasReflect = reflectionUniforms.uHasReflect;
-  uniforms.uMirrorMode = reflectionUniforms.uMirrorMode;
-  uniforms.uHorizon = reflectionUniforms.uHorizon;
-  uniforms.uResolution = reflectionUniforms.uResolution;
-  uniforms.uProbe = creekProbeUniforms.uProbe;
+  uniforms.uProbe0 = creekProbeUniforms.uProbe0;
+  uniforms.uProbe1 = creekProbeUniforms.uProbe1;
+  uniforms.uProbe2 = creekProbeUniforms.uProbe2;
+  uniforms.uProbe3 = creekProbeUniforms.uProbe3;
   uniforms.uHasProbe = creekProbeUniforms.uHasProbe;
-  uniforms.uScene = sceneGrabUniforms.uScene;
-  uniforms.uSceneDepth = sceneGrabUniforms.uSceneDepth;
-  uniforms.uHasScene = sceneGrabUniforms.uHasScene;
+  uniforms.uProbePos = creekProbeUniforms.uProbePos;
+  uniforms.uProbeMin = creekProbeUniforms.uProbeMin;
+  uniforms.uProbeMax = creekProbeUniforms.uProbeMax;
   uniforms.uFlowMap = { value: flowNormalMap() };
   uniforms.uProj = waterViewUniforms.uProj;
   uniforms.uView = waterViewUniforms.uView;

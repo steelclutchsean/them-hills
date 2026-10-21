@@ -68,6 +68,7 @@ export function createCamp(
   const embers = new THREE.Mesh(new THREE.SphereGeometry(0.18, 12, 8), emberMat);
   embers.position.y = 0.16;
   embers.scale.set(1, 0.45, 1);
+  embers.userData.noBatch = true;
   group.add(embers);
   addCampWorks(group);
 
@@ -83,6 +84,7 @@ export function createCamp(
   });
   const marker = new THREE.Mesh(ringGeom, ringMat);
   marker.position.y = 0.04;
+  marker.userData.noBatch = true;
   group.add(marker);
 
   scene.add(group);

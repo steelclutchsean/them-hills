@@ -93,48 +93,7 @@ const GodrayShader = {
     uniform float uIntensity;
     varying vec2 vUv;
     void main() {
-      vec3 col = texture2D(tDiffuse, vUv).rgb;
-      vec2 toSun = uSun - vUv;
-      float span = length(toSun);
-      // Cone under the sun only. The cool corner is beside the sun, not
-      // under it, so a distance falloff is not what keeps it blue.
-      float below = smoothstep(0.0, 0.05, uSun.y - vUv.y);
-      float lateral = abs(vUv.x - uSun.x);
-      float cone = below * (1.0 - smoothstep(0.02, 0.26, lateral));
-      float reach = 1.0 - smoothstep(0.05, 0.72, span);
-      float sunSide = cone * reach;
-      float onScreen = smoothstep(-0.2, 0.02, uSun.x) * smoothstep(1.2, 0.98, uSun.x)
-                     * smoothstep(-0.25, 0.0, uSun.y) * smoothstep(1.2, 0.98, uSun.y);
-      if (sunSide < 0.001 || onScreen < 0.001 || uIntensity < 0.001) {
-        gl_FragColor = vec4(col, 1.0);
-        return;
-      }
-      // Radial blur toward the sun. A trunk on the ray drops the sum.
-      // A gap that stays bright the whole way leaves a shaft in the haze.
-      vec2 sunUv = clamp(uSun, vec2(0.02), vec2(0.98));
-      // Sky beside the disc, so the disc does not make every texel look dark.
-      vec2 refUv = clamp(sunUv + vec2(0.03, -0.05), vec2(0.02), vec2(0.98));
-      float refLum = dot(texture2D(tDiffuse, refUv).rgb, vec3(0.2126, 0.7152, 0.0722));
-      // First crown on the way to the sun. A gap keeps the ray clear and
-      // the haze under that angle stays bright. Start off the pixel so the
-      // ground under the camera is not the occluder.
-      float hitT = 1.0;
-      for (int i = 0; i < 26; i++) {
-        float rayT = 0.14 + float(i) * 0.03;
-        vec2 p = mix(vUv, sunUv, rayT);
-        float lum = dot(texture2D(tDiffuse, p).rgb, vec3(0.2126, 0.7152, 0.0722));
-        if (lum < refLum * 0.48) {
-          hitT = rayT;
-          break;
-        }
-      }
-      float shafts = smoothstep(0.22, 0.7, hitT);
-      float lumHere = dot(col, vec3(0.2126, 0.7152, 0.0722));
-      float haze = smoothstep(0.03, 0.22, lumHere) * (1.0 - smoothstep(1.8, 3.6, lumHere));
-      float rayAmt = sunSide * onScreen;
-      col += vec3(1.7, 0.95, 0.42) * shafts * rayAmt * uIntensity * haze * 1.35;
-      col *= mix(1.0, mix(0.45, 1.0, shafts), haze * rayAmt);
-      gl_FragColor = vec4(col, 1.0);
+      gl_FragColor = vec4(texture2D(tDiffuse, vUv).rgb, 1.0);
     }
   `,
 };
@@ -283,15 +242,14 @@ export function createPostPipeline(
       // override material, so it does not rebuild the scene's programs.
       // Low stays off so the prospect playtest keeps its frame budget.
       gtao.enabled = RENDER_QUALITY.ao;
-      godrays.enabled = RENDER_QUALITY.godrays;
+      // Shafts are geometry in the canopy gaps. The radial blur stays off.
+      godrays.enabled = false;
     },
-    setSun(x, y, elevation) {
+    setSun(x, y, _elevation) {
       const sun = godrays.uniforms.uSun?.value as THREE.Vector2 | undefined;
       if (sun) sun.set(x, y);
-      const low = elevation > 0.0 && elevation < 0.42;
-      const lift = low ? 1.0 : elevation > -0.02 ? 0.2 : 0;
       const intensity = godrays.uniforms.uIntensity;
-      if (intensity) intensity.value = lift;
+      if (intensity) intensity.value = 0;
     },
     setFocus(x, y, amount) {
       const center = grade.uniforms.uFocus?.value as THREE.Vector2 | undefined;

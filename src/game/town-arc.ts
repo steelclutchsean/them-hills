@@ -31,7 +31,11 @@ export function createTownArc(
   const maeHome = new THREE.Vector3(-13, groundY(-13, 10), 10);
 
   const timber = hewnTimberMaterial();
-  const iron = new THREE.MeshStandardMaterial({ color: 0x5c6166, roughness: 0.42, metalness: 0.62 });
+  const iron = new THREE.MeshStandardMaterial({
+    color: 0x5c6166,
+    roughness: 0.42,
+    metalness: 0.62,
+  });
   const plank = innTimber(false);
   const roofMat = innTimber(true);
   const waterMat = new THREE.MeshStandardMaterial({
@@ -178,7 +182,8 @@ export function createTownArc(
     shedRoof.position.y = 2.35;
   }
 
-  const near = (a: THREE.Vector3, b: THREE.Vector3, r: number) => Math.hypot(a.x - b.x, a.z - b.z) < r;
+  const near = (a: THREE.Vector3, b: THREE.Vector3, r: number) =>
+    Math.hypot(a.x - b.x, a.z - b.z) < r;
 
   return {
     millPos,
@@ -246,7 +251,10 @@ export function createTownArc(
         placeCloud(smoke, time * 0.38, 0.7, 4.6, SMOKE_SOURCES, { x: 1.35, z: 0.55 }, 0.95);
         placeCloud(embers, time * 1.5, 0.85, 2.4, FLAME_TONGUES, { x: 1.6, z: 0.4 }, 0.2);
         const maeTarget = firePos.clone().add(new THREE.Vector3(2.4, 0, 1.6));
-        mae.position.lerp(new THREE.Vector3(maeTarget.x, maeHome.y, maeTarget.z), Math.min(1, dt * 0.8));
+        mae.position.lerp(
+          new THREE.Vector3(maeTarget.x, maeHome.y, maeTarget.z),
+          Math.min(1, dt * 0.8),
+        );
       } else {
         flames.visible = false;
         if (!charred) fireLight.intensity = 0;
@@ -255,7 +263,10 @@ export function createTownArc(
           smoke.visible = false;
           embers.visible = false;
         }
-        mae.position.lerp(new THREE.Vector3(maeHome.x + 1.1, maeHome.y, maeHome.z + 1.4), Math.min(1, dt * 0.4));
+        mae.position.lerp(
+          new THREE.Vector3(maeHome.x + 1.1, maeHome.y, maeHome.z + 1.4),
+          Math.min(1, dt * 0.4),
+        );
       }
       if (savedTown && charred) applyRebuild();
     },
@@ -451,8 +462,16 @@ function buildMill(
   shaft.rotation.z = Math.PI / 2;
   cams.add(shaft);
   const stamps: THREE.Object3D[] = [];
-  const shoeMat = new THREE.MeshStandardMaterial({ color: 0x3e4246, roughness: 0.35, metalness: 0.7 });
-  const plateMat = new THREE.MeshStandardMaterial({ color: 0xd9d4c6, roughness: 0.22, metalness: 0.82 });
+  const shoeMat = new THREE.MeshStandardMaterial({
+    color: 0x3e4246,
+    roughness: 0.35,
+    metalness: 0.7,
+  });
+  const plateMat = new THREE.MeshStandardMaterial({
+    color: 0xd9d4c6,
+    roughness: 0.22,
+    metalness: 0.82,
+  });
   for (let i = 0; i < 5; i++) {
     const x = -1.6 + i * 0.8;
     const lobe = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.28, 0.16), iron);
@@ -480,7 +499,11 @@ function buildMill(
   mortar.name = 'mortar-box';
   const apron = box(4.5, 0.08, 0.85, plank, 0, 0.28, 1.05);
   apron.rotation.x = -0.42;
-  const pulpMat = new THREE.MeshStandardMaterial({ color: 0x8d7a52, roughness: 0.38, metalness: 0.08 });
+  const pulpMat = new THREE.MeshStandardMaterial({
+    color: 0x8d7a52,
+    roughness: 0.38,
+    metalness: 0.08,
+  });
   for (let i = 0; i < 7; i++) {
     const pulp = new THREE.Mesh(new THREE.DodecahedronGeometry(0.1 + (i % 3) * 0.04, 0), pulpMat);
     pulp.position.set(-1.5 + i * 0.5, 0.16, 1.35 + (i % 2) * 0.12);
@@ -496,6 +519,10 @@ function buildMill(
   workLight.position.set(0.2, 2.8, 1.5);
   workLight.castShadow = false;
   mill.add(workLight);
+  wheel.userData.noBatch = true;
+  cams.userData.noBatch = true;
+  pour.userData.noBatch = true;
+  for (const stamp of stamps) stamp.userData.noBatch = true;
   mill.add(wheel, cams);
   return { wheel, cams, stamps };
 }
@@ -560,6 +587,7 @@ function buildBurningShed(
   right.rotation.z = -0.4;
   right.castShadow = true;
   roof.add(left, right);
+  roof.userData.noBatch = true;
   shed.add(roof);
   return { roof };
 }

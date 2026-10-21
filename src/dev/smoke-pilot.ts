@@ -56,6 +56,7 @@ export interface ThemHillsProbe {
   graphics: string;
   mirrorMode?: number;
   mirrorHorizon?: number;
+  probeReady?: boolean;
   saveVersion: number;
   panTier: number;
   claimCount: number;

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { PALETTE } from '@/render/palette';
 import { softDiscTexture } from '@/render/soft-disc';
 import {
@@ -81,6 +82,7 @@ function markerRing(y = 0.05): THREE.Mesh {
   });
   const ring = new THREE.Mesh(geom, mat);
   ring.position.y = y;
+  ring.userData.noBatch = true;
   return ring;
 }
 
@@ -138,6 +140,7 @@ function addLantern(
   });
   const globe = mesh(new THREE.SphereGeometry(0.08, 8, 6), mat, x, y, z);
   globe.castShadow = false;
+  globe.userData.noBatch = true;
   parent.add(globe);
   const cap = mesh(new THREE.ConeGeometry(0.07, 0.08, 6), timberDarkMaterial(), x, y + 0.1, z);
   parent.add(cap);
@@ -311,6 +314,7 @@ function addWindow(parent: THREE.Object3D, x: number, y: number, z: number, yaw:
   pane.position.z += Math.cos(yaw) * 0.05;
   pane.position.x += Math.sin(yaw) * 0.05;
   pane.castShadow = false;
+  pane.userData.noBatch = true;
   parent.add(pane);
   const glow = new THREE.PointLight(0xffb15a, 0, 2.4, 2);
   glow.position.set(pane.position.x, y, pane.position.z);
@@ -447,6 +451,7 @@ function addChimneySmoke(parent: THREE.Object3D, x: number, y: number, z: number
     const card = new THREE.Mesh(new THREE.PlaneGeometry(0.55 + i * 0.16, 0.62), mat.clone());
     card.position.set(x, y + i * 0.32, z);
     card.castShadow = false;
+    card.userData.noBatch = true;
     parent.add(card);
     smokeCards.push({ mesh: card, base: y, phase: i * 0.4 });
   }
@@ -707,7 +712,13 @@ export function buildShop(opts: { sign: string; accent: number }): BuiltPlace {
   root.add(mesh(new THREE.BoxGeometry(2.2, 0.9, 0.7), wood, 0, 0.7, -0.3));
   root.add(mesh(new THREE.BoxGeometry(2.45, 1.85, 0.08), dark, 0, 1.15, -0.82));
   for (let i = 0; i < 8; i++) {
-    const batten = mesh(new THREE.BoxGeometry(0.06, 1.9, 0.035), wood, -1.12 + i * 0.32, 1.15, -0.76);
+    const batten = mesh(
+      new THREE.BoxGeometry(0.06, 1.9, 0.035),
+      wood,
+      -1.12 + i * 0.32,
+      1.15,
+      -0.76,
+    );
     root.add(batten);
   }
   root.add(mesh(new THREE.BoxGeometry(2.5, 0.08, 0.16), wood, 0, 1.95, -0.78));
@@ -940,4 +951,91 @@ export function updateTownLights(sunY: number): void {
   for (const light of townLights) light.intensity = 2.4 * night;
   for (const light of windowLights) light.intensity = 0.7 * night;
   for (const pane of windowPanes) pane.emissiveIntensity = 0.04 + 18 * night;
+}
+
+function blockedFromBatch(obj: THREE.Object3D): boolean {
+  let cursor: THREE.Object3D | null = obj;
+  while (cursor) {
+    if (cursor.userData.noBatch) return true;
+    cursor = cursor.parent;
+  }
+  return false;
+}
+
+function materialKey(mat: THREE.Material): string {
+  const standard = mat as THREE.MeshStandardMaterial;
+  const color = standard.color ? standard.color.getHexString() : '';
+  const emissive = standard.emissive ? standard.emissive.getHexString() : '';
+  const map = standard.map ? standard.map.uuid : '';
+  return [
+    mat.type,
+    color,
+    emissive,
+    map,
+    standard.vertexColors ? 1 : 0,
+    standard.roughness ?? '',
+    standard.metalness ?? '',
+    mat.transparent ? 1 : 0,
+    mat.opacity,
+    mat.side,
+    standard.alphaTest ?? 0,
+  ].join('|');
+}
+
+function attributeKey(geom: THREE.BufferGeometry): string {
+  return Object.keys(geom.attributes).sort().join(',');
+}
+
+/**
+ * Collapse static prop meshes that share a material into one draw.
+ * Animated pieces (smoke, lanterns, the mill wheel) opt out with noBatch.
+ * Returns how many meshes were removed.
+ */
+export function batchStaticProps(root: THREE.Object3D): number {
+  root.updateWorldMatrix(true, true);
+  const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
+  const buckets = new Map<
+    string,
+    { mat: THREE.Material; geoms: THREE.BufferGeometry[]; meshes: THREE.Mesh[] }
+  >();
+  root.traverse((obj) => {
+    if (!(obj instanceof THREE.Mesh) || obj instanceof THREE.InstancedMesh) return;
+    if (!obj.visible || blockedFromBatch(obj)) return;
+    const mat = obj.material;
+    if (!mat || Array.isArray(mat)) return;
+    const baked = obj.geometry.clone();
+    baked.applyMatrix4(obj.matrixWorld);
+    baked.applyMatrix4(inv);
+    const key = `${materialKey(mat)}|${attributeKey(baked)}`;
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = { mat, geoms: [], meshes: [] };
+      buckets.set(key, bucket);
+    }
+    bucket.geoms.push(baked);
+    bucket.meshes.push(obj);
+  });
+  let removed = 0;
+  for (const bucket of buckets.values()) {
+    if (bucket.geoms.length < 2) {
+      for (const geom of bucket.geoms) geom.dispose();
+      continue;
+    }
+    let merged: THREE.BufferGeometry | null = null;
+    try {
+      merged = mergeGeometries(bucket.geoms, false);
+    } catch {
+      merged = null;
+    }
+    for (const geom of bucket.geoms) geom.dispose();
+    if (!merged) continue;
+    for (const mesh of bucket.meshes) mesh.removeFromParent();
+    removed += bucket.meshes.length;
+    const combined = new THREE.Mesh(merged, bucket.mat);
+    combined.name = 'batched-props';
+    combined.castShadow = true;
+    combined.receiveShadow = true;
+    root.add(combined);
+  }
+  return removed;
 }
