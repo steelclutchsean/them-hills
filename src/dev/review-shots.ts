@@ -23,6 +23,14 @@ const SHOTS: Record<string, Required<ReviewOverride>> = {
   dawn: { x: -4, z: -8, yaw: 2.2, pitch: 0.3, hour: 6.35 },
 };
 
+export function reviewShotNames(): readonly string[] {
+  return Object.keys(SHOTS);
+}
+
+export function reviewShot(name: string): Required<ReviewOverride> | null {
+  return SHOTS[name] ?? null;
+}
+
 export function readReviewOverride(): ReviewOverride | null {
   const params = new URLSearchParams(window.location.search);
   const shotName = params.get('shot');

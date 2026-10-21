@@ -70,7 +70,7 @@ import { mountMinimap, type MinimapLandmark, type MinimapStream } from '@/ui/min
 import { createSettingsPanel } from '@/ui/settings';
 import { defaultSettings } from '@/save/schema';
 import { createAudioSystem } from '@/audio/system';
-import { readReviewOverride, reviewWorldTime } from '@/dev/review-shots';
+import { readReviewOverride, reviewShot, reviewWorldTime } from '@/dev/review-shots';
 import { createSmokePilot } from '@/dev/smoke-pilot';
 import { mountOverlays, reportBoot } from '@/ui/overlays';
 import { presentProspectFind, presentToolImpact } from '@/game/presentation';
@@ -693,6 +693,15 @@ async function bootstrap(): Promise<void> {
         await saveCurrentState(buildSaveSnapshot());
         publishProbe();
       },
+      applyShot: (name: string) => {
+        const shot = reviewShot(name);
+        if (!shot) return false;
+        const y = terrain.getHeightAt(shot.x, shot.z) + 1.5;
+        character.placeAt(shot.x, y, shot.z);
+        cameraRig.setYawPitch(shot.yaw, shot.pitch);
+        worldTime = reviewWorldTime(shot.hour);
+        return true;
+      },
     };
     if (previous) previous.frameLuma = frameLuma;
   }
@@ -721,6 +730,10 @@ async function bootstrap(): Promise<void> {
 
   // ---- Game loop ----
   const loop = createGameLoop({
+    // Shader compile on a software GPU can stall a frame for seconds.
+    // The playtest pilot needs that stall to still advance the sim, or
+    // the 6s pan and 9s collect never finish inside the test budget.
+    maxFrameDt: smoke.active ? 1 : 0.25,
     update: (dt) => {
       input.poll();
       if (!simRunning) {

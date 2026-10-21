@@ -16,6 +16,7 @@ interface Probe {
   error: string | null;
   frameLuma: number;
   peakCarryGrams: number;
+  applyShot?: (name: string) => boolean;
 }
 
 function trackErrors(page: Page): string[] {
@@ -118,28 +119,53 @@ test('boots, guides the first claim, and the panels respond', async ({ page }) =
 });
 
 test('plays the prospect loop and reloads the save', async ({ page }) => {
-  test.setTimeout(150_000);
+  test.setTimeout(300_000);
   const errors = trackErrors(page);
   await page.goto('/?smoke=1');
-  await page.waitForFunction(
-    () => {
-      const probe = window.__themHills;
-      return !!probe && (probe.loopComplete || probe.error !== null);
-    },
-    undefined,
-    { timeout: 120_000 },
-  );
-  const done = await readProbe(page);
-  expect(done.error, done.phase).toBeNull();
-  expect(done.loopComplete).toBe(true);
-  expect(done.peakCarryGrams).toBeGreaterThan(0.04);
-  expect(done.wallet).toBeGreaterThan(0.2);
+  const deadline = Date.now() + 180_000;
+  let lastPhase = '';
+  let done: Probe | null = null;
+  while (Date.now() < deadline) {
+    const probe = await page
+      .evaluate(() => {
+        const live = window.__themHills;
+        if (!live) return null;
+        return {
+          ready: live.ready,
+          phase: live.phase,
+          position: live.position,
+          carryGrams: live.carryGrams,
+          wallet: live.wallet,
+          loopComplete: live.loopComplete,
+          error: live.error,
+          frameLuma: live.frameLuma,
+          peakCarryGrams: live.peakCarryGrams,
+        };
+      })
+      .catch(() => null);
+    if (probe && probe.phase !== lastPhase) {
+      console.log(
+        `[smoke] ${probe.phase} carry=${probe.carryGrams.toFixed(3)} wallet=${probe.wallet.toFixed(2)}`,
+      );
+      lastPhase = probe.phase;
+    }
+    if (probe && (probe.loopComplete || probe.error !== null)) {
+      done = probe;
+      break;
+    }
+    await page.waitForTimeout(500);
+  }
+  expect(done, `pilot still in ${lastPhase || 'boot'}`).not.toBeNull();
+  expect(done!.error, done!.phase).toBeNull();
+  expect(done!.loopComplete).toBe(true);
+  expect(done!.peakCarryGrams).toBeGreaterThan(0.04);
+  expect(done!.wallet).toBeGreaterThan(0.2);
   await page.evaluate(async () => {
     await window.__themHills?.save();
   });
-  const wallet = done.wallet;
+  const wallet = done!.wallet;
   await page.goto('/');
-  await page.waitForSelector('#boot-start', { timeout: 90_000 });
+  await page.waitForSelector('#boot-start', { timeout: 120_000 });
   await page.locator('#boot-start').click();
   await waitReady(page);
   const restored = await readProbe(page);
@@ -148,11 +174,21 @@ test('plays the prospect loop and reloads the save', async ({ page }) => {
 });
 
 test('captures fixed cameras', async ({ page }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(150_000);
   const errors = trackErrors(page);
-  for (const shot of ['spawn', 'creek', 'camp', 'dusk', 'night', 'dawn']) {
-    await page.goto(`/?shot=${shot}`);
-    await waitReady(page);
+  const shots = ['spawn', 'creek', 'camp', 'dusk', 'night', 'dawn'] as const;
+  await page.goto('/?shot=spawn');
+  await waitReady(page);
+  for (const shot of shots) {
+    const applied = await page.evaluate(
+      (name) => window.__themHills?.applyShot?.(name) ?? false,
+      shot,
+    );
+    expect(applied, shot).toBe(true);
+    const minLuma = shot === 'night' ? 0.05 : shot === 'dusk' ? 0.15 : 0.4;
+    await page.waitForFunction((floor) => (window.__themHills?.frameLuma ?? 0) > floor, minLuma, {
+      timeout: 15_000,
+    });
     await page.waitForTimeout(400);
     await page.screenshot({ path: `test-results/visual/${shot}.png` });
   }

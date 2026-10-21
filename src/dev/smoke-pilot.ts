@@ -50,6 +50,8 @@ export interface ThemHillsProbe {
   frameLuma: number;
   peakCarryGrams: number;
   save: () => Promise<void>;
+  /** Teleport to a named review camera. Returns false for an unknown name. */
+  applyShot?: (name: string) => boolean;
 }
 
 declare global {
@@ -73,6 +75,7 @@ export function createSmokePilot(search = window.location.search): {
   let carryAtStart = -1;
   let walletAtStart = -1;
   let settle = 0;
+  let lastNudge = 0;
   let confirmCooldown = 0;
   let digArmed = true;
   let beatArmed = true;
@@ -109,11 +112,14 @@ export function createSmokePilot(search = window.location.search): {
 
     if (phase === 'settle-site') {
       if (!world.site) return fail('no panning site');
+      // Re-plant every step. The kinematic controller can slide the capsule
+      // off the ring between the teleport and the interact probe.
+      stand(world, world.site);
       settle += 1;
-      if (settle <= 4) stand(world, world.site);
-      if (settle >= 8) {
+      if (settle >= 6) {
         phase = 'prospect';
         phaseTime = 0;
+        lastNudge = 0;
         carryAtStart = world.carryGrams;
         return { ...ZERO, interact: true };
       }
@@ -130,8 +136,11 @@ export function createSmokePilot(search = window.location.search): {
           settle = 0;
           return ZERO;
         }
-        if (phaseTime > 0.35) {
-          phaseTime = 0;
+        if (!world.site) return fail('no panning site');
+        stand(world, world.site);
+        if (phaseTime > 3) return fail('prospect never started — not standing on a gold ring');
+        if (phaseTime - lastNudge > 0.35) {
+          lastNudge = phaseTime;
           return { ...ZERO, interact: true };
         }
         return ZERO;
@@ -141,23 +150,37 @@ export function createSmokePilot(search = window.location.search): {
     }
 
     if (phase === 'settle-vendor') {
+      stand(world, world.vendor);
       settle += 1;
-      if (settle <= 4) stand(world, world.vendor);
-      if (settle >= 8) {
+      if (settle >= 6) {
         phase = 'sell';
         phaseTime = 0;
+        lastNudge = 0;
         return { ...ZERO, interact: true };
       }
       return ZERO;
     }
 
     if (phase === 'sell') {
+      stand(world, world.vendor);
       if (world.vendorOpen) {
-        phase = 'sold';
+        // The press that opened the counter is still logically down.
+        // Release for a step so the sale is a fresh edge.
+        phase = 'confirm-sale';
         phaseTime = 0;
+        return ZERO;
+      }
+      if (phaseTime > 4) return fail('assayer did not open');
+      if (phaseTime - lastNudge > 0.4) {
+        lastNudge = phaseTime;
         return { ...ZERO, interact: true };
       }
-      if (phaseTime > 0.6) {
+      return ZERO;
+    }
+
+    if (phase === 'confirm-sale') {
+      if (phaseTime > 0.05) {
+        phase = 'sold';
         phaseTime = 0;
         return { ...ZERO, interact: true };
       }
