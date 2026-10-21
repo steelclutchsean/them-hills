@@ -150,6 +150,21 @@ export function createPostPipeline(
     thickness: 0.5,
   });
   gtao.enabled = false;
+  // The beauty pass already drew the shadow map this frame. The AO normal
+  // pass does not read it, and a second shadow render was most of the
+  // extra draws on the town camera.
+  const renderGtao = gtao.render.bind(gtao);
+  gtao.render = (renderer, writeBuffer, readBuffer, deltaTime, maskActive) => {
+    const shadow = renderer.shadowMap;
+    const autoUpdate = shadow.autoUpdate;
+    shadow.autoUpdate = false;
+    shadow.needsUpdate = false;
+    try {
+      renderGtao(renderer, writeBuffer, readBuffer, deltaTime, maskActive);
+    } finally {
+      shadow.autoUpdate = autoUpdate;
+    }
+  };
   composer.addPass(gtao);
 
   const godrays = new ShaderPass(GodrayShader);

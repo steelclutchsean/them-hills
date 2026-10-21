@@ -2,8 +2,15 @@ import { getQualityName, type QualityName } from '@/engine/quality';
 
 // Scene budgets, per quality tier. Frame time is a play target: a discrete
 // GPU that stays over it sheds godrays, then ambient occlusion. Draw calls
-// and triangles are the smoke check, because a software rasterizer cannot
-// hold a 16 ms frame and that failure would say nothing about the scene.
+// and triangles are the smoke check. The counts are what the frame submits
+// (beauty, one shadow map, the AO normal pass on high and ultra, and the
+// fullscreen passes), measured at 1280×720:
+//   low    town  1871 calls, 228k tris
+//   medium town  1975 calls, 310k tris
+//   high   town  3323 calls, 705k tris
+//   ultra  town  3431 calls, 808k tris
+// The caps sit about 35% above those peaks. The lode camera is cheaper
+// (high: 466 calls, 434k tris) because the drift faces into the hill.
 
 export interface FrameBudget {
   frameMs: number;
@@ -12,10 +19,10 @@ export interface FrameBudget {
 }
 
 export const FRAME_BUDGETS: Record<QualityName, FrameBudget> = {
-  low: { frameMs: 80, drawCalls: 1400, triangles: 2_200_000 },
-  medium: { frameMs: 40, drawCalls: 2000, triangles: 3_400_000 },
-  high: { frameMs: 28, drawCalls: 3200, triangles: 5_200_000 },
-  ultra: { frameMs: 18, drawCalls: 4200, triangles: 7_000_000 },
+  low: { frameMs: 80, drawCalls: 2600, triangles: 400_000 },
+  medium: { frameMs: 40, drawCalls: 2800, triangles: 500_000 },
+  high: { frameMs: 28, drawCalls: 4500, triangles: 1_100_000 },
+  ultra: { frameMs: 18, drawCalls: 4800, triangles: 1_300_000 },
 };
 
 export function frameBudget(name: QualityName = getQualityName()): FrameBudget {
