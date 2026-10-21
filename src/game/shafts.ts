@@ -115,6 +115,22 @@ function findGaps(origin: THREE.Vector3, sunFlat: THREE.Vector3): Gap[] {
     });
     if (picked.length >= SHAFT_COUNT) break;
   }
+  // Several shafts, even when the crowns are sparse. They stay in the same
+  // sunward wedge as the trees so the open sky does not get a wash.
+  if (angled.length > 0 && picked.length < SHAFT_COUNT) {
+    const crownY = angled.reduce((sum, tree) => sum + tree.y, 0) / angled.length;
+    const sides = [-8.5, -3.6, 2.8, 7.4, -0.8, 5.2];
+    const alongs = [14, 20, 27, 17, 33, 24];
+    for (let i = 0; i < sides.length && picked.length < SHAFT_COUNT; i++) {
+      const side = sides[i] ?? 0;
+      const along = alongs[i] ?? 18;
+      take({
+        x: origin.x + sunFlat.x * along + -sunFlat.z * side,
+        y: crownY,
+        z: origin.z + sunFlat.z * along + sunFlat.x * side,
+      });
+    }
+  }
   return picked;
 }
 
@@ -130,8 +146,8 @@ export function createLightShafts(): LightShafts {
     fog: false,
     toneMapped: false,
     uniforms: {
-      uColor: { value: new THREE.Color(1.15, 0.72, 0.32) },
-      uStrength: { value: 0.72 },
+      uColor: { value: new THREE.Color(1.12, 0.74, 0.34) },
+      uStrength: { value: 0.7 },
       uTime: { value: 0 },
       uNoise: { value: shaftNoise() },
     },
@@ -155,10 +171,10 @@ export function createLightShafts(): LightShafts {
       void main() {
         float across = abs(vUv.x - 0.5) * 2.0;
         float soft = pow(1.0 - smoothstep(0.05, 0.92, across), 1.7);
-        float along = smoothstep(0.0, 0.08, vUv.y) * smoothstep(1.0, 0.62, vUv.y);
+        float along = smoothstep(0.0, 0.04, vUv.y) * smoothstep(1.0, 0.9, vUv.y);
         float n = texture2D(uNoise, vUv * vec2(1.2, 2.6) + vec2(0.0, uTime * 0.04)).r;
-        float depthFade = smoothstep(3.0, 9.0, vDist) * (1.0 - smoothstep(36.0, 62.0, vDist));
-        float alpha = soft * along * (0.45 + 0.55 * n) * depthFade * uStrength;
+        float depthFade = smoothstep(2.0, 7.0, vDist) * (1.0 - smoothstep(55.0, 84.0, vDist));
+        float alpha = soft * along * (0.7 + 0.3 * n) * depthFade * uStrength;
         if (alpha < 0.004) discard;
         gl_FragColor = vec4(uColor, alpha);
       }
@@ -176,11 +192,14 @@ export function createLightShafts(): LightShafts {
   }
 
   const sunFlat = new THREE.Vector3();
-  const axis = new THREE.Vector3();
   const toCam = new THREE.Vector3();
   const widthDir = new THREE.Vector3();
+  const forward = new THREE.Vector3();
   const start = new THREE.Vector3();
   const end = new THREE.Vector3();
+  const crown = new THREE.Vector3();
+  const ndcA = new THREE.Vector3();
+  const ndcB = new THREE.Vector3();
   let clock = 0;
 
   return {
@@ -196,6 +215,13 @@ export function createLightShafts(): LightShafts {
       sunFlat.set(sunDir.x, 0, sunDir.z);
       if (sunFlat.lengthSq() < 1e-4) sunFlat.set(1, 0, 0);
       sunFlat.normalize();
+      camera.updateMatrixWorld();
+      camera.getWorldDirection(forward);
+      // Screen-right, flattened, so a shaft that aims at the sun still has width.
+      widthDir.setFromMatrixColumn(camera.matrixWorld, 0);
+      widthDir.y = 0;
+      if (widthDir.lengthSq() < 1e-4) widthDir.set(1, 0, 0);
+      widthDir.normalize();
       const gaps = findGaps(camera.position, sunFlat);
       for (let i = 0; i < beams.length; i++) {
         const beam = beams[i];
@@ -205,14 +231,43 @@ export function createLightShafts(): LightShafts {
           continue;
         }
         beam.visible = true;
-        const half = (widths[i] ?? 0.8) * 0.5;
-        start.set(gap.x, gap.y - 1.2, gap.z).addScaledVector(sunDir, -7);
-        end.set(gap.x, gap.y + 0.4, gap.z).addScaledVector(sunDir, 9);
-        axis.subVectors(end, start);
-        toCam.subVectors(camera.position, start);
-        widthDir.crossVectors(axis, toCam);
-        if (widthDir.lengthSq() < 1e-6) widthDir.set(-sunFlat.z, 0, sunFlat.x);
-        widthDir.normalize();
+        const half = (widths[i] ?? 0.8) * 2.5;
+        crown.set(gap.x, gap.y, gap.z);
+        // A column parallel to the view collapses to a point. Keep each
+        // shaft off the lens axis so perspective stretches it into a slant.
+        toCam.subVectors(crown, camera.position);
+        const depth = toCam.dot(forward);
+        toCam.addScaledVector(forward, -depth);
+        if (toCam.length() < 3.2) {
+          crown.addScaledVector(widthDir, (i % 2 === 0 ? 1 : -1) * (4.2 + i * 0.45));
+        }
+        end.copy(crown).addScaledVector(sunDir, 2.2);
+        end.y += 1.1;
+        let found = false;
+        for (let travel = 6; travel <= 36; travel += 2) {
+          start.copy(crown).addScaledVector(sunDir, -travel);
+          const ahead = start.x - camera.position.x;
+          const ay = start.y - camera.position.y;
+          const az = start.z - camera.position.z;
+          const alongView = ahead * forward.x + ay * forward.y + az * forward.z;
+          const dist = Math.hypot(ahead, ay, az);
+          if (dist > 7 && dist < 18 && alongView > 4 && start.y > camera.position.y - 1.2) {
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          start.copy(camera.position).addScaledVector(forward, 11);
+          start.y = camera.position.y + 0.6;
+        }
+        start.addScaledVector(widthDir, (i - 2.5) * 1.6);
+        ndcA.copy(start).project(camera);
+        ndcB.copy(end).project(camera);
+        const ndcLen = Math.hypot(ndcA.x - ndcB.x, ndcA.y - ndcB.y);
+        if (ndcLen < 0.24) {
+          start.addScaledVector(widthDir, (i % 2 === 0 ? 1 : -1) * 5.5);
+          start.y -= 2.2;
+        }
         const attr = beam.geometry.getAttribute('position') as THREE.BufferAttribute;
         const place = (index: number, base: THREE.Vector3, span: number) => {
           attr.setXYZ(

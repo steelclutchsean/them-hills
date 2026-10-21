@@ -148,9 +148,6 @@ const FRAG_SHADER = /* glsl */ `
   uniform vec3 uFoam;
   uniform float uFlowSpeed;
   uniform vec3 uRocks[8];
-  uniform sampler2D uReflect;
-  uniform mat4 uReflProjView;
-  uniform float uHasReflect;
   uniform samplerCube uProbe0;
   uniform samplerCube uProbe1;
   uniform samplerCube uProbe2;
@@ -159,6 +156,10 @@ const FRAG_SHADER = /* glsl */ `
   uniform vec3 uProbePos[4];
   uniform vec3 uProbeMin[4];
   uniform vec3 uProbeMax[4];
+  uniform sampler2D uPlanar;
+  uniform mat4 uPlanarVP;
+  uniform float uHasPlanar;
+  uniform float uPlanarMatch;
   uniform sampler2D uFlowMap;
   uniform mat4 uProj;
   uniform mat4 uView;
@@ -274,11 +275,12 @@ const FRAG_SHADER = /* glsl */ `
     vec3 sunDir = normalize(uSunDir);
     vec3 reflectDir = reflect(-sunDir, surfNormal);
     float spec = pow(max(0.0, dot(reflectDir, viewDir)), 56.0);
-    base += uSunColor * (spec * 2.2 * uSunIntensity);
+    base += uSunColor * (spec * 0.85 * uSunIntensity);
 
     float fres = pow(1.0 - max(dot(viewDir, surfNormal), 0.0), 2.1);
     vec3 reflected = uHemiSky;
     float mirrorHit = 0.0;
+    float planarHit = 0.0;
     if (uHasProbe > 0.5) {
       vec3 dir = reflect(-viewDir, surfNormal);
       float d0 = distance(vWorld, uProbePos[0]);
@@ -296,24 +298,45 @@ const FRAG_SHADER = /* glsl */ `
       vec3 c3 = textureCube(uProbe3, boxProject(dir, vWorld, uProbeMin[3], uProbeMax[3], uProbePos[3])).rgb;
       reflected = (c0 * w0 + c1 * w1 + c2 * w2 + c3 * w3) / max(w0 + w1 + w2 + w3, 0.001);
       mirrorHit = 1.0;
-    } else if (uHasReflect > 0.5) {
-      vec4 clip = uReflProjView * vec4(vWorld, 1.0);
-      if (clip.w > 0.2) {
+    }
+    // The planar is a mirrored capture of this exact camera. Anywhere else
+    // it would be a smeared photo, so the cubes carry the everyday look.
+    if (uHasPlanar > 0.5 && uPlanarMatch > 0.5 && fres > 0.05) {
+      vec4 clip = uPlanarVP * vec4(vWorld, 1.0);
+      if (clip.w > 0.15) {
         vec2 uv = clip.xy / clip.w * 0.5 + 0.5;
-        uv += surfNormal.xz * 0.012;
-        if (uv.x > 0.02 && uv.x < 0.98 && uv.y > 0.02 && uv.y < 0.98) {
-          vec4 samp = texture2D(uReflect, uv);
-          if (samp.a > 0.45) {
-            reflected = samp.rgb;
+        uv += surfNormal.xz * 0.003;
+        if (uv.x > 0.015 && uv.x < 0.985 && uv.y > 0.015 && uv.y < 0.985) {
+          vec3 bank = texture2D(uPlanar, uv).rgb;
+          float bl = dot(bank, vec3(0.2126, 0.7152, 0.0722));
+          if (bl > 0.012) {
+            reflected = bank;
             mirrorHit = 1.0;
+            planarHit = 1.0;
           }
         }
       }
     }
-    // Grazing views take the bank. Looking down the bed stays the cool
-    // absorption so the gravel can show through.
-    float reflectAmt = mix(0.05, 0.78, smoothstep(0.08, 0.62, fres));
-    if (mirrorHit < 0.5) reflectAmt *= 0.35;
+    if (planarHit > 0.5) {
+      float rl = dot(reflected, vec3(0.2126, 0.7152, 0.0722));
+      reflected = mix(vec3(rl), reflected, 1.12);
+      reflected = (reflected - vec3(0.42)) * 1.18 + vec3(0.42);
+      reflected *= vec3(0.84, 0.96, 1.02);
+    } else if (mirrorHit > 0.5) {
+      float rl = dot(reflected, vec3(0.2126, 0.7152, 0.0722));
+      reflected = mix(vec3(rl * 0.5), reflected, 0.5);
+      reflected *= vec3(0.4, 0.78, 0.95);
+    }
+    // The mirrored bank is allowed to read clearly. A low-res cube is only
+    // a cool hint, so sunlit dirt cannot paint the channel amber.
+    float reflectAmt = mix(0.05, 0.2, smoothstep(0.12, 0.7, fres));
+    reflectAmt *= mix(1.0, 0.22, depthFactor);
+    if (planarHit > 0.5) {
+      reflectAmt = mix(0.48, 0.82, smoothstep(0.04, 0.4, fres));
+      reflectAmt *= mix(1.0, 0.5, depthFactor);
+    } else if (mirrorHit < 0.5) {
+      reflectAmt *= 0.35;
+    }
     base = mix(base, reflected, reflectAmt);
     float foamAmt = clamp(max(foamMask, lip), 0.0, 0.88);
     // Keep the rock lips. Don't paint the mirror out with sheet foam.
@@ -514,9 +537,6 @@ export function createStream(terrain: Terrain, cfg: StreamConfig, course: Waterc
   uniforms.uFoam = { value: new THREE.Color(cfg.foamColor ?? DEFAULT_FOAM) };
   uniforms.uFlowSpeed = { value: 0.62 };
   uniforms.uRocks = { value: rocks };
-  uniforms.uReflect = reflectionUniforms.uReflect;
-  uniforms.uReflProjView = reflectionUniforms.uReflProjView;
-  uniforms.uHasReflect = reflectionUniforms.uHasReflect;
   uniforms.uProbe0 = creekProbeUniforms.uProbe0;
   uniforms.uProbe1 = creekProbeUniforms.uProbe1;
   uniforms.uProbe2 = creekProbeUniforms.uProbe2;
@@ -525,6 +545,10 @@ export function createStream(terrain: Terrain, cfg: StreamConfig, course: Waterc
   uniforms.uProbePos = creekProbeUniforms.uProbePos;
   uniforms.uProbeMin = creekProbeUniforms.uProbeMin;
   uniforms.uProbeMax = creekProbeUniforms.uProbeMax;
+  uniforms.uPlanar = creekProbeUniforms.uPlanar;
+  uniforms.uPlanarVP = creekProbeUniforms.uPlanarVP;
+  uniforms.uHasPlanar = creekProbeUniforms.uHasPlanar;
+  uniforms.uPlanarMatch = creekProbeUniforms.uPlanarMatch;
   uniforms.uFlowMap = { value: flowNormalMap() };
   uniforms.uProj = waterViewUniforms.uProj;
   uniforms.uView = waterViewUniforms.uView;

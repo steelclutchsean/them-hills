@@ -1371,6 +1371,10 @@ async function bootstrap(): Promise<void> {
       mirrorMode: reflectionUniforms.uMirrorMode.value,
       mirrorHorizon: reflectionUniforms.uHorizon.value,
       probeReady: creekProbe.ready,
+      planarMatch: creekProbe.planarMatch,
+      rebakeProbes: () => {
+        creekProbe.invalidate();
+      },
       saveVersion: save.version,
       panTier: save.equipment.ownedTiers.pan,
       claimCount: save.fieldwork.claims.length,
@@ -2034,7 +2038,7 @@ async function bootstrap(): Promise<void> {
       renderer.camera.position.z,
     );
     syncWaterMatrices(renderer.camera, renderer.renderer);
-    creekProbe.update(renderer.renderer, renderer.scene, 17.55);
+    creekProbe.update(renderer.renderer, renderer.scene, 17.55, renderer.camera, titleWater.y);
     waterReflection.update(renderer.renderer, renderer.scene, renderer.camera, titleWater.y);
   }
 
@@ -3688,7 +3692,13 @@ async function bootstrap(): Promise<void> {
         renderer.camera.position.z,
       );
       syncWaterMatrices(renderer.camera, renderer.renderer);
-      creekProbe.update(renderer.renderer, renderer.scene, getSkyHour(worldTime));
+      creekProbe.update(
+        renderer.renderer,
+        renderer.scene,
+        getSkyHour(worldTime),
+        renderer.camera,
+        waterSpot.y,
+      );
       waterReflection.update(renderer.renderer, renderer.scene, renderer.camera, waterSpot.y);
       publishProbe();
     },
@@ -3723,6 +3733,7 @@ async function bootstrap(): Promise<void> {
         window.__themHills.mirrorMode = reflectionUniforms.uMirrorMode.value;
         window.__themHills.mirrorHorizon = reflectionUniforms.uHorizon.value;
         window.__themHills.probeReady = creekProbe.ready;
+        window.__themHills.planarMatch = creekProbe.planarMatch;
       }
     },
   });
