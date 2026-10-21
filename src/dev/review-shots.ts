@@ -17,18 +17,31 @@ export interface ReviewOverride {
   /** Camera distance. Default is the rig's normal arm. */
   arm?: number;
   pose?: ReviewPose;
+  /** Skip the bank raycast so a long arm can sit outside the channel. */
+  free?: boolean;
 }
 
-const SHOTS: Record<string, Required<ReviewOverride>> = {
+type ReviewShot = Required<Omit<ReviewOverride, 'free'>> & { free?: boolean };
+
+const SHOTS: Record<string, ReviewShot> = {
   spawn: { x: 0, z: 2, yaw: 0.55, pitch: 0.38, hour: 8.5, arm: 5, pose: 'idle' },
-  creek: { x: 15.5, z: 6, yaw: -1.15, pitch: 0.32, hour: 11, arm: 5, pose: 'idle' },
+  creek: { x: 26.9, z: 8, yaw: 0.05, pitch: 0.72, hour: 11, arm: 14, pose: 'idle', free: true },
   camp: { x: -3.5, z: 9, yaw: 0.95, pitch: 0.42, hour: 17.2, arm: 6, pose: 'idle' },
   dusk: { x: 8, z: -14, yaw: 0.35, pitch: 0.24, hour: 18.7, arm: 5, pose: 'idle' },
-  night: { x: 1, z: 4, yaw: -0.4, pitch: 0.48, hour: 21.4, arm: 5, pose: 'idle' },
+  night: { x: -4, z: 7.2, yaw: 0.85, pitch: 0.4, hour: 21.4, arm: 6.5, pose: 'idle' },
   dawn: { x: -4, z: -8, yaw: 2.2, pitch: 0.3, hour: 6.35, arm: 5, pose: 'idle' },
-  inn: { x: -10.5, z: 15.2, yaw: -0.55, pitch: 0.22, hour: 10, arm: 9.2, pose: 'idle' },
-  creekbank: { x: 17.4, z: 2, yaw: 1.15, pitch: 0.26, hour: 11.2, arm: 7.6, pose: 'idle' },
-  prospector: { x: 2.2, z: 4.2, yaw: 3.14, pitch: 0.18, hour: 9, arm: 2.8, pose: 'dig' },
+  inn: { x: -12.2, z: 14.6, yaw: 0.08, pitch: 0.16, hour: 10, arm: 6.2, pose: 'idle' },
+  creekbank: {
+    x: 27.1,
+    z: 11,
+    yaw: -0.35,
+    pitch: 0.88,
+    hour: 11.2,
+    arm: 7.5,
+    pose: 'idle',
+    free: true,
+  },
+  prospector: { x: 2.2, z: 4.2, yaw: 0.6, pitch: 0.18, hour: 9, arm: 2.8, pose: 'pan' },
 };
 
 let reviewPose: ReviewPose = 'idle';
@@ -45,7 +58,7 @@ export function reviewShotNames(): readonly string[] {
   return Object.keys(SHOTS);
 }
 
-export function reviewShot(name: string): Required<ReviewOverride> | null {
+export function reviewShot(name: string): ReviewShot | null {
   return SHOTS[name] ?? null;
 }
 
@@ -64,6 +77,7 @@ export function readReviewOverride(): ReviewOverride | null {
     hour: parsedHour != null && Number.isFinite(parsedHour) ? parsedHour : undefined,
     arm: named?.arm,
     pose: named?.pose,
+    free: named?.free,
   };
 }
 

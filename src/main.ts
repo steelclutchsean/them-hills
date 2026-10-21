@@ -9,6 +9,9 @@ import { createSpotPriceService } from '@/economy/spot-price';
 import { buildTrackerView } from '@/quests/quests';
 import { ASSETS } from '@/game/assets';
 import { placeBoulders } from '@/game/boulders';
+import { buildWatercourses, courseById, waterLevelNear } from '@/game/watercourse';
+import { createWaterReflection } from '@/render/reflection';
+import { dressTown, updateTownDressing, updateTownLights } from '@/game/structures';
 import { bearingFromYaw, createCameraRig } from '@/game/camera-rig';
 import { createCamp } from '@/game/camp';
 import { createCharacter } from '@/game/character';
@@ -45,7 +48,7 @@ import {
   updateToolBounce,
   updateToolSwing,
 } from '@/game/minigames/tool-models';
-import { scatterAssets, updateScatterWind } from '@/game/scatter';
+import { scatterAssets, scatterLogs, setScatterDensity, updateScatterWind } from '@/game/scatter';
 import { createMotes } from '@/game/motes';
 import { createLightShafts } from '@/game/shafts';
 import { emitGameplay, bindGameplayAudio } from '@/game/events';
@@ -79,10 +82,10 @@ import {
   type StreamConfig,
 } from '@/game/stream';
 import { CAMP_REST_TIME_ADVANCE, comfortFor } from '@/game/survival';
-import { createTerrain, type ChannelConfig } from '@/game/terrain';
+import { createTerrain } from '@/game/terrain';
 import { createWeatherController } from '@/game/weather';
 import { createVendors, type Vendor } from '@/game/vendor';
-import { createCameraModeController } from '@/engine/camera-modes';
+import { createCameraModeController, frameToolShot } from '@/engine/camera-modes';
 import { createGameLoop } from '@/engine/loop';
 import { createRenderer } from '@/engine/renderer';
 import { createInputManager } from '@/input/manager';
@@ -99,10 +102,17 @@ import {
   glRendererString,
   getQualityName,
   initQuality,
+  QUALITY_PRESETS,
   RENDER_QUALITY,
   setQuality,
 } from '@/engine/quality';
-import { readReviewOverride, reviewShot, reviewWorldTime, setReviewPose } from '@/dev/review-shots';
+import {
+  getReviewPose,
+  readReviewOverride,
+  reviewShot,
+  reviewWorldTime,
+  setReviewPose,
+} from '@/dev/review-shots';
 import { setFoliageWindTime } from '@/render/painterly';
 import { createSmokePilot } from '@/dev/smoke-pilot';
 import { mountOverlays, reportBoot } from '@/ui/overlays';
@@ -217,24 +227,29 @@ async function bootstrap(): Promise<void> {
       foamColor: 0xeaf5e8,
     },
   ];
-  const CHANNEL_CONFIGS: ChannelConfig[] = STREAM_CONFIGS.map((s) => ({
-    centerX: s.centerX,
-    centerZ: s.centerZ,
-    halfWidth: s.halfWidth + 0.2, // slightly wider than the water plane so the bed transitions smoothly
-    halfLength: s.halfLength + 2.75,
-    orientation: s.orientation,
-    depth: 1.2,
-  }));
+  const courses = buildWatercourses();
 
   await reportBoot(28, 'Shaping the ground…');
 
   // ---- Terrain ----
-  const terrain = createTerrain(physics.rapier, CHANNEL_CONFIGS);
+  const terrain = createTerrain(physics.rapier, courses);
   renderer.scene.add(terrain.mesh);
 
   // ---- Streams + sites ----
-  const streamList = STREAM_CONFIGS.map((cfg) => createStream(terrain, cfg));
-  for (const s of streamList) renderer.scene.add(s.group);
+  const streamList = STREAM_CONFIGS.map((cfg) =>
+    createStream(terrain, cfg, courseById(courses, cfg.id)),
+  );
+  const waterReflection = createWaterReflection();
+  // The mirrored scene pass doubles the frame on SwiftShader and the
+  // screenshot capture never returns. Hardware still reflects the banks.
+  const softwareGl = /swiftshader|llvmpipe|softpipe/i.test(
+    glRendererString(renderer.renderer.getContext()),
+  );
+  waterReflection.setEnabled(RENDER_QUALITY.reflections && !softwareGl);
+  for (const s of streamList) {
+    renderer.scene.add(s.group);
+    waterReflection.register(s.water);
+  }
   const streams = createStreamRegistry(streamList);
 
   // Site respawn: every in-game midnight, all streams regenerate fresh
@@ -251,7 +266,7 @@ async function bootstrap(): Promise<void> {
   function spawnGrass(): void {
     if (grass) return;
     grass = createGrassField(terrain, {
-      count: RENDER_QUALITY.grassTall,
+      count: QUALITY_PRESETS.ultra.grassTall,
       extent: 95,
       reject: (x, z) => streams.isInStreamZone(x, z, 0.5),
       seed: 0xa9,
@@ -259,6 +274,7 @@ async function bootstrap(): Promise<void> {
       tipColor: { r: [0.82, 0.94], g: [0.68, 0.8], b: [0.22, 0.32] },
     });
     renderer.scene.add(grass.mesh);
+    grass.setCount(RENDER_QUALITY.grassTall);
   }
 
   // Ground-cover grass layer is created AFTER the scatter promises settle
@@ -309,10 +325,14 @@ async function bootstrap(): Promise<void> {
   const boulders = placeBoulders({
     scene: renderer.scene,
     terrain,
-    streams: STREAM_CONFIGS,
+    courses,
     minePositions: mines.map((m) => m.position),
     seed: 0xb0,
   });
+  for (const s of streamList) {
+    s.setRocks(boulders.wakes.filter((w) => w.streamId === s.id).map((w) => w.rock));
+  }
+  dressTown(renderer.scene, (x, z) => terrain.getHeightAt(x, z));
   console.log(`[boulders] placed ${boulders.count} boulders`);
   const boulderPoints: BoulderPoint[] = boulders.colliders.map((c) => ({
     x: c.pos.x,
@@ -346,14 +366,18 @@ async function bootstrap(): Promise<void> {
     streams.isInStreamZone(x, z, 1.5) || inSpawnClearing(x, z);
 
   // Coyote-Creek-flanking pebble bands. Buckeye Run gets its own seed below.
-  const COYOTE = STREAM_CONFIGS[0]!;
+  const COYOTE = courseById(courses, 'coyote_creek');
+  const ultraScatter = QUALITY_PRESETS.ultra.scatter;
+  setScatterDensity(RENDER_QUALITY.scatter / ultraScatter);
+  const scatterBudget = (n: number): number => Math.round(n * ultraScatter);
 
   const populate = Promise.all([
     scatterAssets(
       renderer.scene,
       terrain,
       {
-        count: Math.round(140 * RENDER_QUALITY.scatter),
+        count: scatterBudget(140),
+        lod: 'tree',
         models: [
           ...ASSETS.trees.common,
           ...ASSETS.trees.pine,
@@ -371,7 +395,8 @@ async function bootstrap(): Promise<void> {
       renderer.scene,
       terrain,
       {
-        count: Math.round(70 * RENDER_QUALITY.scatter),
+        count: scatterBudget(70),
+        lod: 'rock',
         models: ASSETS.rocks.medium,
         scale: { min: 0.6, max: 1.6 },
         yOffset: -0.05,
@@ -385,15 +410,18 @@ async function bootstrap(): Promise<void> {
       renderer.scene,
       terrain,
       {
-        count: Math.round(40 * RENDER_QUALITY.scatter),
+        count: scatterBudget(40),
+        lod: 'rock',
         models: [...ASSETS.rocks.pebbleRound, ...ASSETS.rocks.pebbleSquare],
         scale: { min: 0.5, max: 1.1 },
         yOffset: -0.02,
         sampleXZ: (rng) => {
+          const sample = COYOTE.at(rng.next());
           const sideSign = rng.next() < 0.5 ? -1 : 1;
+          const cross = sideSign * (sample.halfWidth + rng.range(0.5, 2.2));
           return {
-            x: COYOTE.centerX + sideSign * rng.range(2.7, 4.8),
-            z: COYOTE.centerZ + rng.range(-COYOTE.halfLength, COYOTE.halfLength),
+            x: sample.x + -sample.tz * cross,
+            z: sample.z + sample.tx * cross,
           };
         },
       },
@@ -403,7 +431,8 @@ async function bootstrap(): Promise<void> {
       renderer.scene,
       terrain,
       {
-        count: Math.round(220 * RENDER_QUALITY.scatter),
+        count: scatterBudget(220),
+        lod: 'brush',
         models: ASSETS.vegetation.grass,
         scale: { min: 0.6, max: 1.2 },
         reject,
@@ -415,7 +444,8 @@ async function bootstrap(): Promise<void> {
       renderer.scene,
       terrain,
       {
-        count: Math.round(90 * RENDER_QUALITY.scatter),
+        count: scatterBudget(120),
+        lod: 'brush',
         models: [
           ...ASSETS.vegetation.bushes,
           ...ASSETS.vegetation.ferns,
@@ -432,7 +462,7 @@ async function bootstrap(): Promise<void> {
       renderer.scene,
       terrain,
       {
-        count: Math.round(110 * RENDER_QUALITY.scatter),
+        count: scatterBudget(110),
         models: [...ASSETS.vegetation.flowers, ...ASSETS.vegetation.mushrooms],
         scale: { min: 0.7, max: 1.3 },
         reject,
@@ -441,17 +471,18 @@ async function bootstrap(): Promise<void> {
       0xa6,
     ),
   ]);
+  const fallenLogs = scatterLogs(renderer.scene, terrain, scatterBudget(32), reject, 0xa7);
   populate
     .then((results) => {
-      const total = results.reduce((sum, r) => sum + r.placed, 0);
+      const total = results.reduce((sum, r) => sum + r.placed, 0) + fallenLogs.placed;
       console.log(`[scatter] environment populated (${total} instances)`);
 
       // Build a spatial grid of every scatter placement and create the
       // ground-cover grass layer that fills *between* the megakit detail.
-      const allPositions = results.flatMap((r) => r.positions);
+      const allPositions = results.flatMap((r) => r.positions).concat(fallenLogs.positions);
       const exclusion = buildExclusionGrid(allPositions);
       const grassCover = createGrassField(terrain, {
-        count: RENDER_QUALITY.grassCover,
+        count: QUALITY_PRESETS.ultra.grassCover,
         extent: 95,
         seed: 0xb1,
         bladeHeight: 0.11,
@@ -466,6 +497,7 @@ async function bootstrap(): Promise<void> {
         reject: (x, z) => streams.isInStreamZone(x, z, 0.5) || exclusion.isExcluded(x, z),
       });
       renderer.scene.add(grassCover.mesh);
+      grassCover.setCount(RENDER_QUALITY.grassCover);
       grassCovers.push(grassCover);
       console.log(`[grass-cover] ready; ${allPositions.length} exclusion zones`);
     })
@@ -501,6 +533,9 @@ async function bootstrap(): Promise<void> {
   });
   if (review?.arm) cameraRig.setArmLength(review.arm);
   if (review?.pose) setReviewPose(review.pose);
+  if (review?.free) cameraRig.setAvoidance(false);
+  const chaseFov = renderer.camera.fov;
+  let reviewingTool = false;
 
   // ---- Prospect first-person camera + tool mount ----
   // The prospect lifecycle swaps the third-person rig out for a fixed
@@ -594,14 +629,19 @@ async function bootstrap(): Promise<void> {
   // Landmark positions are pulled from each system's known anchor; if any
   // of these later become configurable, this list should be derived from
   // them rather than re-typed.
-  const minimapStreams: MinimapStream[] = STREAM_CONFIGS.map((s) => ({
-    centerX: s.centerX,
-    centerZ: s.centerZ,
-    halfWidth: s.halfWidth,
-    halfLength: s.halfLength,
-    orientation: s.orientation,
-    color: `#${(s.shallowColor ?? 0x9bd1d8).toString(16).padStart(6, '0')}`,
-  }));
+  const minimapStreams: MinimapStream[] = STREAM_CONFIGS.map((s) => {
+    const course = courseById(courses, s.id);
+    const points = course.samples.filter((_, i) => i % 3 === 0).map((p) => ({ x: p.x, z: p.z }));
+    return {
+      centerX: s.centerX,
+      centerZ: s.centerZ,
+      halfWidth: s.halfWidth,
+      halfLength: s.halfLength,
+      orientation: s.orientation,
+      color: `#${(s.shallowColor ?? 0x9bd1d8).toString(16).padStart(6, '0')}`,
+      points,
+    };
+  });
   const minimapLandmarks: MinimapLandmark[] = [
     // Vendors
     { x: -15, z: 0, label: 'Assayer', color: '#d4a647', shape: 'square' },
@@ -886,6 +926,8 @@ async function bootstrap(): Promise<void> {
         if (!shot) return false;
         const y = terrain.getHeightAt(shot.x, shot.z) + 1.5;
         character.placeAt(shot.x, y, shot.z);
+        if (shot.pose === 'dig' || shot.pose === 'pan') character.setYaw(shot.yaw);
+        cameraRig.setAvoidance(!shot.free);
         cameraRig.setYawPitch(shot.yaw, shot.pitch);
         cameraRig.setArmLength(shot.arm);
         setReviewPose(shot.pose);
@@ -921,12 +963,24 @@ async function bootstrap(): Promise<void> {
       publishProbe();
       requestAnimationFrame(() => {
         renderer.applyGraphics();
+        waterReflection.setEnabled(RENDER_QUALITY.reflections && !softwareGl);
+        setScatterDensity(RENDER_QUALITY.scatter / QUALITY_PRESETS.ultra.scatter);
         grass?.setCount(RENDER_QUALITY.grassTall);
         for (const cover of grassCovers) cover.setCount(RENDER_QUALITY.grassCover);
         motes.resize();
       });
     },
   });
+
+  const sunNdc = new THREE.Vector3();
+  let panMounted: 'camera' | 'world' = 'camera';
+  function mountPan(mode: 'camera' | 'world'): void {
+    if (panMounted === mode) return;
+    panMounted = mode;
+    if (mode === 'world') renderer.scene.add(panView.group);
+    else renderer.camera.add(panView.group);
+    panView.setMount(mode);
+  }
 
   // ---- Game loop ----
   const loop = createGameLoop({
@@ -1067,6 +1121,7 @@ async function bootstrap(): Promise<void> {
       } else if (!prospecting && prospectWasActive) {
         // Edge: just exited prospect view. Hide everything prospect-related.
         cameraMode.exitProspectView();
+        mountPan('camera');
         hideAllProspectViewmodels();
       }
       prospectWasActive = prospecting;
@@ -1097,7 +1152,12 @@ async function bootstrap(): Promise<void> {
       for (const m of Object.values(classifierMeshes)) updateToolBounce(m, dt);
 
       if (prospecting) {
-        cameraMode.updateProspectView(charPosForCamera);
+        const snapForCam = prospect.getSnapshot();
+        cameraMode.updateProspectView(
+          charPosForCamera,
+          snapForCam?.step ?? null,
+          character.getToolFocus(),
+        );
         // Shake rides ON TOP of the base camera placement during the
         // prospect view. It's a per-frame offset and never permanent.
         fx.applyShakeTo(renderer.camera);
@@ -1111,8 +1171,10 @@ async function bootstrap(): Promise<void> {
 
           if (v?.kind === 'dig') {
             const usePickaxe = v.isPickaxe;
-            shovelMesh.visible = !usePickaxe;
+            // The prospector holds the shovel. The meter stays a screen overlay.
+            shovelMesh.visible = false;
             pickaxeMesh.visible = usePickaxe;
+            mountPan('camera');
             digMeter.update(v);
             digMeter.setVisible(true);
             // Rising-edge: lastSwingFlashSec drops on a new swing.
@@ -1123,6 +1185,7 @@ async function bootstrap(): Promise<void> {
             }
             lastDigSwingFlash = v.lastSwingFlashSec;
           } else if (v?.kind === 'classify') {
+            mountPan('camera');
             const tierKey: 1 | 2 | 3 = v.layerCount === 1 ? 1 : v.layerCount === 3 ? 2 : 3;
             for (const [k, m] of Object.entries(classifierMeshes)) {
               m.visible = Number(k) === tierKey;
@@ -1135,6 +1198,10 @@ async function bootstrap(): Promise<void> {
             }
             lastClassifyTapFlash = v.lastTapFlashSec;
           } else if (v?.kind === 'pan') {
+            mountPan('world');
+            const focus = character.getToolFocus();
+            panView.group.position.copy(focus);
+            panView.group.rotation.set(-0.5, character.getYaw(), 0);
             panView.update(v);
             panView.setVisible(true);
             if (v.swirlCount > lastPanSwirls) {
@@ -1142,9 +1209,11 @@ async function bootstrap(): Promise<void> {
             }
             lastPanSwirls = v.swirlCount;
           } else if (v?.kind === 'collect') {
+            mountPan('camera');
             collectView.update(v);
             collectView.setVisible(true);
           } else if (v?.kind === 'strike') {
+            mountPan('camera');
             // Mining context: hold the pickaxe regardless of shovel tier
             // (the player is, by definition, in a mine — they have at
             // least Shovel T3 to be inside). isPickaxe flag still drives
@@ -1157,6 +1226,7 @@ async function bootstrap(): Promise<void> {
             }
             lastStrikeSwingFlash = v.lastSwingFlashSec;
           } else if (v?.kind === 'extract') {
+            mountPan('camera');
             pickaxeMesh.visible = true;
             extractMeter.update(v);
             extractMeter.setVisible(true);
@@ -1175,7 +1245,29 @@ async function bootstrap(): Promise<void> {
           }
         }
       } else {
-        cameraRig.placeCamera(charPosForCamera, physics.rapier, character.getColliderHandle(), dt);
+        const reviewPose = getReviewPose();
+        if (reviewPose === 'dig' || reviewPose === 'pan') {
+          frameToolShot(
+            renderer.camera,
+            charPosForCamera,
+            character.getYaw(),
+            reviewPose,
+            character.getToolFocus(),
+          );
+          reviewingTool = true;
+        } else {
+          if (reviewingTool) {
+            renderer.camera.fov = chaseFov;
+            renderer.camera.updateProjectionMatrix();
+            reviewingTool = false;
+          }
+          cameraRig.placeCamera(
+            charPosForCamera,
+            physics.rapier,
+            character.getColliderHandle(),
+            dt,
+          );
+        }
       }
 
       // 7. Proximity: precedence is vendor > general store > inn > Pete > mine > camp > site.
@@ -1393,6 +1485,8 @@ async function bootstrap(): Promise<void> {
       const sunDirWorld = renderer.followSun(charPos);
       renderer.syncFrame(worldTime, sunDirWorld);
       updateScatterWind(worldTime, charPos);
+      updateTownDressing(worldTime, renderer.camera);
+      updateTownLights(sunDirWorld.y);
       setFoliageWindTime(worldTime);
       shafts.update(sunDirWorld, charPos, true);
       motes.update(worldTime, charPos, sunDirWorld.y);
@@ -2062,6 +2156,16 @@ async function bootstrap(): Promise<void> {
         questTracker,
         prospect: prospect.getSnapshot(),
       });
+      renderer.camera.updateMatrixWorld();
+      sunNdc.copy(renderer.camera.position).addScaledVector(sunDirWorld, 80);
+      sunNdc.project(renderer.camera);
+      renderer.setPostSun(sunNdc.x * 0.5 + 0.5, sunNdc.y * 0.5 + 0.5, sunDirWorld.y);
+      waterReflection.update(
+        renderer.renderer,
+        renderer.scene,
+        renderer.camera,
+        waterLevelNear(courses, renderer.camera.position.x, renderer.camera.position.z),
+      );
       publishProbe();
     },
     render: () => {

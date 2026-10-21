@@ -1,5 +1,19 @@
 # Them Hills — overhaul roadmap
 
+## Round 3 — creek, town edge, and the night grade
+
+Coyote Creek and Buckeye Run share one spline across the carve, the water ribbon, the sites, the rocks, and the minimap. Width opens into pools and pinches into riffles. Gravel bars lift one side of the bed, and panning sites prefer that side. The surface scrolls along the tangent, foams on the lip and in the shallows, and goes darker teal in the pools. A planar reflection is in the high and ultra chain. SwiftShader skips it (the mirrored pass never returned a screenshot), so the review frames show the water color and the fresnel fallback, not a reflection of the trees.
+
+Cabins are log courses with end grain and clay chinking, shake roofs, stone footings, porch rails, framed windows, and chimney smoke. The street has a hitching rail, a wagon, crates, and a laundry line. These are still built from primitives. No scanned building was imported.
+
+The prospector head is the Quaternius superhero head, eyes, and brows baked onto the ranger. Dig and pan stay third person: the wrist aims the grip at the work point, and the review camera sits in front of the hands. Classify, collect, and the mine steps stay first person. The pan bowl opens toward that camera.
+
+Dusk shade is purple against a warm sun. Night is moonlit blue with a tight lantern pool instead of a tan flood. Screen-space god rays run while the sun is up. GTAO is in the high and ultra chain and is skipped on software GL, so these frames do not show it. Scatter is placed at the ultra count and hidden down by quality. Trees, rocks, and brush swap to impostors with distance. Worn paths are a darker dirt mix between town, camp, the creek, and the mines.
+
+`npm run test:smoke` passed 3/3 in 4.8 minutes on `52aa763` (SwiftShader). The prospect loop sold for a wallet of $24.14. Save version stays 4.
+
+Still the weak part of the picture: the creek is a colored channel, not a place you remember. Buildings read as a kit. The face is a game-asset head under a hat. Dawn is still the warmest, least separated grade. Contact shadow is the shadow map plus a cavity term.
+
 ## Round 2 — Sierra poster
 
 The world is one painted palette: dry-grass gold, pine green, sunbaked dirt, creek teal, warm dust in the distance. Photo ground maps and the Quaternius albedo maps are no longer what you see. Cabins, shop counters, a camp sluice, and mine headframes replace the box shells. Grass and water sample the shadow map. The creek has a raised lip, foam, a sky reflection, and caustics. The prospector has a built face, a dig clip, a pan clip, and tools in hand. Light shafts, valley mist, and dust or fireflies fill the air. Terrain is sixteen frustum-culled chunks. The pause menu has Low / Medium / High / Ultra, auto-detected, stored in localStorage (not the save).

@@ -2,20 +2,12 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { upgradeLoadedMaterials } from '@/render/materials';
 
-// Loads a single Quaternius glTF (Modular Outfits — Ranger) and treats it as the
-// character. Procedural head + hat are parented to the Head bone.
-//
-// The Ranger outfit ships 9 skinned meshes: body + two belts + arms + bracers +
-// boots + pauldron + hood + legs. The pauldron and hood are hidden at runtime
-// — we use the procedural cowboy hat instead.
-//
-// The pack does NOT ship a head mesh. Earlier we loaded a second glTF
-// (Universal Base Characters Superhero) for its rigged head + eyes + eyebrows,
-// but that left visible bare-arm skin where the Ranger outfit only has bracers.
-// Now we drop the second skeleton entirely and use a procedural skin-toned head
-// sphere; clean, single-skeleton, no skin gaps. Face details revisitable later.
+// Loads the Quaternius Ranger outfit and bakes the Superhero head (eyes and
+// brows included) onto the Ranger Head bone. The pauldron and hood stay
+// hidden. The procedural sphere head is only the fallback if that extract fails.
 
 const OUTFIT_GLTF = '/assets/characters/Male_Ranger.gltf';
+const HEAD_GLTF = '/assets/characters/Superhero_Male_FullBody.gltf';
 
 /** Outfit mesh names (substring match) that should NOT be rendered. */
 const HIDDEN_OUTFIT_MESH_KEYWORDS = ['hood', 'pauldron'];
@@ -42,6 +34,8 @@ export interface CharacterRig {
   handL: BoneJoint;
   handR: BoneJoint;
   showTool(tool: 'none' | 'shovel' | 'pan'): void;
+  /** Palm socket. Local +Y is the tool axis; the wrist aim writes the hand bone. */
+  grip: THREE.Object3D;
   hipL: BoneJoint;
   hipR: BoneJoint;
   kneeL: BoneJoint;
@@ -105,14 +99,20 @@ export async function loadCharacter(): Promise<CharacterRig> {
 
   const headBone = bones.get('Head');
   if (headBone) {
-    headBone.add(createProspectorHead());
-    headBone.add(createProspectorHat());
+    const modeled = await attachModeledHead(headBone);
+    if (!modeled) headBone.add(createProspectorHead());
+    const hat = createProspectorHat();
+    hat.position.y = 0.08;
+    // Front of the hat is local -Z. A negative X tilt lifts the brim off the eyes.
+    hat.rotation.x = -0.22;
+    headBone.add(hat);
   }
   const tools = attachHandTools(bones.get('hand_r'));
 
   return {
     group: wrapper,
     showTool: tools.show,
+    grip: tools.grip,
     spine: makeJoint(find('spine_02')),
     head: makeJoint(find('Head')),
     shoulderL: makeJoint(find('upperarm_l')),
@@ -203,7 +203,13 @@ function createProspectorHead(): THREE.Group {
 
 function attachHandTools(hand: THREE.Object3D | undefined): {
   show(tool: 'none' | 'shovel' | 'pan'): void;
+  grip: THREE.Object3D;
 } {
+  const grip = new THREE.Object3D();
+  grip.name = 'grip-socket';
+  // Palm sits a little off the wrist bone. Tool axis is local +Y.
+  grip.position.set(0, 0.04, 0.03);
+
   const shovel = new THREE.Group();
   shovel.name = 'held-shovel';
   const handle = new THREE.Mesh(
@@ -223,28 +229,157 @@ function attachHandTools(hand: THREE.Object3D | undefined): {
   const pan = new THREE.Group();
   pan.name = 'held-pan';
   const bowl = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.16, 0.11, 0.05, 12),
-    new THREE.MeshStandardMaterial({ color: 0x8d7764, metalness: 0.4, roughness: 0.4 }),
+    new THREE.CylinderGeometry(0.2, 0.15, 0.045, 14),
+    new THREE.MeshStandardMaterial({ color: 0x8d7764, metalness: 0.45, roughness: 0.38 }),
   );
-  bowl.rotation.x = 0.6;
+  // Opening faces the grip's +Y, which the wrist aims at the camera's look point.
+  bowl.position.y = 0.14;
   pan.add(bowl);
+  for (let i = 0; i < 7; i++) {
+    const flake = new THREE.Mesh(
+      new THREE.SphereGeometry(0.018 + (i % 3) * 0.008, 8, 6),
+      new THREE.MeshStandardMaterial({
+        color: 0xffd56a,
+        emissive: 0xc4841a,
+        emissiveIntensity: 0.45,
+        metalness: 0.7,
+        roughness: 0.22,
+      }),
+    );
+    const a = (i / 7) * Math.PI * 2;
+    flake.position.set(Math.cos(a) * 0.07, 0.17, Math.sin(a) * 0.05);
+    pan.add(flake);
+  }
   pan.visible = false;
 
-  // Hand bone local axes are not world axes. A small offset puts the
-  // grip in the palm for the dig and pan poses.
-  shovel.position.set(0, 0, 0);
-  shovel.rotation.x = 0.55;
-  pan.position.set(0.02, 0.06, 0.04);
-  if (hand) {
-    hand.add(shovel);
-    hand.add(pan);
-  }
+  grip.add(shovel);
+  grip.add(pan);
+  if (hand) hand.add(grip);
   return {
+    grip,
     show(tool) {
       shovel.visible = tool === 'shovel';
       pan.visible = tool === 'pan';
     },
   };
+}
+
+/** Quaternius superhero head, eyes, and brows, skinned verts baked onto the ranger Head bone. */
+async function attachModeledHead(headBone: THREE.Object3D): Promise<boolean> {
+  try {
+    const loader = new GLTFLoader();
+    const gltf = await loader.loadAsync(HEAD_GLTF);
+    gltf.scene.updateMatrixWorld(true);
+    const group = new THREE.Group();
+    group.name = 'modeled-head';
+    // The outfit's visible face is head-local -Z. The source mesh faces +Z.
+    group.rotation.y = Math.PI;
+    gltf.scene.traverse((obj) => {
+      if (!(obj instanceof THREE.SkinnedMesh)) return;
+      const geom = extractHeadGeometry(obj);
+      if (!geom) return;
+      const source = obj.material;
+      const mat =
+        (Array.isArray(source) ? source[0] : source)?.clone() ?? new THREE.MeshStandardMaterial();
+      if (mat instanceof THREE.MeshStandardMaterial && !/eye/i.test(obj.name)) {
+        mat.roughness = Math.max(mat.roughness, 0.62);
+        mat.metalness = Math.min(mat.metalness, 0.06);
+      }
+      const mesh = new THREE.Mesh(geom, mat);
+      mesh.name = `head-${obj.name}`;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      group.add(mesh);
+    });
+    if (group.children.length === 0) return false;
+    headBone.add(group);
+    return true;
+  } catch (err) {
+    console.warn('[character-asset] modeled head failed, using the built face', err);
+    return false;
+  }
+}
+
+function extractHeadGeometry(mesh: THREE.SkinnedMesh): THREE.BufferGeometry | null {
+  const skeleton = mesh.skeleton;
+  const headIndex = skeleton.bones.findIndex((b) => b.name === 'Head');
+  if (headIndex < 0) return null;
+  const pos = mesh.geometry.attributes.position;
+  const uv = mesh.geometry.attributes.uv;
+  const skinIndex = mesh.geometry.attributes.skinIndex;
+  const skinWeight = mesh.geometry.attributes.skinWeight;
+  if (!pos || !skinIndex || !skinWeight) return null;
+  mesh.updateWorldMatrix(true, false);
+  skeleton.update();
+  const head = skeleton.bones[headIndex];
+  if (!head) return null;
+  head.updateWorldMatrix(true, false);
+  const invHead = new THREE.Matrix4().copy(head.matrixWorld).invert();
+
+  const keep = new Uint8Array(pos.count);
+  const si = new THREE.Vector4();
+  const w = new THREE.Vector4();
+  for (let i = 0; i < pos.count; i++) {
+    si.set(skinIndex.getX(i), skinIndex.getY(i), skinIndex.getZ(i), skinIndex.getW(i));
+    w.set(skinWeight.getX(i), skinWeight.getY(i), skinWeight.getZ(i), skinWeight.getW(i));
+    let headW = 0;
+    for (let k = 0; k < 4; k++) {
+      if (Math.round(si.getComponent(k)) === headIndex) headW += w.getComponent(k);
+    }
+    if (headW >= 0.5) keep[i] = 1;
+  }
+
+  const index = mesh.geometry.index;
+  const used = new Uint8Array(pos.count);
+  const consider = (ia: number, ib: number, ic: number): void => {
+    if (keep[ia] && keep[ib] && keep[ic]) {
+      used[ia] = 1;
+      used[ib] = 1;
+      used[ic] = 1;
+    }
+  };
+  if (index) {
+    for (let i = 0; i < index.count; i += 3) consider(index.getX(i), index.getY(i), index.getZ(i));
+  } else {
+    for (let i = 0; i < pos.count; i += 3) consider(i, i + 1, i + 2);
+  }
+
+  const remap = new Int32Array(pos.count);
+  remap.fill(-1);
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const tmp = new THREE.Vector3();
+  let n = 0;
+  for (let i = 0; i < pos.count; i++) {
+    if (!used[i]) continue;
+    tmp.fromBufferAttribute(pos, i);
+    mesh.applyBoneTransform(i, tmp);
+    tmp.applyMatrix4(invHead);
+    positions.push(tmp.x, tmp.y, tmp.z);
+    if (uv) uvs.push(uv.getX(i), uv.getY(i));
+    remap[i] = n;
+    n++;
+  }
+  if (n < 12) return null;
+  const indices: number[] = [];
+  const pushTri = (ia: number, ib: number, ic: number): void => {
+    const ra = remap[ia] ?? -1;
+    const rb = remap[ib] ?? -1;
+    const rc = remap[ic] ?? -1;
+    if (ra < 0 || rb < 0 || rc < 0) return;
+    indices.push(ra, rb, rc);
+  };
+  if (index) {
+    for (let i = 0; i < index.count; i += 3) pushTri(index.getX(i), index.getY(i), index.getZ(i));
+  } else {
+    for (let i = 0; i < pos.count; i += 3) pushTri(i, i + 1, i + 2);
+  }
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  if (uvs.length > 0) geom.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geom.setIndex(indices);
+  geom.computeVertexNormals();
+  return geom;
 }
 
 // Procedural prospector hat. Sits on top of the Head bone — local Y is upward

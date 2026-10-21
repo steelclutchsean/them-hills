@@ -26,6 +26,12 @@ export interface QualitySettings {
   scatter: number;
   shafts: boolean;
   motes: number;
+  /** Quarter-res GTAO. Off on the low preset. */
+  ao: boolean;
+  /** Planar creek reflection. */
+  reflections: boolean;
+  /** Screen-space sun shafts. */
+  godrays: boolean;
 }
 
 const SHARED = {
@@ -55,6 +61,9 @@ export const QUALITY_PRESETS: Record<QualityName, QualitySettings> = {
     scatter: 0.45,
     shafts: false,
     motes: 24,
+    ao: false,
+    reflections: false,
+    godrays: false,
   },
   medium: {
     ...SHARED,
@@ -69,6 +78,9 @@ export const QUALITY_PRESETS: Record<QualityName, QualitySettings> = {
     scatter: 0.7,
     shafts: true,
     motes: 48,
+    ao: false,
+    reflections: true,
+    godrays: true,
   },
   high: {
     ...SHARED,
@@ -83,6 +95,9 @@ export const QUALITY_PRESETS: Record<QualityName, QualitySettings> = {
     scatter: 1,
     shafts: true,
     motes: 72,
+    ao: true,
+    reflections: true,
+    godrays: true,
   },
   ultra: {
     ...SHARED,
@@ -97,6 +112,9 @@ export const QUALITY_PRESETS: Record<QualityName, QualitySettings> = {
     scatter: 1.15,
     shafts: true,
     motes: 110,
+    ao: true,
+    reflections: true,
+    godrays: true,
   },
 };
 

@@ -1,52 +1,75 @@
 import * as THREE from 'three';
 
-// Camera mode controller. Today's third-person spring-arm rig (camera-rig.ts)
-// runs every frame. When a prospect minigame starts, we override it with a
-// fixed first-person view anchored at the character's head, pitched down at
-// the ground/pan/etc. The captured yaw at entry stays the camera's forward
-// direction for the entire minigame — the player can't pan during a stage
-// so the view is stable.
-//
-// Tool meshes mount as children of the camera (camera.add(group)) so they
-// inherit the camera's transform — they stay in screen-space "viewmodel"
-// positions regardless of where the player is in the world.
+// Prospect camera. Classify, collect, strike, and extract stay first person
+// so their viewmodels keep working. Dig and pan stay third person: a close
+// camera in front of the hands, looking at the tool focus the wrist aims at.
 
 const HEAD_HEIGHT = 1.6;
-// Look-target offsets in the character's forward direction relative to the
-// head. 1m forward and 0.85m below eye level gives roughly a 40° pitch
-// down — comfortable for looking at the ground in front of you.
 const LOOK_FORWARD = 1.0;
 const LOOK_DROP = 0.85;
-// FOV during prospect — much wider than the third-person 60° so the
-// lower-screen viewmodels (pan, classifier, snuffer) fit comfortably in
-// frame. 120° starts to look fisheye-y but the perspective trade-off is
-// worth it for visibility during the minigames. Restored on exit.
 const PROSPECT_FOV = 120;
+const DIG_FOV = 46;
+const PAN_FOV = 38;
 
 export interface CameraModeController {
   isInProspectView(): boolean;
-  /** Snap to first-person view. `characterYaw` is the camera-rig yaw at
-   *  the moment the minigame started — held fixed for the duration. */
+  /** Snap into a prospect view. `characterYaw` is held for the whole minigame. */
   enterProspectView(charPos: THREE.Vector3, characterYaw: number): void;
   exitProspectView(): void;
-  /** Per-frame update while in prospect view — follow the character's head
-   *  position (movement is locked, but physics may still settle them). */
-  updateProspectView(charPos: THREE.Vector3): void;
+  /**
+   * Follow the character. `step` selects the framing: dig and pan are the
+   * close third-person shots; every other step is the first-person view.
+   */
+  updateProspectView(charPos: THREE.Vector3, step: string | null, focus: THREE.Vector3): void;
+}
+
+/**
+ * Close third-person frame for a dig or pan pose. Used by review shots so
+ * the art pass shows the hands and the gold without entering a minigame.
+ */
+export function frameToolShot(
+  camera: THREE.PerspectiveCamera,
+  charPos: THREE.Vector3,
+  yaw: number,
+  step: string,
+  focus: THREE.Vector3,
+): void {
+  const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+  const right = new THREE.Vector3(-forward.z, 0, forward.x);
+  const pan = step === 'pan';
+  const dist = pan ? 1.7 : 2.05;
+  const side = pan ? 0.55 : 0.48;
+  const height = pan ? 0.42 : 0.55;
+  camera.position.set(
+    focus.x + forward.x * dist + right.x * side,
+    Math.max(focus.y + height, charPos.y + 0.85),
+    focus.z + forward.z * dist + right.z * side,
+  );
+  camera.lookAt(focus);
+  const fov = pan ? 42 : DIG_FOV;
+  if (camera.fov !== fov) {
+    camera.fov = fov;
+    camera.updateProjectionMatrix();
+  }
 }
 
 export function createCameraModeController(camera: THREE.PerspectiveCamera): CameraModeController {
   let inProspect = false;
   let lockedYaw = 0;
   let savedFov = camera.fov;
-  // Reusable scratch vectors so the per-frame update doesn't allocate.
   const forward = new THREE.Vector3();
+  const right = new THREE.Vector3();
   const lookTarget = new THREE.Vector3();
 
-  function position(charPos: THREE.Vector3): void {
+  function setFov(next: number): void {
+    if (camera.fov === next) return;
+    camera.fov = next;
+    camera.updateProjectionMatrix();
+  }
+
+  function firstPerson(charPos: THREE.Vector3): void {
     const eyeY = charPos.y + HEAD_HEIGHT;
     camera.position.set(charPos.x, eyeY, charPos.z);
-    // Character forward in XZ derived from camera-rig yaw convention:
-    //   yaw=0 → char faces -Z, so forward = (-sin(yaw), 0, -cos(yaw)).
     forward.set(-Math.sin(lockedYaw), 0, -Math.cos(lockedYaw));
     lookTarget.set(
       charPos.x + forward.x * LOOK_FORWARD,
@@ -54,6 +77,23 @@ export function createCameraModeController(camera: THREE.PerspectiveCamera): Cam
       charPos.z + forward.z * LOOK_FORWARD,
     );
     camera.lookAt(lookTarget);
+    setFov(PROSPECT_FOV);
+  }
+
+  function closeThird(charPos: THREE.Vector3, focus: THREE.Vector3, step: string): void {
+    forward.set(-Math.sin(lockedYaw), 0, -Math.cos(lockedYaw));
+    right.set(-forward.z, 0, forward.x);
+    const pan = step === 'pan';
+    const dist = pan ? 1.55 : 1.95;
+    const side = 0.42;
+    const height = pan ? 0.62 : 0.85;
+    camera.position.set(
+      focus.x + forward.x * dist + right.x * side,
+      Math.max(focus.y + height, charPos.y + 0.9),
+      focus.z + forward.z * dist + right.z * side,
+    );
+    camera.lookAt(focus);
+    setFov(pan ? PAN_FOV : DIG_FOV);
   }
 
   return {
@@ -62,18 +102,17 @@ export function createCameraModeController(camera: THREE.PerspectiveCamera): Cam
       inProspect = true;
       lockedYaw = characterYaw;
       savedFov = camera.fov;
-      camera.fov = PROSPECT_FOV;
-      camera.updateProjectionMatrix();
-      position(charPos);
+      firstPerson(charPos);
     },
     exitProspectView() {
       inProspect = false;
       camera.fov = savedFov;
       camera.updateProjectionMatrix();
     },
-    updateProspectView(charPos) {
+    updateProspectView(charPos, step, focus) {
       if (!inProspect) return;
-      position(charPos);
+      if (step === 'dig' || step === 'pan') closeThird(charPos, focus, step);
+      else firstPerson(charPos);
     },
   };
 }

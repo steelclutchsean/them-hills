@@ -1,14 +1,15 @@
 import * as THREE from 'three';
 import { bindFrameUniforms, FRAME_UNIFORM_GLSL } from '@/render/frame-uniforms';
+import { reflectionUniforms } from '@/render/reflection';
 import type { Terrain } from './terrain';
 import { createRng } from './rng';
+import type { Watercourse } from './watercourse';
 
 // Streams + panning sites.
 //
-// Each StreamConfig describes one watercourse — position, orientation
-// (NS = length along Z, EW = length along X), site count, and an optional
-// water palette. The terrain module reads matching ChannelConfigs to carve
-// the riverbed so the flat water plane sits at a uniform depth.
+// Each StreamConfig is the gameplay identity (id, site count, names). The
+// channel shape lives on a Watercourse spline: varied width, pools, riffles,
+// gravel bars. Sites are placed on that spline, biased toward the bars.
 //
 // Sites are EPHEMERAL: every 12 in-game hours the stream regenerates a fresh
 // set of sites at new positions along its length. Site IDs encode the epoch
@@ -34,14 +35,9 @@ export interface StreamConfig {
 
 const SITE_INTERACT_RADIUS = 1.5;
 
-const DEFAULT_SHALLOW = 0x5eb8a8;
-const DEFAULT_DEEP = 0x1c5c62;
+const DEFAULT_SHALLOW = 0x2f8f86;
+const DEFAULT_DEEP = 0x0a3040;
 const DEFAULT_FOAM = 0xf4efe2;
-
-// Water plane sits this far above the deepest carved riverbed point.
-// Matches CHANNEL_CONFIGS.depth in main.ts — i.e. water rests at natural
-// (uncarved) ground level, with the channel carved that distance below it.
-const WATER_OFFSET_ABOVE_FLOOR = 1.2;
 
 export interface PanningSite {
   id: string;
@@ -57,9 +53,14 @@ export interface PanningSite {
 export interface Stream {
   id: string;
   config: StreamConfig;
+  course: Watercourse;
   group: THREE.Group;
+  /** Surface mesh. Hidden while the planar reflection renders. */
+  water: THREE.Mesh;
   /** Currently-visible sites. Replaced wholesale by setEpoch(). */
   sites: readonly PanningSite[];
+  /** World XZ of rocks that break the surface. Foam trails read these. */
+  setRocks(rocks: readonly THREE.Vector3[]): void;
   update(
     time: number,
     playerPos: THREE.Vector3,
@@ -79,22 +80,31 @@ export interface Stream {
 
 const VERT_SHADER = /* glsl */ `
   ${FRAME_UNIFORM_GLSL}
+  attribute vec2 aFlow;
+  attribute float aLateral;
+  attribute float aDepth;
   varying vec3 vWorld;
   varying vec3 vViewDir;
-  varying vec3 vNormalW;
+  varying vec2 vFlow;
+  varying float vLateral;
+  varying float vDepth;
   #include <common>
   #include <fog_pars_vertex>
   #include <shadowmap_pars_vertex>
   void main() {
     vec4 worldPos = modelMatrix * vec4(position, 1.0);
-    float wave = sin(worldPos.x * 1.6 + uTime * 1.25) * 0.04
-               + sin(worldPos.z * 2.3 - uTime * 0.9) * 0.028;
+    float along = dot(worldPos.xz, aFlow);
+    float wave = sin(along * 3.2 + uTime * 1.6) * 0.03
+               + sin(along * 7.0 - uTime * 2.2) * 0.012;
+    wave *= 1.0 - abs(aLateral) * 0.65;
     worldPos.y += wave;
     vWorld = worldPos.xyz;
+    vFlow = aFlow;
+    vLateral = aLateral;
+    vDepth = aDepth;
     vec4 mvPosition = viewMatrix * worldPos;
     gl_Position = projectionMatrix * mvPosition;
     vViewDir = normalize(cameraPosition - vWorld);
-    vNormalW = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
     #ifdef USE_SHADOWMAP
       #if NUM_DIR_LIGHT_SHADOWS > 0
         vDirectionalShadowCoord[0] = directionalShadowMatrix[0] * worldPos;
@@ -104,38 +114,21 @@ const VERT_SHADER = /* glsl */ `
   }
 `;
 
-// Volumetric water shader. The mesh is a box that fills the entire carved
-// channel from bed to bank top, so from any angle the river reads as a
-// body of water — not a paper-thin plane:
-//
-//   - Top face: the water surface. Shallow → deep color gradient driven
-//     by lateral distance from the centerline, animated surface noise,
-//     bank-edge foam, sun-glint highlights.
-//   - Side and bottom faces: solid deep water at high alpha. Surface
-//     effects (foam, ripple noise, sun-glint) are gated to the top via
-//     the world-space normal so they don't bleed onto vertical walls.
-//
-// Combined depth = max(lateral cross-section depth, vertical depth
-// below the water surface). Side fragments at bed level read as fully
-// deep; top fragments read as shallow→deep by cross-section.
 const FRAG_SHADER = /* glsl */ `
   ${FRAME_UNIFORM_GLSL}
   uniform vec3 uShallow;
   uniform vec3 uDeep;
   uniform vec3 uFoam;
-  uniform vec2 uFlowDir;
   uniform float uFlowSpeed;
-  // Cross-section uniforms — drive the depth gradient.
-  uniform vec2 uCenterPos;
-  uniform vec2 uPerpDir;
-  uniform float uHalfWidth;
-  uniform float uMaxDepth;
-  // Y-coordinate of the water surface (top face). Drives vertical depth on
-  // the side and bottom faces of the water volume.
-  uniform float uWaterTopY;
+  uniform vec3 uRocks[8];
+  uniform sampler2D uReflect;
+  uniform mat4 uReflProjView;
+  uniform float uHasReflect;
   varying vec3 vWorld;
   varying vec3 vViewDir;
-  varying vec3 vNormalW;
+  varying vec2 vFlow;
+  varying float vLateral;
+  varying float vDepth;
   #include <common>
   #include <packing>
   #include <fog_pars_fragment>
@@ -157,62 +150,74 @@ const FRAG_SHADER = /* glsl */ `
 
   void main() {
     vec2 worldXZ = vWorld.xz;
-    vec2 flow = uFlowDir * uTime * uFlowSpeed;
+    vec2 flow = normalize(vFlow + vec2(1e-4, 0.0));
+    vec2 scroll = flow * uTime * uFlowSpeed;
 
-    // Combined depth. crossDepth gives the top-face shallow→deep gradient;
-    // vertDepth makes side and bottom faces read as deep water.
-    float dCross = abs(dot(worldXZ - uCenterPos, uPerpDir));
-    float t = clamp(dCross / uHalfWidth, 0.0, 1.0);
-    float crossDepth = uMaxDepth * (1.0 - t * t);
-    float vertDepth = max(0.0, uWaterTopY - vWorld.y);
-    float depth = max(crossDepth, vertDepth);
-    float depthFactor = smoothstep(0.0, uMaxDepth * 0.85, depth);
-
-    // Top-face gate. 1.0 on the surface, 0.0 on side / bottom faces.
-    // Surface effects (waves, foam, glint) only fire on the top face.
-    float topness = smoothstep(0.6, 0.95, vNormalW.y);
-
-    // Layered surface noise — large slow waves, medium ripples, small
-    // crests. Each layer scrolls along the flow direction at its own rate.
-    float n1 = noise(worldXZ * 0.28 - flow * 1.0);
-    float n2 = noise(worldXZ * 0.85 - flow * 0.6 + vec2(7.3, 1.9));
-    float n3 = noise(worldXZ * 2.4  - flow * 0.32 + vec2(2.1, 11.4));
-    float surface = (n1 * 0.50 + n2 * 0.32 + n3 * 0.18) * topness;
-
-    // Base color: shallow → deep, modulated subtly by surface for shimmer.
+    float t = abs(vLateral);
+    float depthFactor = smoothstep(0.08, 0.82, clamp(vDepth / 1.65, 0.0, 1.0) * (1.0 - t * t * 0.65));
+    vec3 murk = vec3(0.16, 0.22, 0.2);
     vec3 base = mix(uShallow, uDeep, depthFactor);
-    base = mix(base * 0.86, base * 1.18, smoothstep(0.30, 0.70, surface));
+    base = mix(base, murk, smoothstep(1.05, 1.7, vDepth) * 0.35);
 
-    // Bank-edge foam — wherever the top face is shallow AND foam noise is high.
-    float bankProximity = (1.0 - smoothstep(0.02, 0.48, depth)) * topness;
-    float foamNoise = noise(worldXZ * 4.5 - flow * 0.85);
-    float foamMask = bankProximity * smoothstep(0.40, 0.85, foamNoise);
-    base = mix(base, uFoam, foamMask * 0.85);
+    float n1 = noise(worldXZ * 0.32 - scroll);
+    float n2 = noise(worldXZ * 0.9 - scroll * 1.4 + vec2(4.2, 1.3));
+    float n3 = noise(worldXZ * 2.6 - scroll * 0.55 + vec2(1.7, 8.0));
+    float surface = n1 * 0.5 + n2 * 0.32 + n3 * 0.18;
+    base = mix(base * 0.84, base * 1.16, smoothstep(0.28, 0.72, surface));
 
-    // Sun glint — fake surface normal from noise gradient, sharp highlight
-    // along reflection of sun direction. Reads as sparkles on the water.
-    // Gated to the top face so it doesn't render on vertical side walls.
-    float h0 = noise(worldXZ * 0.9 - flow * 0.7);
-    float h1 = noise((worldXZ + vec2(0.10, 0.0)) * 0.9 - flow * 0.7);
-    float h2 = noise((worldXZ + vec2(0.0, 0.10)) * 0.9 - flow * 0.7);
-    vec3 surfNormal = normalize(vec3((h0 - h1) * 4.5, 1.0, (h0 - h2) * 4.5));
+    float edge = smoothstep(0.55, 0.94, t);
+    float foamNoise = noise(worldXZ * 3.8 - scroll * 1.3);
+    float foamMask = edge * smoothstep(0.28, 0.72, foamNoise);
+    // Riffles are the shallow runs. Streaks follow the spline tangent.
+    float riffle = smoothstep(0.85, 0.28, vDepth);
+    float across = dot(worldXZ, vec2(flow.y, -flow.x));
+    float along = dot(worldXZ, flow);
+    float streak = noise(vec2(across * 5.5, along * 1.2 - uTime * uFlowSpeed * 3.0));
+    foamMask = max(foamMask, riffle * smoothstep(0.48, 0.8, streak) * 0.8);
+
+    float wake = 0.0;
+    for (int i = 0; i < 8; i++) {
+      float radius = uRocks[i].z;
+      if (radius < 0.05) continue;
+      vec2 rockXZ = uRocks[i].xy;
+      vec2 toFrag = worldXZ - rockXZ;
+      float ahead = dot(toFrag, flow);
+      float side = abs(toFrag.x * flow.y - toFrag.y * flow.x);
+      float body = 1.0 - smoothstep(radius * 0.2, radius * 1.35, length(toFrag));
+      float trail = smoothstep(-0.05, 0.35, ahead)
+                  * (1.0 - smoothstep(0.15, 2.8, ahead))
+                  * (1.0 - smoothstep(radius * 0.15, radius * 1.6, side));
+      wake = max(wake, max(body, trail));
+    }
+    foamMask = max(foamMask, wake * 0.92);
+    base = mix(base, uFoam, foamMask * 0.88);
+
+    float h0 = noise(worldXZ * 1.1 - scroll);
+    float h1 = noise((worldXZ + vec2(0.12, 0.0)) * 1.1 - scroll);
+    float h2 = noise((worldXZ + vec2(0.0, 0.12)) * 1.1 - scroll);
+    vec3 surfNormal = normalize(vec3((h0 - h1) * 5.0, 1.0, (h0 - h2) * 5.0));
     vec3 viewDir = normalize(vViewDir);
     vec3 sunDir = normalize(uSunDir);
     vec3 reflectDir = reflect(-sunDir, surfNormal);
-    float spec = pow(max(0.0, dot(reflectDir, viewDir)), 48.0);
-    // HDR glint so the bloom pass picks up the sun on the water.
-    base += uSunColor * (spec * 2.4 * uSunIntensity * topness);
+    float spec = pow(max(0.0, dot(reflectDir, viewDir)), 56.0);
+    base += uSunColor * (spec * 2.2 * uSunIntensity);
 
-    float fres = pow(1.0 - max(dot(viewDir, surfNormal), 0.0), 4.0) * topness;
-    // Sky reflection. A real refraction grab of the scene is a second
-    // pass; this tints the fresnel toward the hemisphere sky so the
-    // surface picks up the same air as the grade.
-    vec3 reflected = mix(uHemiSky, uFoam, 0.35);
-    base = mix(base, reflected, fres * 0.65);
+    float fres = pow(1.0 - max(dot(viewDir, surfNormal), 0.0), 3.2);
+    vec3 reflected = mix(uHemiSky, uFoam, 0.22);
+    if (uHasReflect > 0.5) {
+      vec4 clip = uReflProjView * vec4(vWorld, 1.0);
+      vec2 uv = clip.xy / clip.w * 0.5 + 0.5;
+      if (clip.w > 0.0 && uv.x > 0.02 && uv.x < 0.98 && uv.y > 0.02 && uv.y < 0.98) {
+        reflected = texture2D(uReflect, uv).rgb;
+      }
+    }
+    // Without a reflection target, a strong fresnel just paints the creek
+    // the color of the sky and it disappears into the bank.
+    float fresMix = uHasReflect > 0.5 ? 0.72 : 0.2;
+    base = mix(base, reflected, fres * fresMix);
 
-    // Caustic bands in the shallows, scrolling with the flow.
-    float cau = noise(worldXZ * 3.2 - flow * 1.4) * noise(worldXZ * 6.0 + flow * 0.7);
-    base += vec3(0.55, 0.95, 0.85) * smoothstep(0.62, 0.9, cau) * (1.0 - depthFactor) * topness;
+    float cau = noise(worldXZ * 3.4 - scroll * 1.5) * noise(worldXZ * 6.2 + scroll * 0.6);
+    base += vec3(0.55, 0.95, 0.85) * smoothstep(0.62, 0.9, cau) * (1.0 - depthFactor);
 
     float shadow = 1.0;
     #ifdef USE_SHADOWMAP
@@ -228,19 +233,12 @@ const FRAG_SHADER = /* glsl */ `
       #endif
     #endif
     shadow = mix(0.45, 1.0, shadow);
+    vec3 lit = base * mix(0.62, 1.0, shadow);
+    lit = mix(lit, lit * uSunColor, 0.16 * uSunIntensity * shadow);
 
-    float sunShade = mix(0.62, 1.0, shadow);
-    vec3 lit = base * sunShade;
-    lit = mix(lit, lit * uSunColor, 0.18 * uSunIntensity * shadow);
-
-    // Alpha. Top face: shallow → deep gradient (0.45 → 0.92) so the riverbed
-    // shows through shallows. Side / bottom faces: solid 0.88 so the water
-    // body reads as a substantial volume, not a translucent ghost.
-    float topAlpha = mix(0.45, 0.92, depthFactor);
-    float sideAlpha = 0.88;
-    float alpha = mix(sideAlpha, topAlpha, topness);
-    alpha = max(alpha, foamMask * 0.85);
-    alpha = mix(alpha, min(1.0, alpha + 0.35), fres);
+    float alpha = mix(0.9, 0.98, depthFactor);
+    alpha = max(alpha, foamMask * 0.9);
+    alpha = mix(alpha, min(1.0, alpha + 0.28), fres);
 
     gl_FragColor = vec4(lit, alpha);
     #ifdef USE_FOG
@@ -251,24 +249,47 @@ const FRAG_SHADER = /* glsl */ `
   }
 `;
 
-export function createStream(terrain: Terrain, cfg: StreamConfig): Stream {
+function buildRibbon(course: Watercourse): THREE.BufferGeometry {
+  const samples = course.samples;
+  const positions: number[] = [];
+  const flows: number[] = [];
+  const laterals: number[] = [];
+  const depths: number[] = [];
+  for (const s of samples) {
+    const nx = -s.tz;
+    const nz = s.tx;
+    const w = s.halfWidth * 0.92;
+    for (const side of [-1, 1]) {
+      positions.push(s.x + nx * w * side, s.waterY, s.z + nz * w * side);
+      flows.push(s.tx, s.tz);
+      laterals.push(side);
+      depths.push(s.depth);
+    }
+  }
+  const indices: number[] = [];
+  for (let i = 0; i < samples.length - 1; i++) {
+    const a = i * 2;
+    const b = a + 1;
+    const c = a + 2;
+    const d = a + 3;
+    indices.push(a, c, b, b, c, d);
+  }
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geom.setAttribute('aFlow', new THREE.Float32BufferAttribute(flows, 2));
+  geom.setAttribute('aLateral', new THREE.Float32BufferAttribute(laterals, 1));
+  geom.setAttribute('aDepth', new THREE.Float32BufferAttribute(depths, 1));
+  geom.setIndex(indices);
+  geom.computeVertexNormals();
+  geom.computeBoundingSphere();
+  return geom;
+}
+
+export function createStream(terrain: Terrain, cfg: StreamConfig, course: Watercourse): Stream {
   const group = new THREE.Group();
   group.name = `stream_${cfg.id}`;
 
-  // Anchor the water plane to the carved channel's floor at center. Because
-  // the new terrain carve forces a uniform target floor along the centerline,
-  // this single Y is correct for the entire stream length.
-  const baseY = terrain.getHeightAt(cfg.centerX, cfg.centerZ) + WATER_OFFSET_ABOVE_FLOOR;
-
-  // Flow direction along the stream axis; magnitude controls visual speed.
-  const flowDir = cfg.orientation === 'NS' ? new THREE.Vector2(0, 1) : new THREE.Vector2(1, 0);
-  // Perpendicular vector for cross-stream depth sampling. NS streams measure
-  // perpendicular distance along X; EW streams measure along Z.
-  const perpDir = cfg.orientation === 'NS' ? new THREE.Vector2(1, 0) : new THREE.Vector2(0, 1);
-  // Max depth at the centerline. Matches WATER_OFFSET_ABOVE_FLOOR — water
-  // surface sits this far above the deepest carved riverbed point.
-  const MAX_DEPTH = WATER_OFFSET_ABOVE_FLOOR;
-
+  const rocks = Array.from({ length: 8 }, () => new THREE.Vector3());
   const uniforms = THREE.UniformsUtils.merge([
     THREE.UniformsLib.fog,
     THREE.UniformsLib.lights,
@@ -276,13 +297,11 @@ export function createStream(terrain: Terrain, cfg: StreamConfig): Stream {
   uniforms.uShallow = { value: new THREE.Color(cfg.shallowColor ?? DEFAULT_SHALLOW) };
   uniforms.uDeep = { value: new THREE.Color(cfg.deepColor ?? DEFAULT_DEEP) };
   uniforms.uFoam = { value: new THREE.Color(cfg.foamColor ?? DEFAULT_FOAM) };
-  uniforms.uFlowDir = { value: flowDir };
-  uniforms.uFlowSpeed = { value: 0.55 };
-  uniforms.uCenterPos = { value: new THREE.Vector2(cfg.centerX, cfg.centerZ) };
-  uniforms.uPerpDir = { value: perpDir };
-  uniforms.uHalfWidth = { value: cfg.halfWidth };
-  uniforms.uMaxDepth = { value: MAX_DEPTH };
-  uniforms.uWaterTopY = { value: baseY };
+  uniforms.uFlowSpeed = { value: 0.62 };
+  uniforms.uRocks = { value: rocks };
+  uniforms.uReflect = reflectionUniforms.uReflect;
+  uniforms.uReflProjView = reflectionUniforms.uReflProjView;
+  uniforms.uHasReflect = reflectionUniforms.uHasReflect;
   bindFrameUniforms(uniforms);
 
   const waterMat = new THREE.ShaderMaterial({
@@ -294,32 +313,11 @@ export function createStream(terrain: Terrain, cfg: StreamConfig): Stream {
     fog: true,
     lights: true,
     side: THREE.DoubleSide,
-    // Render water AFTER opaque geometry so alpha blending is correct
-    // against the textured riverbed below. Also disable depth write so
-    // overlapping foam patches don't z-fight at exactly the same Y.
     depthWrite: false,
   });
 
-  // Box geometry that fills the carved channel from bed up to the water
-  // surface. Top face = water surface (where the plane used to sit);
-  // sides / bottom give the volume its visible thickness so the river
-  // reads as a body of water from any angle.
-  const boxXExtent = cfg.orientation === 'NS' ? cfg.halfWidth * 2 : cfg.halfLength * 2;
-  const boxZExtent = cfg.orientation === 'NS' ? cfg.halfLength * 2 : cfg.halfWidth * 2;
-  const segsAcross = 12;
-  const segsAlong = 64;
-  const waterGeom = new THREE.BoxGeometry(
-    boxXExtent,
-    MAX_DEPTH,
-    boxZExtent,
-    cfg.orientation === 'NS' ? segsAcross : segsAlong,
-    1,
-    cfg.orientation === 'NS' ? segsAlong : segsAcross,
-  );
-  const waterMesh = new THREE.Mesh(waterGeom, waterMat);
-  // Position so the top face sits at baseY (water surface) and the bottom
-  // face sits at the bed (baseY − MAX_DEPTH).
-  waterMesh.position.set(cfg.centerX, baseY - MAX_DEPTH / 2, cfg.centerZ);
+  const waterMesh = new THREE.Mesh(buildRibbon(course), waterMat);
+  waterMesh.name = `water_${cfg.id}`;
   waterMesh.receiveShadow = true;
   waterMesh.castShadow = false;
   group.add(waterMesh);
@@ -327,32 +325,32 @@ export function createStream(terrain: Terrain, cfg: StreamConfig): Stream {
   const ringGeom = new THREE.TorusGeometry(0.4, 0.05, 6, 24);
   ringGeom.rotateX(-Math.PI / 2);
 
-  // Mutable site state — replaced wholesale every epoch change.
   let sites: PanningSite[] = [];
   let currentEpoch = -1;
 
   function regenerateSites(epoch: number): void {
-    // Tear down the previous generation's marker meshes.
     for (const s of sites) {
       group.remove(s.marker);
       (s.marker.material as THREE.Material).dispose();
     }
     sites = [];
 
-    // Seed RNG by stream + epoch so each respawn produces a different but
-    // deterministic-on-reload layout.
     const seed = stringHash(cfg.id) ^ (epoch * 0x9e3779b1);
     const rng = createRng(seed);
 
-    // Sites randomly distributed along the stream length, spaced apart so
-    // they don't pile up. We pick siteCount evenly-jittered slots.
     for (let i = 0; i < cfg.siteCount; i++) {
-      const t = (i + 0.2 + rng.next() * 0.6) / cfg.siteCount;
-      const along = (t - 0.5) * cfg.halfLength * 2;
-      const lateralJitter = (rng.next() - 0.5) * cfg.halfWidth * 0.5;
-      const sx = cfg.orientation === 'NS' ? cfg.centerX + lateralJitter : cfg.centerX + along;
-      const sz = cfg.orientation === 'NS' ? cfg.centerZ + along : cfg.centerZ + lateralJitter;
-      const sitePos = new THREE.Vector3(sx, baseY + 0.08, sz);
+      const t = (i + 0.15 + rng.next() * 0.7) / cfg.siteCount;
+      const sample = course.at(t);
+      let lateral = (rng.next() - 0.5) * sample.halfWidth * 0.55;
+      if (sample.bar !== 0 && rng.next() < 0.7) {
+        lateral = sample.bar * sample.halfWidth * (0.28 + rng.next() * 0.38);
+      }
+      const nx = -sample.tz;
+      const nz = sample.tx;
+      const sx = sample.x + nx * lateral;
+      const sz = sample.z + nz * lateral;
+      const surface = sample.waterY || terrain.getHeightAt(sx, sz);
+      const sitePos = new THREE.Vector3(sx, surface + 0.06, sz);
 
       const ringMat = new THREE.MeshStandardMaterial({
         color: 0xc89b3b,
@@ -370,21 +368,30 @@ export function createStream(terrain: Terrain, cfg: StreamConfig): Stream {
         position: sitePos,
         marker,
         streamId: cfg.id,
-        streamYaw: cfg.orientation === 'NS' ? 0 : Math.PI / 2,
+        streamYaw: Math.atan2(sample.tx, sample.tz),
       });
     }
     currentEpoch = epoch;
   }
 
-  // First-paint: epoch 0 sites.
   regenerateSites(0);
 
   const stream: Stream = {
     id: cfg.id,
     config: cfg,
+    course,
     group,
+    water: waterMesh,
     get sites() {
       return sites;
+    },
+    setRocks(next) {
+      for (let i = 0; i < 8; i++) {
+        const src = next[i];
+        const dst = rocks[i]!;
+        if (src) dst.copy(src);
+        else dst.set(0, 0, 0);
+      }
     },
     update(time, playerPos, focusedSiteId, isDepleted) {
       waterMat.uniforms.uTime!.value = time;
@@ -410,7 +417,7 @@ export function createStream(terrain: Terrain, cfg: StreamConfig): Stream {
     findNearestSite(playerPos) {
       let best: { site: PanningSite; distance: number } | null = null;
       for (const site of sites) {
-        if (!site.marker.visible) continue; // depleted sites don't probe
+        if (!site.marker.visible) continue;
         const dx = site.position.x - playerPos.x;
         const dz = site.position.z - playerPos.z;
         const d = Math.hypot(dx, dz);
@@ -471,13 +478,13 @@ export function createStreamRegistry(streams: Stream[]): StreamRegistry {
     },
     isPlayerInAnyStream(playerPos) {
       for (const s of streams) {
-        if (isInsideStreamRect(playerPos.x, playerPos.z, s.config, 0)) return true;
+        if (s.course.contains(playerPos.x, playerPos.z, 0)) return true;
       }
       return false;
     },
     isInStreamZone(x, z, padding = 0) {
       for (const s of streams) {
-        if (isInsideStreamRect(x, z, s.config, padding)) return true;
+        if (s.course.contains(x, z, padding)) return true;
       }
       return false;
     },
@@ -485,13 +492,4 @@ export function createStreamRegistry(streams: Stream[]): StreamRegistry {
       for (const s of streams) s.setEpoch(epoch);
     },
   };
-}
-
-function isInsideStreamRect(x: number, z: number, cfg: StreamConfig, padding: number): boolean {
-  const dx = Math.abs(x - cfg.centerX);
-  const dz = Math.abs(z - cfg.centerZ);
-  if (cfg.orientation === 'NS') {
-    return dx < cfg.halfWidth + padding && dz < cfg.halfLength + padding;
-  }
-  return dx < cfg.halfLength + padding && dz < cfg.halfWidth + padding;
 }
