@@ -77,6 +77,7 @@ function rangeMaterial(maps: {
   grass: THREE.Texture;
 }): THREE.MeshStandardMaterial {
   const mat = new THREE.MeshStandardMaterial({
+    map: maps.rock,
     color: 0xffffff,
     roughness: 0.96,
     metalness: 0,

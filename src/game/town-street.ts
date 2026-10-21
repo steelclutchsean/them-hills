@@ -634,7 +634,7 @@ function streetMaterial(): THREE.MeshStandardMaterial {
     polygonOffsetFactor: -2,
     polygonOffsetUnits: -2,
   });
-  mat.customProgramCacheKey = () => 'them-hills-street-dirt';
+  mat.customProgramCacheKey = () => 'them-hills-street-dirt-2';
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uGrass = { value: groundMaps().grass };
     shader.vertexShader = shader.vertexShader.replace(
@@ -655,7 +655,7 @@ function streetMaterial(): THREE.MeshStandardMaterial {
         '#include <color_fragment>',
         `#include <color_fragment>
          {
-           float edge = smoothstep(0.0, 0.16, vUv.x) * smoothstep(1.0, 0.84, vUv.x);
+           float edge = smoothstep(0.0, 0.16, vMapUv.x) * smoothstep(1.0, 0.84, vMapUv.x);
            vec3 grass = texture2D(uGrass, vStreetWorld.xz * 0.85).rgb;
            diffuseColor.rgb = mix(grass, diffuseColor.rgb, edge);
            float puddle = 0.0;
