@@ -51,7 +51,7 @@ function rockMaps(): { albedo: THREE.CanvasTexture; normal: THREE.CanvasTexture 
   canvas.height = size;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('[drift] no 2d context');
-  ctx.fillStyle = '#3a342e';
+  ctx.fillStyle = '#6a6258';
   ctx.fillRect(0, 0, size, size);
   for (let i = 0; i < 420; i++) {
     const x = (i * 47) % size;
@@ -115,9 +115,10 @@ function rockMaps(): { albedo: THREE.CanvasTexture; normal: THREE.CanvasTexture 
 function rockMaterial(): THREE.MeshStandardMaterial {
   const maps = rockMaps();
   const mat = new THREE.MeshStandardMaterial({
-    color: 0x6e655c,
-    roughness: 0.94,
+    color: 0x8a8176,
+    roughness: 0.9,
     metalness: 0.02,
+    side: THREE.DoubleSide,
   });
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uRockMap = { value: maps.albedo };
@@ -357,8 +358,9 @@ export function dressNorthLode(group: THREE.Group): void {
   for (let i = 0; i < 4; i++) {
     const z = -1.7 - i * 2.05;
     const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), lampMat);
+    lamp.name = i === 1 ? 'drift-lantern' : `drift-lantern-${i}`;
     lamp.position.set(0, 2.18, z);
-    const light = new THREE.PointLight(0xffc27a, 16, 7.2, 2);
+    const light = new THREE.PointLight(0xffc27a, 36, 12, 2);
     light.position.set(0, 2.05, z);
     light.castShadow = false;
     lamps.push(lamp);
@@ -442,7 +444,7 @@ export function dressNorthLode(group: THREE.Group): void {
     sparkGeom,
     new THREE.PointsMaterial({
       color: 0xffb45a,
-      size: 0.07,
+      size: 0.16,
       transparent: true,
       opacity: 0,
       depthWrite: false,
@@ -463,6 +465,7 @@ export function dressNorthLode(group: THREE.Group): void {
       depthWrite: false,
     }),
   );
+  flashBall.name = 'drift-flash';
   flashBall.position.copy(flash.position);
   const wave = new THREE.Mesh(
     new THREE.TorusGeometry(0.4, 0.05, 6, 18),
@@ -525,7 +528,8 @@ export function dressNorthLode(group: THREE.Group): void {
   const ore: THREE.Mesh[] = [];
   for (let i = 0; i < 3; i++) {
     const nug = new THREE.Mesh(new THREE.DodecahedronGeometry(0.16 + i * 0.04, 0), oreMat);
-    nug.position.set(-0.35 + i * 0.32, 0.85 + (i % 2) * 0.25, -8.85);
+    nug.name = i === 0 ? 'drift-ore' : `drift-ore-${i}`;
+    nug.position.set(-0.35 + i * 0.32, 1.15 + (i % 2) * 0.28, -8.35);
     nug.visible = false;
     ore.push(nug);
     group.add(nug);
@@ -660,6 +664,14 @@ export function driftBuried(group: THREE.Group): boolean {
   return !!rig && rig.phase === 'buried' && rig.dig < 1;
 }
 
+export function driftPhase(group: THREE.Group): string {
+  return rigs.get(group)?.phase ?? 'missing';
+}
+
+export function driftClock(group: THREE.Group): number {
+  return rigs.get(group)?.t ?? 0;
+}
+
 export function driftNearFall(originZ: number, playerZ: number): boolean {
   const local = playerZ - originZ;
   return local < -3.1 && local > -7.2;
@@ -686,6 +698,21 @@ export function setDriftBearer(group: THREE.Group, local: THREE.Vector3 | null):
   }
   rig.bearer.position.copy(local);
   rig.bearer.intensity = 9;
+}
+
+/** Eye height inside the air of the drift, looking deeper in. */
+export function frameDriftWalk(origin: THREE.Vector3, player: THREE.Vector3, camera: THREE.Camera): void {
+  const lx = THREE.MathUtils.clamp(player.x - origin.x, -0.55, 0.55);
+  const lz = THREE.MathUtils.clamp(player.z - origin.z, -8.2, -0.35);
+  const eyeZ = THREE.MathUtils.clamp(lz + 0.12, -8.0, -0.5);
+  camera.position.set(origin.x + lx * 0.2, origin.y + 1.55, origin.z + eyeZ);
+  camera.lookAt(origin.x + lx * 0.15, origin.y + 1.25, origin.z + Math.min(-0.2, lz - 2.6));
+}
+
+/** Centered look down the lantern line, used when the review camera is outside the mouth. */
+export function frameDriftInterior(origin: THREE.Vector3, camera: THREE.Camera): void {
+  camera.position.set(origin.x, origin.y + 1.55, origin.z - 2.05);
+  camera.lookAt(origin.x, origin.y + 1.22, origin.z - 8.0);
 }
 
 export function frameDriftShow(group: THREE.Group, origin: THREE.Vector3, camera: THREE.Camera): boolean {
@@ -724,7 +751,7 @@ export function updateNorthLode(group: THREE.Group, time: number, creak: number,
   if (!rig) return;
   const flicker = 0.82 + Math.sin(time * 9.5) * 0.08 + Math.sin(time * 23) * 0.04;
   rig.lights.forEach((light, i) => {
-    light.intensity = (12 + flicker * 4 + Math.sin(time * 7 + i) * 1.2) * (rig.phase === 'blast' && rig.t < 0.25 ? 0.2 : 1);
+    light.intensity = (34 + flicker * 8 + Math.sin(time * 7 + i) * 2) * (rig.phase === 'blast' && rig.t < 0.2 ? 0.45 : 1);
   });
   rig.lamps.forEach((lamp) => {
     const mat = lamp.material as THREE.MeshStandardMaterial;
@@ -753,8 +780,9 @@ export function updateNorthLode(group: THREE.Group, time: number, creak: number,
   const cart = group.getObjectByName('ore-cart');
   if (cart && rig.phase === 'idle') cart.position.z = -3.4 + Math.sin(time * 0.6) * 0.12;
 
+  const step = Math.min(Math.max(0, dt), 0.08);
   if (rig.phase === 'fuse') {
-    rig.t += dt;
+    rig.t += step;
     const along = Math.min(1, rig.fuse > 0 ? rig.fuse : rig.t / 1.45);
     paintSparks(rig, along);
     if (rig.t > 1.55 && rig.fuse >= 0.99) {
@@ -763,12 +791,13 @@ export function updateNorthLode(group: THREE.Group, time: number, creak: number,
       kickChunks(rig, true);
     }
   } else if (rig.phase === 'blast') {
-    rig.t += dt;
+    rig.t += step;
     paintSparks(rig, 1);
-    const flash = Math.max(0, 1 - rig.t / 0.45);
-    rig.flash.intensity = flash * 70;
-    (rig.flashBall.material as THREE.MeshBasicMaterial).opacity = flash;
-    rig.flashBall.scale.setScalar(1 + rig.t * 6);
+    const flash = Math.max(0, 1 - rig.t / 0.5);
+    rig.flash.intensity = flash * 180;
+    rig.flash.distance = 18;
+    (rig.flashBall.material as THREE.MeshBasicMaterial).opacity = Math.min(1, flash * 1.35);
+    rig.flashBall.scale.setScalar(3.4 + rig.t * 7);
     const waveMat = rig.wave.material as THREE.MeshBasicMaterial;
     waveMat.opacity = Math.max(0, 0.85 - rig.t / 1.1);
     rig.wave.scale.setScalar(1 + rig.t * 7);
@@ -787,7 +816,7 @@ export function updateNorthLode(group: THREE.Group, time: number, creak: number,
     });
     if (rig.t > 3.4) rig.phase = 'idle';
   } else if (rig.phase === 'cave') {
-    rig.t += dt;
+    rig.t += step;
     const fall = Math.min(1, rig.t / 1.15);
     dropTimber(rig, fall);
     stepChunks(rig, dt);

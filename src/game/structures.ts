@@ -84,17 +84,36 @@ function markerRing(y = 0.05): THREE.Mesh {
 }
 
 function addBarrel(parent: THREE.Object3D, x: number, z: number): void {
-  const barrel = mesh(
-    new THREE.CylinderGeometry(0.22, 0.24, 0.48, 8),
-    timberDarkMaterial(),
-    x,
-    0.24,
-    z,
-  );
-  parent.add(barrel);
-  const hoop = mesh(new THREE.TorusGeometry(0.23, 0.015, 4, 10), stoneMaterial(), x, 0.32, z);
+  const barrel = new THREE.Group();
+  barrel.name = 'ground-barrel';
+  barrel.position.set(x, 0, z);
+  barrel.add(mesh(new THREE.CylinderGeometry(0.22, 0.24, 0.48, 8), timberDarkMaterial(), 0, 0.24, 0));
+  const hoop = mesh(new THREE.TorusGeometry(0.23, 0.015, 4, 10), stoneMaterial(), 0, 0.32, 0);
   hoop.rotation.x = Math.PI / 2;
-  parent.add(hoop);
+  barrel.add(hoop);
+  parent.add(barrel);
+}
+
+/** Drop each barrel onto the ground under its own feet. A shared building Y leaves them hanging on a slope. */
+export function seatBarrels(root: THREE.Object3D, ground: (x: number, z: number) => number): void {
+  const world = new THREE.Vector3();
+  root.updateWorldMatrix(true, true);
+  const found: THREE.Object3D[] = [];
+  root.traverse((obj) => {
+    if (obj.name === 'ground-barrel') found.push(obj);
+  });
+  for (const obj of found) {
+    obj.getWorldPosition(world);
+    const y = ground(world.x, world.z);
+    const parent = obj.parent;
+    if (!parent) {
+      obj.position.y = y;
+      continue;
+    }
+    parent.updateWorldMatrix(true, false);
+    const local = parent.worldToLocal(new THREE.Vector3(world.x, y, world.z));
+    obj.position.y = local.y;
+  }
 }
 
 const townLights: THREE.PointLight[] = [];
@@ -669,16 +688,18 @@ export function addCampWorks(group: THREE.Group): void {
 export function addMineWorks(group: THREE.Group, sign: string): THREE.MeshStandardMaterial {
   const wood = timberMaterial();
   const dark = timberDarkMaterial();
-  const braceL = mesh(new THREE.CylinderGeometry(0.08, 0.09, 3.2, 6), dark, -1.15, 1.7, 0.8);
+  const braceL = mesh(new THREE.CylinderGeometry(0.08, 0.09, 3.2, 6), dark, -1.15, 1.7, 1.85);
   braceL.rotation.z = 0.35;
-  braceL.rotation.x = -0.15;
+  braceL.rotation.x = -0.04;
   group.add(braceL);
-  const braceR = mesh(new THREE.CylinderGeometry(0.08, 0.09, 3.2, 6), dark, 1.15, 1.7, 0.8);
+  const braceR = mesh(new THREE.CylinderGeometry(0.08, 0.09, 3.2, 6), dark, 1.15, 1.7, 1.85);
   braceR.rotation.z = -0.35;
-  braceR.rotation.x = -0.15;
+  braceR.rotation.x = -0.04;
   group.add(braceR);
-  const roof = mesh(new THREE.BoxGeometry(3.1, 0.1, 2.4), dark, 0, 3.05, 0.6);
-  roof.rotation.x = -0.12;
+  // The slab sits in front of the mouth. A roof centered on the portal
+  // puts the chase camera inside the timber.
+  const roof = mesh(new THREE.BoxGeometry(3.1, 0.1, 2.0), dark, 0, 3.2, 2.2);
+  roof.rotation.x = -0.05;
   group.add(roof);
 
   for (let i = 0; i < 5; i++) {
@@ -720,7 +741,7 @@ export function addMineWorks(group: THREE.Group, sign: string): THREE.MeshStanda
     new THREE.PlaneGeometry(1.15, 0.4),
     new THREE.MeshStandardMaterial({ map: paintSign(sign, PALETTE.gold), roughness: 0.7 }),
   );
-  board.position.set(0, 2.55, 0.95);
+  board.position.set(0, 2.45, 2.55);
   group.add(board);
   return addLantern(group, 1.15, 2.15, 0.35);
 }

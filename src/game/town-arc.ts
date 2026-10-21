@@ -142,8 +142,10 @@ export function createTownArc(
   });
   const flames: THREE.Mesh[] = [];
   for (let i = 0; i < 7; i++) {
-    const flame = new THREE.Mesh(new THREE.ConeGeometry(0.16 + (i % 3) * 0.06, 0.7 + (i % 4) * 0.2, 6), flameMat);
-    flame.position.set((i - 3) * 0.28, 1.5 + (i % 2) * 0.35, (i % 3) * 0.2 - 0.2);
+    const flame = new THREE.Mesh(new THREE.ConeGeometry(0.22 + (i % 3) * 0.08, 1.05 + (i % 4) * 0.28, 6), flameMat);
+    flame.name = i === 0 ? 'fire-flame' : `fire-flame-${i}`;
+    flame.position.set((i - 3) * 0.28, 1.7 + (i % 2) * 0.4, (i % 3) * 0.2 - 0.2);
+    flame.visible = false;
     flames.push(flame);
     shed.add(flame);
   }

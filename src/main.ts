@@ -11,7 +11,7 @@ import { ASSETS } from '@/game/assets';
 import { placeBoulders } from '@/game/boulders';
 import { buildWatercourses, courseById, nearestWaterPoint } from '@/game/watercourse';
 import { createWaterReflection, markSceneReflections, skipReflection } from '@/render/reflection';
-import { dressTown, updateTownDressing, updateTownLights } from '@/game/structures';
+import { dressTown, seatBarrels, updateTownDressing, updateTownLights } from '@/game/structures';
 import { bearingFromYaw, createCameraRig } from '@/game/camera-rig';
 import { createCamp } from '@/game/camp';
 import { createCharacter } from '@/game/character';
@@ -34,9 +34,13 @@ import { createWorldDress } from '@/game/world-dress';
 import {
   digDrift,
   driftBuried,
+  driftClock,
   driftKeepOut,
   driftNearFall,
+  driftPhase,
+  frameDriftInterior,
   frameDriftShow,
+  frameDriftWalk,
   playDriftBlast,
   playDriftCaveIn,
   setDriftBearer,
@@ -174,6 +178,7 @@ async function bootstrap(): Promise<void> {
   const params = new URLSearchParams(window.location.search);
   if (params.has('debug')) document.body.dataset.debug = '1';
   const skipIntro = params.get('smoke') === '1' || params.has('shot') || params.has('hour');
+  if (skipIntro || params.has('freezeSave')) document.body.dataset.capture = '1';
   await reportBoot(6, 'Checking your claim…');
 
   const canvas = document.getElementById('game-canvas') as HTMLCanvasElement | null;
@@ -405,6 +410,7 @@ async function bootstrap(): Promise<void> {
     s.setRocks(boulders.wakes.filter((w) => w.streamId === s.id).map((w) => w.rock));
   }
   dressTown(renderer.scene, (x, z) => terrain.getHeightAt(x, z));
+  seatBarrels(renderer.scene, (x, z) => terrain.getHeightAt(x, z));
   console.log(`[boulders] placed ${boulders.count} boulders`);
   const boulderPoints: BoulderPoint[] = boulders.colliders.map((c) => ({
     x: c.pos.x,
@@ -933,7 +939,106 @@ async function bootstrap(): Promise<void> {
   let drawCalls = 0;
   let triangles = 0;
   let frameMs = 0;
-  let interiorShot = false;
+  let blackRatio = 1;
+  let wantBlack = false;
+  let interiorShot = params.get('shot') === 'lode';
+  let waterRise = 0;
+  let holdView: { x: number; y: number; z: number; lx: number; ly: number; lz: number } | null = null;
+  const viewFrustum = new THREE.Frustum();
+  const viewProj = new THREE.Matrix4();
+  const viewBox = new THREE.Box3();
+  const viewInstance = new THREE.Matrix4();
+  const viewLocal = new THREE.Box3();
+
+  function shownInScene(obj: THREE.Object3D): boolean {
+    let cur: THREE.Object3D | null = obj;
+    while (cur) {
+      if (!cur.visible) return false;
+      cur = cur.parent;
+    }
+    return true;
+  }
+
+  function drawsInScene(obj: THREE.Object3D): boolean {
+    const mat = (obj as THREE.Mesh).material;
+    if (!mat) return true;
+    const list = Array.isArray(mat) ? mat : [mat];
+    return list.some((entry) => entry.visible !== false && !(entry.transparent && entry.opacity <= 0.04));
+  }
+
+  function expandViewBox(obj: THREE.Object3D, target: THREE.Box3): boolean {
+    target.makeEmpty();
+    if (!shownInScene(obj) || !drawsInScene(obj)) return false;
+    if (obj instanceof THREE.InstancedMesh) {
+      if (obj.count <= 0) return false;
+      const geom = obj.geometry;
+      if (!geom.boundingBox) geom.computeBoundingBox();
+      const local = geom.boundingBox;
+      if (!local) return false;
+      obj.updateWorldMatrix(true, false);
+      for (let i = 0; i < obj.count; i++) {
+        obj.getMatrixAt(i, viewInstance);
+        viewLocal.copy(local).applyMatrix4(viewInstance);
+        target.union(viewLocal);
+      }
+      target.applyMatrix4(obj.matrixWorld);
+      return !target.isEmpty();
+    }
+    if (obj instanceof THREE.Points) {
+      const attr = obj.geometry.getAttribute('position');
+      if (!attr || attr.count === 0) return false;
+      obj.geometry.computeBoundingBox();
+      if (!obj.geometry.boundingBox) return false;
+      obj.updateWorldMatrix(true, false);
+      target.copy(obj.geometry.boundingBox).applyMatrix4(obj.matrixWorld);
+      return !target.isEmpty();
+    }
+    obj.updateWorldMatrix(true, true);
+    target.setFromObject(obj);
+    return !target.isEmpty();
+  }
+
+  function meshesInView(names: readonly string[]): { present: string[]; missing: string[] } {
+    renderer.camera.updateMatrixWorld();
+    viewProj.multiplyMatrices(renderer.camera.projectionMatrix, renderer.camera.matrixWorldInverse);
+    viewFrustum.setFromProjectionMatrix(viewProj);
+    const present: string[] = [];
+    const wanted = new Set(names);
+    renderer.scene.traverse((obj) => {
+      if (!wanted.has(obj.name)) return;
+      if (!expandViewBox(obj, viewBox)) return;
+      if (viewFrustum.intersectsBox(viewBox)) present.push(obj.name);
+    });
+    return { present, missing: names.filter((name) => !present.includes(name)) };
+  }
+
+  function shedView(distance: number): { x: number; y: number; z: number; lx: number; ly: number; lz: number } {
+    const p = townArc.firePos;
+    return {
+      x: p.x + distance,
+      y: p.y + 1.85,
+      z: p.z + distance * 0.85,
+      lx: p.x,
+      ly: p.y + 1.45,
+      lz: p.z,
+    };
+  }
+
+  function rushView(): { x: number; y: number; z: number; lx: number; ly: number; lz: number } {
+    return {
+      x: 12,
+      y: terrain.getHeightAt(12, 22) + 2.3,
+      z: 22,
+      lx: 0,
+      ly: terrain.getHeightAt(0, 22) + 1.25,
+      lz: 22,
+    };
+  }
+
+  function creekView(): { x: number; y: number; z: number; lx: number; ly: number; lz: number } {
+    const y = terrain.getHeightAt(24, 8);
+    return { x: 32, y: y + 7.5, z: 18, lx: 24, ly: y + 0.25, lz: 6 };
+  }
   let arcBanner: string | null = null;
   let arcStatusLine: string | null = null;
   const playtestLock = params.has('smoke') || params.has('shot') || params.has('freezeSave');
@@ -1156,6 +1261,7 @@ async function bootstrap(): Promise<void> {
         const shot = reviewShot(name);
         if (!shot) return false;
         interiorShot = name === 'lode';
+        holdView = null;
         character.group.visible = true;
         const y = terrain.getHeightAt(shot.x, shot.z) + 1.5;
         character.placeAt(shot.x, y, shot.z);
@@ -1171,7 +1277,9 @@ async function bootstrap(): Promise<void> {
         const north = mines.find((mine) => mine.id === 'mine_north');
         const hideHero = who === 'blast' || who === 'cavein';
         character.group.visible = !hideHero;
-        interiorShot = who === 'blast' || who === 'cavein';
+        interiorShot = who === 'blast' || who === 'cavein' || who === 'lode';
+        holdView = null;
+        if (who !== 'silas' && who !== 'ada' && who !== 'pete' && who !== 'fire') dialogue = null;
         if (who === 'blast' && north) {
           playDriftBlast(north.group, true);
           return true;
@@ -1192,6 +1300,7 @@ async function bootstrap(): Promise<void> {
           };
           gameStore.getState().hydrate(snap);
           townArc.quench();
+          holdView = shedView(3.6);
           return true;
         }
         const scriptEvent = (id: 'flood' | 'drought' | 'rush' | 'fire') => {
@@ -1228,17 +1337,65 @@ async function bootstrap(): Promise<void> {
           character.setYaw(-Math.PI / 2);
         } else if (who === 'fire') {
           scriptEvent('fire');
-          dialogue = startDialogue('fire', FIRE_DIALOGUE);
-          const y = terrain.getHeightAt(townArc.firePos.x + 3.2, townArc.firePos.z + 1.2);
-          character.placeAt(townArc.firePos.x + 3.2, y + 0.2, townArc.firePos.z + 1.2);
+          dialogue = null;
+          holdView = shedView(3.6);
         } else if (who === 'flood' || who === 'drought' || who === 'rush') {
           scriptEvent(who);
+          const dressed = worldDress.snap(who);
+          waterRise = dressed.rise;
+          streams.setStage(dressed.rise, dressed.spread);
+          grass?.setDry(dressed.dry);
+          for (const cover of grassCovers) cover.setDry(dressed.dry);
+          waterStageKey = `${dressed.rise.toFixed(3)}|${dressed.spread.toFixed(3)}`;
           arcBanner = who;
+          if (who === 'rush') holdView = rushView();
+          else holdView = creekView();
         } else {
           return false;
         }
         return true;
       },
+      enterDrift: () => {
+        const north = mines.find((mine) => mine.id === 'mine_north');
+        if (!north) return false;
+        interiorShot = false;
+        holdView = null;
+        dialogue = null;
+        north.tryUnlock(3);
+        character.group.visible = true;
+        character.placeAt(north.position.x, north.position.y + 0.15, north.position.z - 3.2);
+        character.setYaw(0);
+        return true;
+      },
+      standInDrift: (localZ: number) => {
+        const north = mines.find((mine) => mine.id === 'mine_north');
+        if (!north) return false;
+        north.tryUnlock(3);
+        holdView = null;
+        interiorShot = false;
+        character.placeAt(north.position.x, north.position.y + 0.15, north.position.z + localZ);
+        character.setYaw(0);
+        return true;
+      },
+      driftLocalZ: () => {
+        const north = mines.find((mine) => mine.id === 'mine_north');
+        if (!north) return 0;
+        return character.getPosition().z - north.position.z;
+      },
+      driftPhase: () => {
+        const north = mines.find((mine) => mine.id === 'mine_north');
+        return north ? driftPhase(north.group) : 'missing';
+      },
+      driftClock: () => {
+        const north = mines.find((mine) => mine.id === 'mine_north');
+        return north ? driftClock(north.group) : 0;
+      },
+      sceneView: (need: string[]) => {
+        wantBlack = true;
+        const hit = meshesInView(need);
+        return { black: blackRatio, present: hit.present, missing: hit.missing };
+      },
+      waterRise,
     };
     if (previous) previous.frameLuma = frameLuma;
   }
@@ -1735,13 +1892,21 @@ async function bootstrap(): Promise<void> {
             dt,
           );
           const northCam = mines.find((m) => m.id === 'mine_north');
-          if (interiorShot && northCam) {
-            const origin = northCam.position;
-            renderer.camera.position.set(origin.x + 1.15, origin.y + 1.35, origin.z - 2.15);
-            renderer.camera.lookAt(origin.x - 0.85, origin.y + 1.05, origin.z - 7.6);
+          const driftShow = northCam
+            ? frameDriftShow(northCam.group, northCam.position, renderer.camera)
+            : false;
+          if (!driftShow && northCam) {
+            if (northCam.isPlayerInside(charPosForCamera)) {
+              frameDriftWalk(northCam.position, charPosForCamera, renderer.camera);
+            } else if (interiorShot) {
+              frameDriftInterior(northCam.position, renderer.camera);
+            }
           }
-          if (northCam) frameDriftShow(northCam.group, northCam.position, renderer.camera);
           frameDialogue(dialogue, townArc, character.getPosition(), renderer.camera, chaseFov);
+          if (holdView) {
+            renderer.camera.position.set(holdView.x, holdView.y, holdView.z);
+            renderer.camera.lookAt(holdView.lx, holdView.ly, holdView.lz);
+          }
         }
       }
 
@@ -2042,6 +2207,7 @@ async function bootstrap(): Promise<void> {
         arcSave.fieldwork.campaign.savedTown,
       );
       const dressed = worldDress.update(arcSave.world.event.id, worldTime, dt);
+      waterRise = dressed.rise;
       const stageKey = `${dressed.rise.toFixed(3)}|${dressed.spread.toFixed(3)}`;
       if (stageKey !== waterStageKey) {
         waterStageKey = stageKey;
@@ -2973,6 +3139,10 @@ async function bootstrap(): Promise<void> {
       presentedFrames += 1;
       if (presentedFrames === 2) spawnGrass();
       frameLuma = samplePresentedLuma(renderer.renderer);
+      if (wantBlack) {
+        blackRatio = measurePresentedBlack(renderer.renderer);
+        wantBlack = false;
+      }
       drawCalls = renderer.renderer.info.render.calls;
       triangles = renderer.renderer.info.render.triangles;
       const shed = noteFrameTime(frameMs, playtestLock);
@@ -2989,6 +3159,8 @@ async function bootstrap(): Promise<void> {
         window.__themHills.triangles = triangles;
         window.__themHills.frameMs = frameMs;
         window.__themHills.frameBudget = frameBudget();
+        window.__themHills.waterRise = waterRise;
+        window.__themHills.blackRatio = blackRatio;
       }
     },
   });
@@ -3144,6 +3316,29 @@ function buildExclusionGrid(
 
 // Snapshot of the dialogue UI for the HUD: speaker, body line, and the list
 // of options with enabled state + optional disabled hints.
+function measurePresentedBlack(renderer: THREE.WebGLRenderer): number {
+  const gl = renderer.getContext();
+  const w = gl.drawingBufferWidth;
+  const h = gl.drawingBufferHeight;
+  if (w < 4 || h < 4) return 1;
+  const buf = new Uint8Array(w * h * 4);
+  gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+  let dark = 0;
+  let n = 0;
+  const step = 8;
+  for (let y = 0; y < h; y += step) {
+    for (let x = 0; x < w; x += step) {
+      const o = (y * w + x) * 4;
+      const r = buf[o] ?? 0;
+      const g = buf[o + 1] ?? 0;
+      const b = buf[o + 2] ?? 0;
+      n += 1;
+      if (Math.max(r, g, b) < 18) dark += 1;
+    }
+  }
+  return n === 0 ? 1 : dark / n;
+}
+
 function samplePresentedLuma(renderer: THREE.WebGLRenderer): number {
   const gl = renderer.getContext();
   const w = gl.drawingBufferWidth;
@@ -3230,9 +3425,11 @@ function frameDialogue(
   if (across.lengthSq() < 0.04) across.set(1, 0, 0);
   across.normalize();
   const side = new THREE.Vector3(-across.z, 0, across.x);
-  camera.position.set(mid.x + side.x * 3.15, mid.y + 1.55, mid.z + side.z * 3.15);
-  camera.lookAt(mid.x, mid.y + 1.2, mid.z);
-  camera.fov = 36;
+  // The mill's back wall faces -Z. A camera on that side fills the frame with timber.
+  if (id === 'silas' && side.z < 0) side.negate();
+  camera.position.set(mid.x + side.x * 4.6, mid.y + 1.75, mid.z + side.z * 4.6);
+  camera.lookAt(mid.x, mid.y + 1.4, mid.z);
+  camera.fov = 38;
   camera.updateProjectionMatrix();
 }
 

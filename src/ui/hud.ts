@@ -230,7 +230,7 @@ const STYLE = `
   .hud-info .meter {
     display: flex; align-items: center; gap: 8px;
   }
-  .hud-info .meter .label { width: 64px; }
+  .hud-info .meter .label { width: 72px; color: rgba(246, 237, 216, 0.88); }
   .hud-info .meter .bar {
     flex: 1;
     height: 6px;
@@ -523,15 +523,14 @@ const STYLE = `
     font-family: Palatino, 'Iowan Old Style', Palatino Linotype, Georgia, serif;
   }
   .hud-info {
-    background:
-      linear-gradient(180deg, rgba(42, 33, 24, 0.2), rgba(42, 33, 24, 0.55)),
-      rgba(28, 22, 16, 0.28);
-    border: 0;
-    box-shadow: none;
+    background: rgba(20, 16, 12, 0.92);
+    border: 1px solid rgba(226, 194, 122, 0.4);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
     backdrop-filter: none;
-    min-width: 0;
+    min-width: 168px;
     width: auto;
     padding: 8px 12px;
+    color: #f6edd8;
   }
   .hud-info .card-title, .hud-info .debug-row { display: none; }
   body[data-debug='1'] .hud-info .debug-row { display: block; }
@@ -681,6 +680,7 @@ const STYLE = `
     z-index: 13;
   }
   .hud-subtitles[hidden], .look-resume[hidden] { display: none; }
+  body[data-capture='1'] .look-resume { display: none !important; }
   .look-resume {
     position: fixed;
     top: 50%;
@@ -881,13 +881,13 @@ export function mountHud(root: HTMLElement, hooks: HudHooks = {}): MountedHud {
     lines[key] = row;
   }
 
-  makeRow(info, 'clock', '🕐 Time');
-  makeRow(info, 'weather', '☁ Weather');
-  makeRow(info, 'headlamp', '◉ Headlamp');
-  makeMeterRow(info, 'stamina', '⚡ Stamina');
-  makeMeterRow(info, 'hunger', '🍞 Hunger');
-  makeMeterRow(info, 'thirst', '💧 Thirst');
-  makeRow(info, 'comfort', '🔥 Comfort');
+  makeRow(info, 'clock', 'Time');
+  makeRow(info, 'weather', 'Weather');
+  makeRow(info, 'headlamp', 'Lamp');
+  makeMeterRow(info, 'stamina', 'Stamina');
+  makeMeterRow(info, 'hunger', 'Hunger');
+  makeMeterRow(info, 'thirst', 'Thirst');
+  makeRow(info, 'comfort', 'Comfort');
   makeDebugRow(info, 'position');
   makeDebugRow(info, 'state');
   makeDebugRow(info, 'device');
@@ -1061,7 +1061,8 @@ export function mountHud(root: HTMLElement, hooks: HudHooks = {}): MountedHud {
       }
       seenCarry = totalG;
       seenWallet = s.walletBalance;
-      lookResume.hidden = s.lookLocked || s.prospect !== null || s.store !== null || s.vendor !== null || s.dialogue !== null;
+      const capture = document.body.dataset.capture === '1';
+      lookResume.hidden = capture || s.lookLocked || s.prospect !== null || s.store !== null || s.vendor !== null || s.dialogue !== null;
 
       // Live spot price + source indicator (live = filled circle, cached =
       // half, baseline = empty). Updated by the spot-price service every 15 min.

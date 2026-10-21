@@ -22,6 +22,15 @@ interface Probe {
   machineCount?: number;
   activeViz?: string | null;
   applyShot?: (name: string) => boolean;
+  previewScene?: (who: string) => boolean;
+  enterDrift?: () => boolean;
+  standInDrift?: (localZ: number) => boolean;
+  driftLocalZ?: () => number;
+  driftPhase?: () => string;
+  driftClock?: () => number;
+  sceneView?: (need: string[]) => { black: number; present: string[]; missing: string[] };
+  waterRise?: number;
+  blackRatio?: number;
 }
 
 declare global {
@@ -39,6 +48,14 @@ declare global {
       lookAt?: (x: number, z: number) => void;
       spawnJumper?: () => boolean;
       playerPose?: { clip: string; bind: boolean };
+      previewScene?: (who: string) => boolean;
+      enterDrift?: () => boolean;
+      standInDrift?: (localZ: number) => boolean;
+      driftLocalZ?: () => number;
+      driftPhase?: () => string;
+      driftClock?: () => number;
+      sceneView?: (need: string[]) => { black: number; present: string[]; missing: string[] };
+      waterRise?: number;
     };
   }
 }
@@ -248,6 +265,16 @@ test('captures fixed cameras', async ({ page }) => {
     expect(budget.calls, `${shot} draw calls`).toBeLessThanOrEqual(budget.budgetCalls);
     expect(budget.tris, `${shot} triangles`).toBeGreaterThan(100);
     expect(budget.tris, `${shot} triangles`).toBeLessThanOrEqual(budget.budgetTris);
+    if (shot === 'lode') {
+      await page.waitForFunction(
+        () => {
+          const view = window.__themHills?.sceneView?.(['drift-shell', 'drift-lantern']);
+          return !!view && view.black < 0.9 && view.missing.length === 0;
+        },
+        undefined,
+        { timeout: 15_000 },
+      );
+    }
     await page.screenshot({ path: `test-results/visual/${shot}.png` });
   }
   expect(errors, errors.join('\n')).toEqual([]);
@@ -405,5 +432,140 @@ test('places machines on a claim and starts each one', async ({ page }) => {
     await page.evaluate(() => window.__themHills?.cancelProspect?.());
   }
   expect(spot.x + spot.z).not.toBeNaN();
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+test('drift, blast, cave-in, flood, and fire stay in frame', async ({ page }) => {
+  test.setTimeout(240_000);
+  const errors = trackErrors(page);
+  await page.goto('/?shot=spawn&freezeSave=1');
+  await waitReady(page);
+
+  const entered = await page.evaluate(() => window.__themHills?.enterDrift?.() ?? false);
+  expect(entered).toBe(true);
+  await page.waitForFunction(
+    () => {
+      const view = window.__themHills?.sceneView?.(['drift-shell', 'drift-lantern']);
+      return !!view && view.black < 0.9 && view.missing.length === 0;
+    },
+    undefined,
+    { timeout: 20_000 },
+  );
+
+  expect(await page.evaluate(() => window.__themHills?.previewScene?.('blast') ?? false)).toBe(true);
+  await page.waitForFunction(
+    () => {
+      const view = window.__themHills?.sceneView?.(['drift-shell', 'fuse-sparks']);
+      return !!view && view.black < 0.9 && view.missing.length === 0;
+    },
+    undefined,
+    { timeout: 30_000 },
+  );
+  await page.waitForFunction(
+    () => {
+      const view = window.__themHills?.sceneView?.(['drift-shell', 'drift-flash']);
+      return !!view && view.black < 0.9 && view.missing.length === 0;
+    },
+    undefined,
+    { timeout: 30_000 },
+  );
+  await page.waitForFunction(
+    () => {
+      const view = window.__themHills?.sceneView?.(['drift-shell', 'drift-ore']);
+      return !!view && view.black < 0.9 && view.missing.length === 0;
+    },
+    undefined,
+    { timeout: 40_000 },
+  );
+
+  expect(await page.evaluate(() => window.__themHills?.previewScene?.('cavein') ?? false)).toBe(true);
+  await page.waitForFunction(
+    () => {
+      const phase = window.__themHills?.driftPhase?.();
+      const clock = window.__themHills?.driftClock?.() ?? 0;
+      const view = window.__themHills?.sceneView?.(['drift-shell', 'drift-rubble']);
+      return phase === 'cave' && clock > 0.25 && clock < 1.15 && !!view && view.black < 0.9 && view.missing.length === 0;
+    },
+    undefined,
+    { timeout: 30_000 },
+  );
+  await page.waitForFunction(() => window.__themHills?.driftPhase?.() === 'buried', undefined, {
+    timeout: 30_000,
+  });
+
+  expect(await page.evaluate(() => window.__themHills?.standInDrift?.(-4.65) ?? false)).toBe(true);
+  await page.waitForFunction(() => (window.__themHills?.driftLocalZ?.() ?? -9) > -4.5, undefined, {
+    timeout: 10_000,
+  });
+  expect(await page.evaluate(() => window.__themHills?.standInDrift?.(-2.2) ?? false)).toBe(true);
+  await page.waitForTimeout(400);
+  const portalSide = await page.evaluate(() => {
+    const view = window.__themHills?.sceneView?.(['drift-shell']);
+    return {
+      z: window.__themHills?.driftLocalZ?.() ?? 0,
+      black: view?.black ?? 1,
+      missing: view?.missing ?? ['drift-shell'],
+    };
+  });
+  expect(portalSide.z).toBeLessThan(-1.4);
+  expect(portalSide.z).toBeGreaterThan(-3.2);
+  expect(portalSide.black).toBeLessThan(0.9);
+  expect(portalSide.missing).toEqual([]);
+
+  for (let i = 0; i < 4; i++) {
+    expect(await page.evaluate(() => window.__themHills?.previewScene?.('dig') ?? false)).toBe(true);
+  }
+  await page.waitForFunction(() => window.__themHills?.driftPhase?.() === 'idle', undefined, {
+    timeout: 10_000,
+  });
+  expect(await page.evaluate(() => window.__themHills?.standInDrift?.(-6.2) ?? false)).toBe(true);
+  await page.waitForTimeout(400);
+  const faceSide = await page.evaluate(() => window.__themHills?.driftLocalZ?.() ?? 0);
+  expect(faceSide).toBeLessThan(-5.6);
+
+  expect(await page.evaluate(() => window.__themHills?.previewScene?.('flood') ?? false)).toBe(true);
+  await page.waitForFunction(
+    () => {
+      const rise = window.__themHills?.waterRise ?? 0;
+      const view = window.__themHills?.sceneView?.(['water_coyote_creek', 'gravel-bars']);
+      return rise > 0.15 && !!view && view.black < 0.9 && view.missing.length === 0;
+    },
+    undefined,
+    { timeout: 20_000 },
+  );
+
+  expect(await page.evaluate(() => window.__themHills?.previewScene?.('rush') ?? false)).toBe(true);
+  await page.waitForFunction(
+    () => {
+      const view = window.__themHills?.sceneView?.(['rush-tents', 'rush-prospector', 'general_store']);
+      if (!view || view.black >= 0.9) return false;
+      const tents = view.present.includes('rush-tents') && view.present.includes('rush-prospector');
+      const storeOut = !view.present.includes('general_store');
+      return tents && storeOut;
+    },
+    undefined,
+    { timeout: 20_000 },
+  );
+
+  expect(await page.evaluate(() => window.__themHills?.previewScene?.('fire') ?? false)).toBe(true);
+  await page.waitForFunction(
+    () => {
+      const view = window.__themHills?.sceneView?.(['fire-shed', 'fire-flame']);
+      return !!view && view.black < 0.9 && view.missing.length === 0;
+    },
+    undefined,
+    { timeout: 20_000 },
+  );
+
+  expect(await page.evaluate(() => window.__themHills?.previewScene?.('quench') ?? false)).toBe(true);
+  await page.waitForFunction(
+    () => {
+      const view = window.__themHills?.sceneView?.(['fire-shed', 'fire-flame']);
+      return !!view && view.black < 0.9 && view.present.includes('fire-shed') && view.missing.includes('fire-flame');
+    },
+    undefined,
+    { timeout: 20_000 },
+  );
+
   expect(errors, errors.join('\n')).toEqual([]);
 });

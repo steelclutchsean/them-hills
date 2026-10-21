@@ -17,6 +17,8 @@ interface Bar {
 
 export interface WorldDress {
   update(eventId: string, time: number, dt: number): { rise: number; spread: number; dry: number };
+  /** Jump the dress to the settled state of an event. Gameplay still lerps. */
+  snap(eventId: string): { rise: number; spread: number; dry: number };
 }
 
 export function createWorldDress(
@@ -58,34 +60,46 @@ export function createWorldDress(
   const tents = new THREE.Group();
   tents.name = 'rush-tents';
   tents.visible = false;
+  // North of the store, in the open meadow the rush camera looks across.
   const tentSpots = [
-    [-18, 22],
-    [8, 18],
-    [4, 30],
-    [-16, 30],
-    [14, 26],
+    [-6, 21],
+    [-1, 24],
+    [3, 20],
+    [1, 27],
+    [6, 23],
   ];
-  const canvas = new THREE.MeshStandardMaterial({ color: 0xcbb892, roughness: 0.9, side: THREE.DoubleSide });
-  for (const [x, z] of tentSpots) {
+  const canvas = new THREE.MeshStandardMaterial({ color: 0xd8c4a0, roughness: 0.86, side: THREE.DoubleSide });
+  const ridge = new THREE.MeshStandardMaterial({ color: 0x6b4428, roughness: 0.9 });
+  tentSpots.forEach(([x, z], index) => {
     const tent = new THREE.Group();
+    tent.name = index === 0 ? 'rush-tent' : `rush-tent-${index}`;
     const y = groundY(x!, z!);
     tent.position.set(x!, y, z!);
-    const left = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.3), canvas);
-    left.rotation.z = 0.7;
-    left.position.set(-0.35, 0.7, 0);
-    const right = left.clone();
-    right.rotation.z = -0.7;
-    right.position.x = 0.35;
-    tent.add(left, right);
+    tent.rotation.y = index * 0.4;
+    const left = new THREE.Mesh(new THREE.BoxGeometry(0.08, 2.6, 2.8), canvas);
+    left.rotation.z = 0.62;
+    left.position.set(-0.62, 1.22, 0);
+    const right = new THREE.Mesh(new THREE.BoxGeometry(0.08, 2.6, 2.8), canvas);
+    right.rotation.z = -0.62;
+    right.position.set(0.62, 1.22, 0);
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.7, 5), ridge);
+    pole.rotation.z = Math.PI / 2;
+    pole.position.y = 2.35;
+    tent.add(left, right, pole);
     tents.add(tent);
-  }
+  });
   scene.add(tents);
 
-  const hands = [-1, 0, 1].map((i) => {
+  const hands = [
+    [0, 21.4],
+    [4, 22.6],
+    [-3, 23.2],
+  ].map(([x, z], i) => {
     const npc = spawnNpc(0xc4a574, 0x4a3420);
+    npc.name = i === 0 ? 'rush-prospector' : `rush-prospector-${i}`;
     npc.visible = false;
-    npc.position.set(24 + i * 3.2, groundY(24 + i * 3.2, 8 + i * 6), 8 + i * 6);
-    npc.rotation.y = -0.4;
+    npc.position.set(x!, groundY(x!, z!), z!);
+    npc.rotation.y = Math.PI / 2;
     scene.add(npc);
     return npc;
   });
@@ -113,20 +127,47 @@ export function createWorldDress(
   }
   placeBars(0);
 
+  function levels(): { rise: number; spread: number; dry: number } {
+    const rise = stage > 0 ? 0.12 + stage * 0.5 : stage * 0.4;
+    const spread = 1 + (stage > 0 ? stage * 0.4 : stage * 0.28);
+    return { rise, spread, dry };
+  }
+
+  function showRush(time: number): void {
+    tents.visible = true;
+    hands.forEach((npc, i) => {
+      npc.visible = true;
+      poseNpc(npc, time, 'shovel', i);
+    });
+  }
+
   return {
+    snap(eventId) {
+      stage = eventId === 'flood' ? 1 : eventId === 'drought' ? -1 : 0;
+      dry = eventId === 'drought' ? 1 : 0;
+      placeBars(Math.max(0, stage));
+      if (eventId === 'rush') showRush(0);
+      else {
+        tents.visible = false;
+        hands.forEach((npc) => {
+          npc.visible = false;
+        });
+      }
+      return levels();
+    },
     update(eventId, time, dt) {
       const target = eventId === 'flood' ? 1 : eventId === 'drought' ? -1 : 0;
       stage += (target - stage) * Math.min(1, dt * 0.45);
       dry += ((eventId === 'drought' ? 1 : 0) - dry) * Math.min(1, dt * 0.35);
       placeBars(Math.max(0, stage));
-      tents.visible = eventId === 'rush';
-      hands.forEach((npc, i) => {
-        npc.visible = eventId === 'rush';
-        if (npc.visible) poseNpc(npc, time, 'shovel', i);
-      });
-      const rise = stage > 0 ? 0.12 + stage * 0.5 : stage * 0.4;
-      const spread = 1 + (stage > 0 ? stage * 0.4 : stage * 0.28);
-      return { rise, spread, dry };
+      if (eventId === 'rush') showRush(time);
+      else {
+        tents.visible = false;
+        hands.forEach((npc) => {
+          npc.visible = false;
+        });
+      }
+      return levels();
     },
   };
 }

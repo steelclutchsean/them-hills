@@ -77,6 +77,19 @@ export interface ThemHillsProbe {
   applyShot?: (name: string) => boolean;
   /** Open a story card or a world-event preview for capture. */
   previewScene?: (who: string) => boolean;
+  /** Walk the player into the north drift and use the interior eye camera. */
+  enterDrift?: () => boolean;
+  standInDrift?: (localZ: number) => boolean;
+  driftLocalZ?: () => number;
+  driftPhase?: () => string;
+  driftClock?: () => number;
+  /**
+   * Last presented frame's near-black ratio, plus which of `need` are in the frustum.
+   * A capture fails when `black` is above 0.9 or `missing` is not empty.
+   */
+  sceneView?: (need: string[]) => { black: number; present: string[]; missing: string[] };
+  waterRise?: number;
+  blackRatio?: number;
   /** Live clip. `bind` is true only when an arm is back in the T-pose. */
   playerPose: { clip: string; bind: boolean };
 }
