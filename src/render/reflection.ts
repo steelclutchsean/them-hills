@@ -165,11 +165,15 @@ export function createWaterReflection(): WaterReflection {
         return;
       }
       tick += 1;
-      // Screen-space on the software path: draw the banks from this camera,
-      // and let the water shader flip that picture across the horizon.
-      // The reflected camera sat under the plane and the water never sampled
-      // the trunks. Real GPUs keep the projective mirror.
-      reflectionUniforms.uMirrorMode.value = treesOnly ? 1 : 0;
+      // Software GL flips the frame the beauty pass already drew. A second
+      // render of the trees kept the main thread busy long enough that the
+      // boot screen never went idle. Real GPUs keep the projective mirror.
+      if (treesOnly) {
+        reflectionUniforms.uMirrorMode.value = 1;
+        reflectionUniforms.uHasReflect.value = 0;
+        return;
+      }
+      reflectionUniforms.uMirrorMode.value = 0;
       if (tick % stride !== 0) return;
 
       virtual.layers.set(treesOnly ? TREE_MIRROR_LAYER : REFLECTION_LAYER);
