@@ -957,6 +957,7 @@ async function bootstrap(): Promise<void> {
   let driftLit = false;
   let waterRise = 0;
   let holdView: { x: number; y: number; z: number; lx: number; ly: number; lz: number } | null = null;
+  let foliageLook: THREE.Vector3 | null = null;
   const viewFrustum = new THREE.Frustum();
   const viewProj = new THREE.Matrix4();
   const viewBox = new THREE.Box3();
@@ -2146,9 +2147,9 @@ async function bootstrap(): Promise<void> {
                 : undefined;
             clearSceneCamera(renderer.camera.position, sceneLook, sceneSubjects, keepFront);
             renderer.camera.lookAt(sceneLook);
-            fadeFoliageNear(renderer.camera.position, 9, sceneLook);
+            foliageLook = sceneLook.clone();
           } else {
-            fadeFoliageNear(null);
+            foliageLook = null;
           }
         }
       }
@@ -2485,6 +2486,7 @@ async function bootstrap(): Promise<void> {
       const sunDirWorld = renderer.followSun(charPos);
       renderer.syncFrame(worldTime, sunDirWorld);
       updateScatterWind(worldTime, charPos, renderer.camera.position, renderer.sun.intensity);
+      fadeFoliageNear(foliageLook ? renderer.camera.position : null, 12, foliageLook);
       updateTownDressing(worldTime, renderer.camera);
       updateTownLights(sunDirWorld.y);
       setFoliageWindTime(worldTime);

@@ -420,15 +420,12 @@ export function fadeFoliageNear(
     const dy = node.obj.position.y + 1.6 - camera.y;
     const dz = node.obj.position.z - camera.z;
     const dist = Math.hypot(dx, dy, dz);
+    const along = dist > 0.001 ? (dx * aimX + dy * aimY + dz * aimZ) / dist : 0;
     const inLens = dist * dist <= radiusSq;
-    const inView =
-      look !== null &&
-      node.kind === 'tree' &&
-      dist > 0.4 &&
-      dist < 18 &&
-      (dx * aimX + dy * aimY + dz * aimZ) / dist > 0.62;
-    if (!inLens && !inView) continue;
-    const fade = inView || dist < 4.5 ? 1 : 1 - (dist - 4.5) / Math.max(0.2, radius - 4.5);
+    const closeTree = look !== null && node.kind === 'tree' && dist < 14;
+    const inView = look !== null && node.kind === 'tree' && dist > 0.4 && dist < 16 && along > 0.4;
+    if (!inLens && !inView && !closeTree) continue;
+    const fade = inView || closeTree || dist < 4.5 ? 1 : 1 - (dist - 4.5) / Math.max(0.2, radius - 4.5);
     node.obj.traverse((obj) => {
       if (!(obj instanceof THREE.Mesh)) return;
       const current = obj.material;
