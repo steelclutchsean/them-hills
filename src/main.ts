@@ -1028,13 +1028,14 @@ async function bootstrap(): Promise<void> {
 
   function shedView(distance: number): { x: number; y: number; z: number; lx: number; ly: number; lz: number } {
     const p = townArc.firePos;
+    // East of the shed. The red crown that fills a south camera sits on the west side.
     return {
-      x: p.x + 1.4,
-      y: p.y + 3.3,
-      z: p.z + distance,
-      lx: p.x - 0.2,
-      ly: p.y + 2.7,
-      lz: p.z,
+      x: p.x + distance,
+      y: p.y + 3.5,
+      z: p.z + 2.6,
+      lx: p.x - 0.3,
+      ly: p.y + 2.8,
+      lz: p.z + 0.3,
     };
   }
 
@@ -2141,10 +2142,13 @@ async function bootstrap(): Promise<void> {
           }
           if (sceneSubjects.length > 0) {
             const mill = townArc.millPos;
+            const fire = townArc.firePos;
             const keepFront =
               dialogue?.treeId === 'silas'
                 ? (pos: THREE.Vector3) => pos.z > mill.z + 7 && pos.x > mill.x + 1.5
-                : undefined;
+                : arcBanner === 'fire'
+                  ? (pos: THREE.Vector3) => pos.x > fire.x + 3.5
+                  : undefined;
             clearSceneCamera(renderer.camera.position, sceneLook, sceneSubjects, keepFront);
             renderer.camera.lookAt(sceneLook);
             foliageLook = sceneLook.clone();
