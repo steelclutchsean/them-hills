@@ -116,8 +116,8 @@ async function bakeTreeCard(source: THREE.Object3D): Promise<void> {
   box.getSize(size);
   box.getCenter(center);
   if (size.y < 0.2) return;
-  const widthPx = 256;
-  const heightPx = 512;
+  const widthPx = 128;
+  const heightPx = 256;
   const aspect = widthPx / heightPx;
   const pad = 1.06;
   let halfH = (size.y * pad) / 2;
@@ -139,7 +139,7 @@ async function bakeTreeCard(source: THREE.Object3D): Promise<void> {
   rt.texture.generateMipmaps = true;
   rt.texture.minFilter = THREE.LinearMipmapLinearFilter;
   rt.texture.magFilter = THREE.LinearFilter;
-  rt.texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  rt.texture.anisotropy = 4;
   const cam = new THREE.OrthographicCamera(-halfW, halfW, halfH, -halfH, 0.05, 80);
   cam.position.set(center.x, center.y, center.z + Math.max(size.z, 1) + 6);
   cam.lookAt(center);

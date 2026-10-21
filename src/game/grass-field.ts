@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { bindFrameUniforms, FRAME_UNIFORM_GLSL } from '@/render/frame-uniforms';
-import { PALETTE } from '@/render/palette';
+import { groundMaps } from '@/render/painterly';
 import type { Terrain } from './terrain';
 import { createRng } from './rng';
 
@@ -332,6 +332,7 @@ export function createStoneCover(
   const { count, extent, reject, seed = 0xc3 } = opts;
   const geom = new THREE.IcosahedronGeometry(0.07, 0);
   const mat = new THREE.MeshStandardMaterial({
+    map: groundMaps().rock,
     color: 0xffffff,
     roughness: 0.94,
     metalness: 0.02,
@@ -344,8 +345,6 @@ export function createStoneCover(
   const dummy = new THREE.Object3D();
   const color = new THREE.Color();
   const rng = createRng(seed);
-  const rock = new THREE.Color(PALETTE.rock);
-  const dark = new THREE.Color(PALETTE.dirtDeep);
   let placed = 0;
   let attempts = 0;
   while (placed < count && attempts < count * 8) {
@@ -360,7 +359,8 @@ export function createStoneCover(
     dummy.scale.set(s, s * (0.32 + rng.next() * 0.38), s * (0.8 + rng.next() * 0.4));
     dummy.updateMatrix();
     mesh.setMatrixAt(placed, dummy.matrix);
-    color.copy(rock).lerp(dark, rng.next() * 0.55);
+    const tone = 0.78 + rng.next() * 0.34;
+    color.setRGB(tone, tone * 0.96, tone * 0.88);
     mesh.setColorAt(placed, color);
     placed++;
   }

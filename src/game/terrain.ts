@@ -266,10 +266,12 @@ const TERRAIN_FS = /* glsl */ `
     float sumW = max(grassW + dirtW + gravelW + rockW, 1e-3);
     vec3 tex = (grass * grassW + dirt * dirtW + gravel * gravelW + rock * rockW) / sumW;
     // A separate high-frequency map, only inside about 30 m. Resampling the
-    // broad tile up close was the smeared streak.
+    // broad tile up close was the smeared streak. Skip the fetches past that.
     float detailW = 1.0 - smoothstep(6.0, 30.0, distance(cameraPosition, vWorld));
-    vec3 detail = triplanarScaled(uDetail, vWorld, n0, 3.4);
-    tex *= mix(vec3(1.0), detail * 1.45, detailW * 0.72);
+    if (detailW > 0.02) {
+      vec3 detail = triplanarScaled(uDetail, vWorld, n0, 3.4);
+      tex *= mix(vec3(1.0), detail * 1.45, detailW * 0.72);
+    }
 
     // Vertex color is a mild biome brightness, not a second photograph.
     vec3 albedo = tex * mix(vec3(1.08), vColor * 1.15, 0.12);
