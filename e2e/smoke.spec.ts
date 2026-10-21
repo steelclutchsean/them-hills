@@ -224,7 +224,9 @@ test('plays the prospect loop and reloads the save', async ({ page }) => {
 });
 
 test('captures fixed cameras', async ({ page }) => {
-  test.setTimeout(360_000);
+  // Eleven SwiftShader readbacks. The lode shot clears its budget check and then
+  // the canvas screenshot; 6 minutes ran out on that last readback.
+  test.setTimeout(480_000);
   const errors = trackErrors(page);
   const shots = [
     'spawn',
