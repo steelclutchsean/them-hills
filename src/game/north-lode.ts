@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { hewnTimberMaterial } from '@/render/painterly';
+import { softDiscTexture } from '@/render/soft-disc';
 
 // Enclosed north drift. One carved tube, triplanar rock, timber sets,
 // lanterns, dust in the beams, drips, and quartz grown in the wall.
@@ -23,6 +25,11 @@ interface Rig {
   caps: THREE.InstancedMesh;
   postHome: THREE.Matrix4[];
   capHome: THREE.Matrix4[];
+  lagging: THREE.InstancedMesh;
+  lagHome: THREE.Matrix4[];
+  wedges: THREE.InstancedMesh;
+  wedgeHome: THREE.Matrix4[];
+  floorLights: THREE.PointLight[];
   drips: THREE.BufferAttribute;
   drip0: Float32Array;
   bearer: THREE.PointLight;
@@ -120,6 +127,45 @@ function rockMaps(): { albedo: THREE.CanvasTexture; normal: THREE.CanvasTexture 
   normalTex.wrapS = THREE.RepeatWrapping;
   normalTex.wrapT = THREE.RepeatWrapping;
   return { albedo, normal: normalTex };
+}
+
+function muckMaterial(): THREE.MeshStandardMaterial {
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('[drift] no 2d context');
+  ctx.fillStyle = '#3a2c22';
+  ctx.fillRect(0, 0, size, size);
+  for (let i = 0; i < 240; i++) {
+    const x = (i * 53) % size;
+    const y = (i * 31) % size;
+    const tone = 42 + (i % 6) * 8;
+    ctx.fillStyle = `rgba(${tone + 10}, ${tone - 4}, ${tone - 14}, 0.45)`;
+    ctx.beginPath();
+    ctx.ellipse(x, y, 6 + (i % 5), 3 + (i % 3), i * 0.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.strokeStyle = 'rgba(18, 14, 10, 0.55)';
+  ctx.lineWidth = 2;
+  for (let i = 0; i < 8; i++) {
+    ctx.beginPath();
+    ctx.moveTo(0, (i * 17) % size);
+    ctx.bezierCurveTo(40, 20 + i * 8, 80, 60 - i * 4, size, (i * 23) % size);
+    ctx.stroke();
+  }
+  const map = new THREE.CanvasTexture(canvas);
+  map.wrapS = THREE.RepeatWrapping;
+  map.wrapT = THREE.RepeatWrapping;
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.repeat.set(2.2, 3.4);
+  return new THREE.MeshStandardMaterial({
+    map,
+    color: 0x6a5344,
+    roughness: 0.72,
+    metalness: 0.06,
+  });
 }
 
 function rockMaterial(): THREE.MeshStandardMaterial {
@@ -271,30 +317,76 @@ function quartzCrystals(): THREE.Group {
   return group;
 }
 
-function layTimber(rig: { posts: THREE.InstancedMesh; caps: THREE.InstancedMesh; postHome: THREE.Matrix4[]; capHome: THREE.Matrix4[] }): void {
-  const postCount = 10;
-  for (let i = 0; i < 5; i++) {
+function layTimber(rig: {
+  posts: THREE.InstancedMesh;
+  caps: THREE.InstancedMesh;
+  postHome: THREE.Matrix4[];
+  capHome: THREE.Matrix4[];
+  lagging: THREE.InstancedMesh;
+  lagHome: THREE.Matrix4[];
+  wedges: THREE.InstancedMesh;
+  wedgeHome: THREE.Matrix4[];
+}): void {
+  const sets = 5;
+  for (let i = 0; i < sets; i++) {
     const z = -1.7 - i * 1.5;
     for (const side of [-1, 1]) {
       const index = i * 2 + (side < 0 ? 0 : 1);
-      dummy.position.set(side * 1.05, 1.2, z);
-      dummy.rotation.set(0, 0, 0);
-      dummy.scale.set(1, 1, 1);
+      dummy.position.set(side * 1.08, 1.22, z);
+      dummy.rotation.set(0, (index % 3) * 0.02, 0);
+      dummy.scale.set(0.92 + (index % 3) * 0.06, 1, 0.9 + (index % 2) * 0.1);
       dummy.updateMatrix();
       rig.posts.setMatrixAt(index, dummy.matrix);
       rig.postHome[index] = dummy.matrix.clone();
+
+      dummy.position.set(side * 0.62, 2.02, z);
+      dummy.rotation.set(0, 0, side * 0.78);
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      rig.wedges.setMatrixAt(index, dummy.matrix);
+      rig.wedgeHome[index] = dummy.matrix.clone();
     }
-    dummy.position.set(0, 2.42, z);
+    dummy.position.set(0, 2.46, z);
     dummy.rotation.set(0, 0, 0);
     dummy.scale.set(1, 1, 1);
     dummy.updateMatrix();
     rig.caps.setMatrixAt(i, dummy.matrix);
     rig.capHome[i] = dummy.matrix.clone();
   }
-  rig.posts.count = postCount;
-  rig.caps.count = 5;
+
+  let lag = 0;
+  const courses = [0.34, 0.6, 0.86, 1.12, 1.38, 1.64, 1.9, 2.14];
+  for (let i = 0; i < sets - 1; i++) {
+    const z = -1.7 - i * 1.5 - 0.75;
+    for (const side of [-1, 1]) {
+      for (const y of courses) {
+        dummy.position.set(side * 1.24, y, z);
+        dummy.rotation.set(0, 0, Math.PI / 2);
+        dummy.scale.set(1, 1, 0.96 + (lag % 3) * 0.03);
+        dummy.updateMatrix();
+        rig.lagging.setMatrixAt(lag, dummy.matrix);
+        rig.lagHome[lag] = dummy.matrix.clone();
+        lag += 1;
+      }
+    }
+    for (let b = 0; b < 7; b++) {
+      dummy.position.set(-0.9 + b * 0.28, 2.28, z);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      rig.lagging.setMatrixAt(lag, dummy.matrix);
+      rig.lagHome[lag] = dummy.matrix.clone();
+      lag += 1;
+    }
+  }
+  rig.posts.count = sets * 2;
+  rig.caps.count = sets;
+  rig.wedges.count = sets * 2;
+  rig.lagging.count = lag;
   rig.posts.instanceMatrix.needsUpdate = true;
   rig.caps.instanceMatrix.needsUpdate = true;
+  rig.wedges.instanceMatrix.needsUpdate = true;
+  rig.lagging.instanceMatrix.needsUpdate = true;
 }
 
 export function dressNorthLode(group: THREE.Group): void {
@@ -309,18 +401,68 @@ export function dressNorthLode(group: THREE.Group): void {
   quartz.name = 'drift-quartz';
   group.add(quartz);
 
-  const wood = new THREE.MeshStandardMaterial({ color: 0x6b4a28, roughness: 0.9 });
-  const aged = new THREE.MeshStandardMaterial({ color: 0x4a3018, roughness: 0.95 });
-  const posts = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.09, 0.11, 2.45, 6), wood, 10);
+  const wood = hewnTimberMaterial();
+  const aged = hewnTimberMaterial().clone();
+  aged.color.set(0x8a6240);
+  const posts = new THREE.InstancedMesh(new THREE.BoxGeometry(0.24, 2.32, 0.24), wood, 10);
   posts.name = 'drift-posts';
   posts.castShadow = true;
-  const caps = new THREE.InstancedMesh(new THREE.BoxGeometry(2.35, 0.14, 0.18), aged, 5);
+  posts.receiveShadow = true;
+  const caps = new THREE.InstancedMesh(new THREE.BoxGeometry(2.55, 0.22, 0.26), aged, 5);
   caps.name = 'drift-caps';
   caps.castShadow = true;
-  group.add(posts, caps);
+  caps.receiveShadow = true;
+  const wedges = new THREE.InstancedMesh(new THREE.BoxGeometry(0.12, 0.78, 0.16), wood, 10);
+  wedges.name = 'drift-wedges';
+  wedges.castShadow = true;
+  const lagging = new THREE.InstancedMesh(new THREE.BoxGeometry(0.3, 0.07, 1.3), aged, 120);
+  lagging.name = 'drift-lagging';
+  lagging.castShadow = true;
+  lagging.receiveShadow = true;
+  group.add(posts, caps, wedges, lagging);
   const postHome: THREE.Matrix4[] = [];
   const capHome: THREE.Matrix4[] = [];
-  layTimber({ posts, caps, postHome, capHome });
+  const lagHome: THREE.Matrix4[] = [];
+  const wedgeHome: THREE.Matrix4[] = [];
+  layTimber({ posts, caps, postHome, capHome, lagging, lagHome, wedges, wedgeHome });
+
+  const muck = muckMaterial();
+  const floor = new THREE.Mesh(new THREE.BoxGeometry(2.85, 0.1, 8.7), muck);
+  floor.name = 'drift-muck';
+  floor.position.set(0, 0.08, -4.85);
+  floor.receiveShadow = true;
+  group.add(floor);
+  const puddleMat = new THREE.MeshStandardMaterial({
+    color: 0x1c2428,
+    roughness: 0.05,
+    metalness: 0.62,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
+  });
+  const puddleGeom = new THREE.CircleGeometry(1, 14);
+  puddleGeom.rotateX(-Math.PI / 2);
+  const puddles: [number, number, number, number][] = [
+    [-0.15, -3.15, 0.42, 0.7],
+    [0.22, -4.55, 0.55, 1],
+    [-0.28, -6.15, 0.38, 0.85],
+    [0.08, -7.45, 0.48, 0.75],
+  ];
+  for (const [x, z, rx, rz] of puddles) {
+    const puddle = new THREE.Mesh(puddleGeom, puddleMat);
+    puddle.position.set(x, 0.145, z);
+    puddle.scale.set(rx, 1, rz);
+    puddle.receiveShadow = true;
+    group.add(puddle);
+  }
+  const floorLights: THREE.PointLight[] = [];
+  for (const z of [-3.1, -5.4, -7.5]) {
+    const fill = new THREE.PointLight(0xffd2a4, 3.1, 5.2, 2);
+    fill.position.set(0, 0.72, z);
+    fill.castShadow = false;
+    floorLights.push(fill);
+    group.add(fill);
+  }
 
   const lampMat = new THREE.MeshStandardMaterial({
     color: 0xffe1a8,
@@ -355,28 +497,33 @@ export function dressNorthLode(group: THREE.Group): void {
   const dropPts = new THREE.Points(
     dripGeom,
     new THREE.PointsMaterial({
-      color: 0xc5e7f2,
-      size: 0.045,
+      color: 0xd5ebe8,
+      size: 0.08,
+      map: softDiscTexture(),
       transparent: true,
-      opacity: 0.85,
+      opacity: 0.72,
       depthWrite: false,
+      sizeAttenuation: true,
+      alphaTest: 0.02,
     }),
   );
   dropPts.name = 'drift-drips';
   group.add(dropPts);
 
-  const railMat = new THREE.MeshStandardMaterial({ color: 0x3a3532, roughness: 0.65, metalness: 0.45 });
-  const railGeom = new THREE.BoxGeometry(0.05, 0.04, 7.6);
+  const railMat = new THREE.MeshStandardMaterial({ color: 0xa39e96, roughness: 0.28, metalness: 0.74 });
+  const railGeom = new THREE.BoxGeometry(0.06, 0.05, 7.6);
   const leftRail = new THREE.Mesh(railGeom, railMat);
-  leftRail.position.set(-0.28, 0.1, -4.6);
+  leftRail.position.set(-0.28, 0.2, -4.6);
+  leftRail.receiveShadow = true;
   const rightRail = new THREE.Mesh(railGeom, railMat);
-  rightRail.position.set(0.28, 0.1, -4.6);
+  rightRail.position.set(0.28, 0.2, -4.6);
+  rightRail.receiveShadow = true;
   group.add(leftRail, rightRail);
   const tieGeom = new THREE.BoxGeometry(0.9, 0.04, 0.1);
   const tieMat = new THREE.MeshStandardMaterial({ color: 0x5a3b22, roughness: 0.95 });
   const ties = new THREE.InstancedMesh(tieGeom, tieMat, 8);
   for (let i = 0; i < 8; i++) {
-    dummy.position.set(0, 0.05, -1.5 - i * 0.95);
+    dummy.position.set(0, 0.16, -1.5 - i * 0.95);
     dummy.rotation.set(0, 0, 0);
     dummy.scale.set(1, 1, 1);
     dummy.updateMatrix();
@@ -391,7 +538,7 @@ export function dressNorthLode(group: THREE.Group): void {
   );
   bed.position.y = 0.32;
   cart.add(bed);
-  cart.position.set(0, 0.08, -3.4);
+  cart.position.set(0, 0.16, -3.4);
   group.add(cart);
 
   const bearer = new THREE.PointLight(0xffe2cc, 0, 4.6, 2);
@@ -404,10 +551,14 @@ export function dressNorthLode(group: THREE.Group): void {
     sparkGeom,
     new THREE.PointsMaterial({
       color: 0xfff6d2,
-      size: 0.55,
+      size: 0.28,
+      map: softDiscTexture(),
       transparent: true,
       opacity: 0,
       depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      sizeAttenuation: true,
+      alphaTest: 0.02,
     }),
   );
   sparks.name = 'fuse-sparks';
@@ -511,6 +662,11 @@ export function dressNorthLode(group: THREE.Group): void {
     caps,
     postHome,
     capHome,
+    lagging,
+    lagHome,
+    wedges,
+    wedgeHome,
+    floorLights,
     drips,
     drip0,
     bearer,
@@ -589,6 +745,21 @@ function dropTimber(rig: Rig, fall: number): void {
   });
   rig.posts.instanceMatrix.needsUpdate = true;
   rig.caps.instanceMatrix.needsUpdate = true;
+  const sag = (homes: THREE.Matrix4[], mesh: THREE.InstancedMesh, drop: number, tilt: number) => {
+    homes.forEach((home, i) => {
+      dummy.matrix.copy(home);
+      dummy.matrix.decompose(dummy.position, dummy.quaternion, dummy.scale);
+      const side = i % 2 === 0 ? -1 : 1;
+      dummy.position.y -= fall * drop;
+      dummy.rotateX(fall * tilt * 0.45);
+      dummy.rotateZ(side * fall * tilt);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+  };
+  sag(rig.lagHome, rig.lagging, 0.55, 0.35);
+  sag(rig.wedgeHome, rig.wedges, 0.9, 0.8);
 }
 
 export function driftOf(group: THREE.Group): Rig | undefined {
@@ -733,7 +904,7 @@ function paintSparks(rig: Rig, along: number): void {
   attr.needsUpdate = true;
   const mat = rig.sparks.material as THREE.PointsMaterial;
   mat.color.set(0xfff6d2);
-  mat.size = 0.55;
+  mat.size = 0.28;
   mat.opacity = show ? 1 : 0;
   rig.sparks.children.forEach((child, i) => {
     const trail = i / Math.max(1, rig.sparks.children.length - 1);
@@ -753,6 +924,9 @@ export function updateNorthLode(group: THREE.Group, time: number, creak: number,
   rig.lamps.forEach((lamp) => {
     const mat = lamp.material as THREE.MeshStandardMaterial;
     mat.emissiveIntensity = 0.7 + flicker * 0.45;
+  });
+  rig.floorLights.forEach((light, i) => {
+    light.intensity = 3.05 + Math.sin(time * 5.5 + i) * 0.28;
   });
   for (let i = 0; i < rig.drip0.length / 3; i++) {
     const speed = 0.85 + (i % 4) * 0.2;

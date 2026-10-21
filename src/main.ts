@@ -356,12 +356,15 @@ async function bootstrap(): Promise<void> {
   // Grass is built after the first frames so its shader and the 5k
   // instances don't sit on the critical path to the first picture.
   let grass: ReturnType<typeof createGrassField> | null = null;
+  // Filled in once the mine mouths exist. The drift is cut into the
+  // hillside, so meadow blades at those xz grow through the floor.
+  let inDriftCut = (_x: number, _z: number): boolean => false;
   function spawnGrass(): void {
     if (grass) return;
     grass = createGrassField(terrain, {
       count: QUALITY_PRESETS.ultra.grassTall,
       extent: 95,
-      reject: (x, z) => streams.isInStreamZone(x, z, 0.5),
+      reject: (x, z) => streams.isInStreamZone(x, z, 0.5) || inDriftCut(x, z),
       seed: 0xa9,
       baseColor: { r: [0.22, 0.32], g: [0.28, 0.36], b: [0.08, 0.12] },
       tipColor: { r: [0.82, 0.94], g: [0.68, 0.8], b: [0.22, 0.32] },
@@ -409,6 +412,14 @@ async function bootstrap(): Promise<void> {
   const mines: MineInfo[] = MINE_CONFIGS.map((cfg) =>
     createMineEntrance(renderer.scene, physics.rapier, (x, z) => terrain.getHeightAt(x, z), cfg),
   );
+  inDriftCut = (x, z) => {
+    for (const cfg of MINE_CONFIGS) {
+      const dx = Math.abs(x - cfg.x);
+      const dz = z - cfg.z;
+      if (dx < 3.4 && dz < 1.6 && dz > -11.6) return true;
+    }
+    return false;
+  };
   // Auto-open any mine the player already qualifies for at boot, so they
   // don't get re-blocked after returning to a save where they'd unlocked
   // these mines previously.
@@ -463,7 +474,7 @@ async function bootstrap(): Promise<void> {
   // ray-cast and the character controller are unaffected.
   const inSpawnClearing = (x: number, z: number): boolean => Math.hypot(x, z) < 5;
   const reject = (x: number, z: number): boolean =>
-    streams.isInStreamZone(x, z, 1.5) || inSpawnClearing(x, z);
+    streams.isInStreamZone(x, z, 1.5) || inSpawnClearing(x, z) || inDriftCut(x, z);
 
   // Coyote-Creek-flanking pebble bands. Buckeye Run gets its own seed below.
   const COYOTE = courseById(courses, 'coyote_creek');
@@ -595,7 +606,8 @@ async function bootstrap(): Promise<void> {
         // than fresh prairie growth.
         baseColor: { r: [0.2, 0.3], g: [0.26, 0.34], b: [0.08, 0.12] },
         tipColor: { r: [0.78, 0.9], g: [0.64, 0.76], b: [0.2, 0.3] },
-        reject: (x, z) => streams.isInStreamZone(x, z, 0.5) || exclusion.isExcluded(x, z),
+        reject: (x, z) =>
+          streams.isInStreamZone(x, z, 0.5) || exclusion.isExcluded(x, z) || inDriftCut(x, z),
       });
       renderer.scene.add(grassCover.mesh);
       grassCover.setCount(RENDER_QUALITY.grassCover);
@@ -1046,14 +1058,15 @@ async function bootstrap(): Promise<void> {
     lz: number;
   } {
     const p = townArc.firePos;
-    // East of the shed. The red crown that fills a south camera sits on the west side.
+    // High and southeast. A low east camera sits in the creek boulder
+    // and that rock fills the bottom of the frame.
     return {
-      x: p.x + distance,
-      y: p.y + 3.5,
-      z: p.z + 2.6,
-      lx: p.x - 0.3,
-      ly: p.y + 2.8,
-      lz: p.z + 0.3,
+      x: p.x + distance + 1.6,
+      y: p.y + 7.4,
+      z: p.z + 6.8,
+      lx: p.x - 0.15,
+      ly: p.y + 2.05,
+      lz: p.z + 0.05,
     };
   }
 
@@ -1158,17 +1171,21 @@ async function bootstrap(): Promise<void> {
       [0.32, 0.1],
       [-0.18, 0.24],
       [0.18, 0.24],
+      [0, -0.28],
+      [-0.34, -0.46],
+      [0.34, -0.46],
+      [0, -0.62],
     ];
     let hits = 0;
     for (const [ox, oy] of offsets) {
       fanDir.copy(fanForward).addScaledVector(fanRight, ox).addScaledVector(fanUp, oy).normalize();
       sceneRay.set(cam, fanDir);
       sceneRay.near = 0.15;
-      sceneRay.far = 12;
+      sceneRay.far = oy < -0.15 ? 18 : 12;
       const hit = sceneRay
         .intersectObjects(roots, true)
         .find((entry) => solidOccluder(entry.object));
-      if (hit) hits++;
+      if (hit) hits += oy < -0.15 && hit.distance < 9 ? 4 : 1;
     }
     return hits;
   }
@@ -2173,10 +2190,10 @@ async function bootstrap(): Promise<void> {
               );
               if (who === 'silas') {
                 const mill = townArc.millPos;
-                sceneSubjects.push(new THREE.Vector3(mill.x - 4.4, mill.y + 2.8, mill.z + 0.2));
-                sceneSubjects.push(new THREE.Vector3(mill.x, mill.y + 2.4, mill.z + 0.4));
-                renderer.camera.position.set(mill.x + 7.2, mill.y + 3.1, mill.z + 11.2);
-                sceneLook.set(mill.x - 0.6, mill.y + 2.5, mill.z + 1.0);
+                sceneSubjects.push(new THREE.Vector3(mill.x - 5.4, mill.y + 3.3, mill.z + 0.3));
+                sceneSubjects.push(new THREE.Vector3(mill.x + 0.4, mill.y + 2.2, mill.z + 1.6));
+                renderer.camera.position.set(mill.x + 8.6, mill.y + 3.8, mill.z + 13.2);
+                sceneLook.set(mill.x - 1.4, mill.y + 2.7, mill.z + 0.6);
               } else {
                 sceneLook.copy(player).add(npc).multiplyScalar(0.5);
                 sceneLook.y += 1.3;
@@ -2190,7 +2207,8 @@ async function bootstrap(): Promise<void> {
               dialogue?.treeId === 'silas'
                 ? (pos: THREE.Vector3) => pos.z > mill.z + 7 && pos.x > mill.x + 1.5
                 : arcBanner === 'fire'
-                  ? (pos: THREE.Vector3) => pos.x > fire.x + 3.5
+                  ? (pos: THREE.Vector3) =>
+                      pos.x > fire.x + 4 && pos.z > fire.z + 3.2 && pos.y > fire.y + 5.4
                   : undefined;
             clearSceneCamera(renderer.camera.position, sceneLook, sceneSubjects, keepFront);
             renderer.camera.lookAt(sceneLook);

@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { poseNpc, spawnNpc } from '@/game/crew';
+import { hewnTimberMaterial, innTimber } from '@/render/painterly';
+import { softDiscTexture } from '@/render/soft-disc';
 
 // Stamp mill, the company wagon, and the shed that burns. Silas, Mae,
 // Pete, and Ada stand in the world. The fire chars the shed; saving the
@@ -28,15 +30,22 @@ export function createTownArc(
   const petePos = new THREE.Vector3(-4, groundY(-4, 6), 6);
   const maeHome = new THREE.Vector3(-13, groundY(-13, 10), 10);
 
-  const timber = new THREE.MeshStandardMaterial({ color: 0x6a4324, roughness: 0.88 });
-  const iron = new THREE.MeshStandardMaterial({ color: 0x4a4e52, roughness: 0.5, metalness: 0.5 });
-  const plank = new THREE.MeshStandardMaterial({ color: 0x8a6240, roughness: 0.9 });
-  const roofMat = new THREE.MeshStandardMaterial({ color: 0x5c3a28, roughness: 0.92 });
+  const timber = hewnTimberMaterial();
+  const iron = new THREE.MeshStandardMaterial({ color: 0x5c6166, roughness: 0.42, metalness: 0.62 });
+  const plank = innTimber(false);
+  const roofMat = innTimber(true);
+  const waterMat = new THREE.MeshStandardMaterial({
+    color: 0x2f8a86,
+    roughness: 0.12,
+    metalness: 0.18,
+    transparent: true,
+    opacity: 0.88,
+  });
 
   const mill = new THREE.Group();
   mill.name = 'stamp-mill';
   mill.position.copy(millPos);
-  const built = buildMill(mill, timber, iron, plank, roofMat);
+  const built = buildMill(mill, timber, iron, plank, roofMat, waterMat);
   const wheel = built.wheel;
   const cams = built.cams;
   const stamps = built.stamps;
@@ -80,20 +89,10 @@ export function createTownArc(
   const shed = new THREE.Group();
   shed.name = 'fire-shed';
   shed.position.copy(firePos);
-  const walls = new THREE.Mesh(new THREE.BoxGeometry(2.4, 2.1, 2.1), shedMats.wall);
-  walls.position.y = 1.05;
-  walls.castShadow = true;
-  const shedRoof = new THREE.Mesh(new THREE.BoxGeometry(2.7, 0.14, 2.4), shedMats.roof);
-  shedRoof.position.y = 2.2;
-  shedRoof.castShadow = true;
-  const door = new THREE.Mesh(
-    new THREE.BoxGeometry(0.7, 1.3, 0.06),
-    new THREE.MeshStandardMaterial({ color: 0x3a2416, roughness: 0.9 }),
-  );
-  door.position.set(0, 0.65, 1.06);
-  shed.add(walls, shedRoof, door);
+  const shedBuilt = buildBurningShed(shed, shedMats.wall, shedMats.roof);
+  const shedRoof = shedBuilt.roof;
 
-  const flames = makeSoftPoints('fire-flame', 48, 0xff9a32, 2.15, THREE.AdditiveBlending);
+  const flames = makeSoftPoints('fire-flame', 140, 0xff7a28, 0.62, THREE.AdditiveBlending);
   const flameMat = flames.material as THREE.PointsMaterial;
   flameMat.toneMapped = false;
   flameMat.opacity = 1;
@@ -103,9 +102,9 @@ export function createTownArc(
   fireLight.castShadow = false;
   shed.add(flames, fireLight);
 
-  const smoke = makeSoftPoints('fire-smoke', 36, 0x8d8880, 3.2, THREE.NormalBlending);
-  (smoke.material as THREE.PointsMaterial).opacity = 0.45;
-  const embers = makeSoftPoints('fire-embers', 24, 0xff8a3a, 0.28, THREE.AdditiveBlending);
+  const smoke = makeSoftPoints('fire-smoke', 80, 0x2a2826, 2.6, THREE.NormalBlending);
+  (smoke.material as THREE.PointsMaterial).opacity = 0.55;
+  const embers = makeSoftPoints('fire-embers', 48, 0xff8a3a, 0.2, THREE.AdditiveBlending);
   smoke.name = 'fire-smoke';
   embers.name = 'fire-embers';
   shed.add(smoke, embers);
@@ -144,8 +143,8 @@ export function createTownArc(
   mae.rotation.y = -0.6;
   scene.add(mae);
   const silas = spawnNpc(0x3e4a52, 0x2a241c);
-  silas.position.set(millPos.x + 0.35, millPos.y + 0.22, millPos.z + 1.75);
-  silas.rotation.y = Math.PI;
+  silas.position.set(millPos.x + 1.15, millPos.y + 0.16, millPos.z + 1.85);
+  silas.rotation.y = 2.35;
   scene.add(silas);
   const ada = spawnNpc(0x1c2a24, 0x111410);
   ada.position.set(companyPos.x + 1.5, companyPos.y, companyPos.z);
@@ -176,7 +175,7 @@ export function createTownArc(
     shedMats.wall.color.copy(wallColor);
     shedMats.roof.color.copy(roofColor);
     shedRoof.rotation.x = 0;
-    shedRoof.position.y = 2.2;
+    shedRoof.position.y = 2.35;
   }
 
   const near = (a: THREE.Vector3, b: THREE.Vector3, r: number) => Math.hypot(a.x - b.x, a.z - b.z) < r;
@@ -210,12 +209,23 @@ export function createTownArc(
       ada.visible = act >= 3;
       ada.position.set(company.position.x + 1.5, companyPos.y, company.position.z);
       wheel.rotation.z = time * 0.7;
+      const pour = mill.getObjectByName('mill-pour');
+      pour?.children.forEach((drop, i) => {
+        const fall = (time * 1.6 + i * 0.22) % 1;
+        drop.position.set(-5.55 - fall * 0.15, 4.9 - fall * 1.55, 0.35);
+        drop.scale.setScalar(1 - fall * 0.35);
+      });
+      wheel.children.forEach((child) => {
+        if (child.name !== 'wheel-water') return;
+        const a = Math.atan2(child.position.y, child.position.x) + wheel.rotation.z;
+        child.visible = Math.sin(a) > 0.05;
+      });
       cams.rotation.x = time * 2.4;
       stamps.forEach((stamp, i) => {
-        const lift = Math.max(0, Math.sin(time * 2.4 + i * 2.1));
-        stamp.position.y = 2.35 + lift * 0.85;
+        const lift = Math.max(0, Math.sin(time * 2.4 + i * ((Math.PI * 2) / 5)));
+        stamp.position.y = 2.05 + lift * 0.7;
       });
-      poseNpc(silas, time, 'shovel', 1);
+      poseNpc(silas, time, 'rock', 1);
       poseNpc(pete, time, 'idle', 0);
       poseNpc(ada, time, 'idle', 2);
       poseNpc(mae, time, 'idle', 3);
@@ -232,9 +242,9 @@ export function createTownArc(
         fireLight.intensity = 36 + Math.sin(time * 17) * 10;
         smoke.visible = true;
         embers.visible = true;
-        driftPoints(flames, time * 1.4, 1.6, 0.72, 2.55, 2.35);
-        driftPoints(smoke, time, 0.42, 1.35, 3.55, 3.4);
-        driftPoints(embers, time * 1.6, 1.3, 0.7, 2.4, 2.2);
+        placeCloud(flames, time * 1.7, 0.22, 1.05, FLAME_TONGUES, { x: 0.15, z: 0.05 }, 0.12);
+        placeCloud(smoke, time * 0.38, 0.7, 4.6, SMOKE_SOURCES, { x: 1.35, z: 0.55 }, 0.95);
+        placeCloud(embers, time * 1.5, 0.85, 2.4, FLAME_TONGUES, { x: 1.6, z: 0.4 }, 0.2);
         const maeTarget = firePos.clone().add(new THREE.Vector3(2.4, 0, 1.6));
         mae.position.lerp(new THREE.Vector3(maeTarget.x, maeHome.y, maeTarget.z), Math.min(1, dt * 0.8));
       } else {
@@ -252,14 +262,49 @@ export function createTownArc(
   };
 }
 
+const millDummy = new THREE.Object3D();
+
+interface Emitter {
+  x: number;
+  y: number;
+  z: number;
+}
+
+const FLAME_TONGUES: readonly Emitter[] = [
+  { x: -0.9, y: 2.55, z: -0.1 },
+  { x: -0.4, y: 2.72, z: 0.15 },
+  { x: 0.1, y: 2.6, z: -0.2 },
+  { x: 0.55, y: 2.7, z: 0.1 },
+  { x: 1.0, y: 2.5, z: 0.28 },
+  { x: 1.24, y: 1.38, z: -0.42 },
+  { x: 1.24, y: 1.42, z: 0.42 },
+  { x: 0.05, y: 1.55, z: 1.08 },
+];
+
+const SMOKE_SOURCES: readonly Emitter[] = [
+  { x: -0.7, y: 2.9, z: 0 },
+  { x: -0.15, y: 3.05, z: 0.1 },
+  { x: 0.4, y: 2.95, z: -0.1 },
+  { x: 0.9, y: 2.85, z: 0.2 },
+];
+
 function buildMill(
   mill: THREE.Group,
   timber: THREE.Material,
   iron: THREE.Material,
   plank: THREE.Material,
   roofMat: THREE.Material,
+  waterMat: THREE.Material,
 ): { wheel: THREE.Group; cams: THREE.Group; stamps: THREE.Object3D[] } {
-  const box = (w: number, h: number, d: number, mat: THREE.Material, x: number, y: number, z: number) => {
+  const box = (
+    w: number,
+    h: number,
+    d: number,
+    mat: THREE.Material,
+    x: number,
+    y: number,
+    z: number,
+  ) => {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
     mesh.position.set(x, y, z);
     mesh.castShadow = true;
@@ -267,82 +312,253 @@ function buildMill(
     mill.add(mesh);
     return mesh;
   };
-  box(7.4, 0.22, 5.6, plank, 0, 0.11, 0.2);
+
+  const run = (
+    geom: THREE.BufferGeometry,
+    mat: THREE.Material,
+    places: readonly [number, number, number, number?][],
+  ) => {
+    const mesh = new THREE.InstancedMesh(geom, mat, places.length);
+    places.forEach(([x, y, z, rot], i) => {
+      millDummy.position.set(x, y, z);
+      millDummy.rotation.set(0, rot ?? 0, 0);
+      millDummy.scale.set(1, 1, 1);
+      millDummy.updateMatrix();
+      mesh.setMatrixAt(i, millDummy.matrix);
+    });
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mill.add(mesh);
+  };
+
+  box(8.2, 0.18, 6.2, plank, 0, 0.09, 0.15);
   const posts: [number, number][] = [
-    [-3.4, -2.5],
-    [3.4, -2.5],
-    [-3.4, 2.4],
-    [3.4, 2.4],
-    [0, -2.5],
-    [0, 2.4],
+    [-3.75, -2.75],
+    [3.75, -2.75],
+    [-3.75, 2.75],
+    [3.75, 2.75],
+    [0, -2.75],
+    [0, 2.75],
+    [-3.75, 0],
+    [3.75, 0],
   ];
-  for (const [x, z] of posts) box(0.28, 5.8, 0.28, timber, x, 3.0, z);
-  box(7.2, 0.28, 0.28, timber, 0, 5.85, -2.5);
-  box(7.2, 0.28, 0.28, timber, 0, 5.85, 2.4);
-  box(0.28, 0.28, 5.2, timber, -3.4, 5.85, 0);
-  box(0.28, 0.28, 5.2, timber, 3.4, 5.85, 0);
-  box(6.8, 3.6, 0.16, plank, 0, 2.4, -2.55);
-  box(0.16, 3.2, 4.6, plank, -3.45, 2.2, -0.1);
-  const roofL = box(4.2, 0.16, 6.2, roofMat, -1.7, 6.7, 0);
+  for (const [x, z] of posts) box(0.32, 4.9, 0.32, timber, x, 2.55, z);
+  box(8.0, 0.28, 0.28, timber, 0, 5.05, -2.75);
+  box(8.0, 0.28, 0.28, timber, 0, 5.05, 2.75);
+  box(0.28, 0.28, 5.8, timber, -3.75, 5.05, 0);
+  box(0.28, 0.28, 5.8, timber, 3.75, 5.05, 0);
+
+  const wallBoard = new THREE.BoxGeometry(0.24, 3.7, 0.07);
+  const batten = new THREE.BoxGeometry(0.06, 3.75, 0.04);
+  const back: [number, number, number, number?][] = [];
+  const backBatten: [number, number, number, number?][] = [];
+  for (let i = 0; i < 30; i++) {
+    const x = -3.5 + i * 0.24;
+    back.push([x, 2.15, -2.82]);
+    if (i % 2 === 0) backBatten.push([x, 2.15, -2.76]);
+  }
+  run(wallBoard, plank, back);
+  run(batten, timber, backBatten);
+
+  const sideBoard = new THREE.BoxGeometry(0.07, 3.7, 0.24);
+  const sideBatten = new THREE.BoxGeometry(0.04, 3.75, 0.06);
+  for (const side of [-1, 1]) {
+    const boards: [number, number, number, number?][] = [];
+    const battens: [number, number, number, number?][] = [];
+    for (let i = 0; i < 22; i++) {
+      const z = -2.5 + i * 0.24;
+      boards.push([side * 3.88, 2.15, z]);
+      if (i % 2 === 0) battens.push([side * 3.94, 2.15, z]);
+    }
+    run(sideBoard, plank, boards);
+    run(sideBatten, timber, battens);
+  }
+
+  const front: [number, number, number, number?][] = [];
+  const frontHeader: [number, number, number, number?][] = [];
+  for (let i = 0; i < 32; i++) {
+    const x = -3.7 + i * 0.24;
+    if (Math.abs(x) < 1.7) frontHeader.push([x, 4.15, 2.82]);
+    else front.push([x, 2.15, 2.82]);
+  }
+  run(wallBoard, plank, front);
+  run(new THREE.BoxGeometry(0.24, 1.15, 0.07), plank, frontHeader);
+  const door = box(1.15, 2.7, 0.08, timber, 2.15, 1.4, 2.95);
+  door.rotation.y = -0.85;
+
+  const roofL = box(4.7, 0.1, 6.6, roofMat, -1.85, 5.85, 0);
   roofL.rotation.z = 0.42;
-  const roofR = box(4.2, 0.16, 6.2, roofMat, 1.7, 6.7, 0);
+  const roofR = box(4.7, 0.1, 6.6, roofMat, 1.85, 5.85, 0);
   roofR.rotation.z = -0.42;
 
   const wheel = new THREE.Group();
   wheel.name = 'mill-wheel';
-  wheel.position.set(-4.55, 2.7, 0.3);
-  const rim = new THREE.Mesh(new THREE.TorusGeometry(1.65, 0.08, 6, 20), timber);
-  wheel.add(rim);
-  for (let i = 0; i < 10; i++) {
-    const paddle = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.15, 0.36), timber);
-    const a = (i / 10) * Math.PI * 2;
-    paddle.position.set(Math.cos(a) * 1.2, Math.sin(a) * 1.2, 0);
-    paddle.rotation.z = a;
-    wheel.add(paddle);
+  wheel.position.set(-5.45, 3.25, 0.35);
+  wheel.add(new THREE.Mesh(new THREE.TorusGeometry(1.72, 0.09, 8, 28), timber));
+  wheel.add(new THREE.Mesh(new THREE.TorusGeometry(1.35, 0.05, 6, 24), timber));
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.45, 0.08), timber);
+    spoke.position.set(Math.cos(a) * 0.72, Math.sin(a) * 0.72, 0);
+    spoke.rotation.z = a;
+    wheel.add(spoke);
+    const bucket = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.16, 0.34), plank);
+    bucket.position.set(Math.cos(a) * 1.58, Math.sin(a) * 1.58, 0);
+    bucket.rotation.z = a + Math.PI / 2;
+    wheel.add(bucket);
+    const slug = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.1, 0.24), waterMat);
+    slug.name = 'wheel-water';
+    slug.position.set(Math.cos(a) * 1.48, Math.sin(a) * 1.48, 0);
+    wheel.add(slug);
   }
+  const axle = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.7, 8), iron);
+  axle.rotation.x = Math.PI / 2;
+  wheel.add(axle);
+
+  box(0.28, 3.5, 0.28, timber, -5.45, 1.75, -0.55);
+  box(0.28, 3.5, 0.28, timber, -5.45, 1.75, 1.25);
+  box(0.22, 0.22, 2.1, timber, -5.45, 3.25, 0.35);
+
+  const flumeY = 5.05;
+  box(3.6, 0.1, 0.62, timber, -7.15, flumeY, 0.35);
+  box(3.6, 0.22, 0.06, timber, -7.15, flumeY + 0.14, 0.08);
+  box(3.6, 0.22, 0.06, timber, -7.15, flumeY + 0.14, 0.62);
+  const flumeWater = new THREE.Mesh(new THREE.BoxGeometry(3.3, 0.08, 0.4), waterMat);
+  flumeWater.position.set(-7.15, flumeY + 0.1, 0.35);
+  mill.add(flumeWater);
+  for (const x of [-8.4, -6.5]) {
+    box(0.16, flumeY, 0.16, timber, x, flumeY * 0.5, -0.15);
+    box(0.16, flumeY, 0.16, timber, x, flumeY * 0.5, 0.85);
+    box(0.16, 0.14, 1.2, timber, x, flumeY - 0.05, 0.35);
+  }
+  const pour = new THREE.Group();
+  pour.name = 'mill-pour';
+  for (let i = 0; i < 6; i++) {
+    const drop = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), waterMat);
+    drop.position.set(-5.55, 4.85 - i * 0.28, 0.35);
+    pour.add(drop);
+  }
+  mill.add(pour);
+  const tail = new THREE.Mesh(new THREE.CircleGeometry(1.15, 16), waterMat);
+  tail.rotation.x = -Math.PI / 2;
+  tail.position.set(-5.45, 0.04, 0.55);
+  mill.add(tail);
+
   const cams = new THREE.Group();
   cams.name = 'mill-cams';
-  cams.position.set(0, 4.7, 0.15);
-  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 2.6, 8), iron);
+  cams.position.set(0, 3.65, 0.15);
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 4.5, 10), iron);
   shaft.rotation.z = Math.PI / 2;
   cams.add(shaft);
   const stamps: THREE.Object3D[] = [];
-  for (let i = 0; i < 3; i++) {
-    const lobe = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.18, 0.16), iron);
-    lobe.position.set(-0.7 + i * 0.7, 0.12, 0);
+  const shoeMat = new THREE.MeshStandardMaterial({ color: 0x3e4246, roughness: 0.35, metalness: 0.7 });
+  const plateMat = new THREE.MeshStandardMaterial({ color: 0xd9d4c6, roughness: 0.22, metalness: 0.82 });
+  for (let i = 0; i < 5; i++) {
+    const x = -1.6 + i * 0.8;
+    const lobe = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.28, 0.16), iron);
+    const phase = (i / 5) * Math.PI * 2;
+    lobe.position.set(x, Math.sin(phase) * 0.2, Math.cos(phase) * 0.2);
     cams.add(lobe);
-    const stamp = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.14, 2.5, 6), iron);
-    stamp.position.set(-0.7 + i * 0.7, 2.35, 0.2);
+    const stamp = new THREE.Mesh(new THREE.BoxGeometry(0.16, 2.15, 0.16), iron);
+    stamp.position.set(x, 2.05, 0.2);
     stamp.name = `stamp-${i}`;
+    const tappet = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.12, 0.28), iron);
+    tappet.position.y = 0.92;
+    stamp.add(tappet);
+    const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.22, 0.32), shoeMat);
+    shoe.position.y = -1.05;
+    stamp.add(shoe);
     stamps.push(stamp);
     mill.add(stamp);
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.04, 0.72), plateMat);
+    plate.position.set(x, 0.78, 0.2);
+    mill.add(plate);
   }
-  box(2.4, 0.7, 1.15, iron, 0, 0.55, 0.25);
-  const flume = box(0.42, 0.22, 3.4, timber, -2.6, 4.55, -0.4);
-  flume.rotation.z = -0.18;
-  flume.rotation.y = 0.4;
+  box(0.16, 1.6, 0.16, timber, -2.15, 3.85, 0.15);
+  box(0.16, 1.6, 0.16, timber, 2.15, 3.85, 0.15);
+  const mortar = box(4.7, 0.62, 1.2, iron, 0, 0.5, 0.22);
+  mortar.name = 'mortar-box';
+  const apron = box(4.5, 0.08, 0.85, plank, 0, 0.28, 1.05);
+  apron.rotation.x = -0.42;
+  const pulpMat = new THREE.MeshStandardMaterial({ color: 0x8d7a52, roughness: 0.38, metalness: 0.08 });
+  for (let i = 0; i < 7; i++) {
+    const pulp = new THREE.Mesh(new THREE.DodecahedronGeometry(0.1 + (i % 3) * 0.04, 0), pulpMat);
+    pulp.position.set(-1.5 + i * 0.5, 0.16, 1.35 + (i % 2) * 0.12);
+    mill.add(pulp);
+  }
+  for (let i = 0; i < 4; i++) {
+    const lump = new THREE.Mesh(new THREE.DodecahedronGeometry(0.09, 0), shoeMat);
+    lump.position.set(0.7 + (i % 2) * 0.2, 0.95, 1.15);
+    mill.add(lump);
+  }
+
   mill.add(wheel, cams);
   return { wheel, cams, stamps };
 }
 
-function softDisc(): THREE.Texture {
-  const canvas = document.createElement('canvas');
-  canvas.width = 64;
-  canvas.height = 64;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('[fire] no 2d context');
-  const grd = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-  grd.addColorStop(0, 'rgba(255,255,255,1)');
-  grd.addColorStop(0.35, 'rgba(255,255,255,0.65)');
-  grd.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = grd;
-  ctx.fillRect(0, 0, 64, 64);
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
+function buildBurningShed(
+  shed: THREE.Group,
+  wall: THREE.Material,
+  roofMat: THREE.Material,
+): { roof: THREE.Group } {
+  const board = (w: number, h: number, d: number, x: number, y: number, z: number) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wall);
+    mesh.position.set(x, y, z);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    shed.add(mesh);
+  };
+  for (const [x, z] of [
+    [-1.15, -1.02],
+    [1.15, -1.02],
+    [-1.15, 1.02],
+    [1.15, 1.02],
+  ] as const) {
+    board(0.14, 2.35, 0.14, x, 1.18, z);
+  }
+  for (let i = 0; i < 9; i++) board(0.26, 2.2, 0.06, -1.02 + i * 0.25, 1.12, -1.05);
+  for (let i = 0; i < 8; i++) board(0.06, 2.2, 0.24, -1.18, 1.12, -0.85 + i * 0.24);
+  for (let i = 0; i < 9; i++) {
+    const z = -0.95 + i * 0.23;
+    const windowed = Math.abs(z + 0.42) < 0.2 || Math.abs(z - 0.42) < 0.2;
+    if (windowed) {
+      board(0.06, 0.72, 0.2, 1.18, 0.4, z);
+      board(0.06, 0.42, 0.2, 1.18, 1.95, z);
+    } else {
+      board(0.06, 2.2, 0.22, 1.18, 1.12, z);
+    }
+  }
+  for (const z of [-0.42, 0.42]) {
+    board(0.08, 0.08, 0.55, 1.22, 1.62, z);
+    board(0.08, 0.08, 0.55, 1.22, 1.12, z);
+    board(0.08, 0.55, 0.08, 1.22, 1.37, z - 0.24);
+    board(0.08, 0.55, 0.08, 1.22, 1.37, z + 0.24);
+  }
+  for (let i = 0; i < 9; i++) {
+    const x = -1.02 + i * 0.25;
+    if (Math.abs(x) < 0.38) board(0.24, 0.55, 0.06, x, 1.9, 1.05);
+    else board(0.24, 2.2, 0.06, x, 1.12, 1.05);
+  }
+  const door = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.45, 0.06), wall);
+  door.position.set(0.85, 0.75, 1.15);
+  door.rotation.y = -0.7;
+  door.castShadow = true;
+  shed.add(door);
 
-let discTex: THREE.Texture | null = null;
+  const roof = new THREE.Group();
+  roof.position.y = 2.35;
+  const left = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.08, 2.55), roofMat);
+  left.position.set(-0.62, 0.26, 0);
+  left.rotation.z = 0.4;
+  left.castShadow = true;
+  const right = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.08, 2.55), roofMat);
+  right.position.set(0.62, 0.26, 0);
+  right.rotation.z = -0.4;
+  right.castShadow = true;
+  roof.add(left, right);
+  shed.add(roof);
+  return { roof };
+}
 
 function makeSoftPoints(
   name: string,
@@ -351,7 +567,6 @@ function makeSoftPoints(
   size: number,
   blending: THREE.Blending,
 ): THREE.Points {
-  discTex ??= softDisc();
   const positions = new Float32Array(count * 3);
   const geom = new THREE.BufferGeometry();
   geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
@@ -360,13 +575,13 @@ function makeSoftPoints(
     new THREE.PointsMaterial({
       color,
       size,
-      map: discTex,
+      map: softDiscTexture(),
       transparent: true,
       opacity: 0.9,
       depthWrite: false,
       blending,
       sizeAttenuation: true,
-      alphaTest: 0.015,
+      alphaTest: 0.02,
     }),
   );
   pts.name = name;
@@ -374,24 +589,27 @@ function makeSoftPoints(
   return pts;
 }
 
-function driftPoints(
+function placeCloud(
   points: THREE.Points,
   time: number,
-  rise: number,
   spread: number,
-  y0 = 0,
-  ySpan = 3.2,
+  height: number,
+  emitters: readonly Emitter[],
+  wind: { x: number; z: number },
+  billow: number,
 ): void {
   const attr = points.geometry.getAttribute('position') as THREE.BufferAttribute;
-  const n = attr.count;
-  for (let i = 0; i < n; i++) {
-    const seed = i * 0.37;
-    const life = (time * rise + seed) % 1;
+  const sources = Math.max(1, emitters.length);
+  for (let i = 0; i < attr.count; i++) {
+    const src = emitters[i % sources]!;
+    const seed = i * 1.37;
+    const life = (time + seed) % 1;
+    const curl = Math.sin(seed * 2.1 + time * 1.4) * billow * life;
     attr.setXYZ(
       i,
-      Math.sin(seed * 4) * spread * life,
-      y0 + life * ySpan,
-      Math.cos(seed * 3) * spread * 0.45,
+      src.x + Math.sin(seed * 4) * spread * (0.4 + life) + wind.x * life * life + curl * 0.35,
+      src.y + life * height + Math.sin(time * 3 + seed) * 0.06,
+      src.z + Math.cos(seed * 3) * spread * 0.7 + wind.z * life * life + curl,
     );
   }
   attr.needsUpdate = true;

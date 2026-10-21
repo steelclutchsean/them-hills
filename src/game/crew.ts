@@ -286,11 +286,15 @@ function pose(mesh: THREE.Group, time: number, work: Work, seed: number): void {
     swing(legL, 0.04);
     swing(legR, -0.06);
   } else if (work === 'rock') {
-    const rock = Math.sin(time * 2.6 + seed);
-    swing(armL, -0.6);
-    swing(armR, -0.4, rock * 0.8);
-    swing(legL, 0.05);
-    swing(legR, -0.05);
+    const slam = (Math.sin(time * 4.6 + seed) + 1) * 0.5;
+    swing(armR, -0.15 - slam * 2.25);
+    swing(armL, -0.3 - slam * 1.05);
+    swing(legL, 0.14);
+    swing(legR, -0.22);
+    if (shovel) {
+      shovel.visible = true;
+      shovel.rotation.x = -0.95;
+    }
   } else if (work === 'hose') {
     swing(armL, -1.1);
     swing(armR, -1.15 + Math.sin(time * 1.4) * 0.12);
@@ -308,7 +312,12 @@ export function spawnNpc(shirt: number, hat: number, variant = 0): THREE.Group {
   return person(shirt, hat, variant);
 }
 
-export function poseNpc(mesh: THREE.Group, time: number, work: 'idle' | 'walk' | 'shovel', seed = 0): void {
+export function poseNpc(
+  mesh: THREE.Group,
+  time: number,
+  work: 'idle' | 'walk' | 'shovel' | 'rock',
+  seed = 0,
+): void {
   pose(mesh, time, work, seed);
 }
 

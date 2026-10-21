@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { PALETTE } from '@/render/palette';
+import { softDiscTexture } from '@/render/soft-disc';
 import {
   canvasMaterial,
   innTimber,
@@ -190,12 +191,12 @@ function addLog(
   const n = Math.abs(Math.sin(logSerial * 12.9898));
   const n2 = Math.abs(Math.sin(logSerial * 78.233 + 1.7));
   const n3 = Math.abs(Math.sin(logSerial * 39.425 + 4.2));
-  const radius = 0.04 + n * 0.15;
-  const len = length * (0.52 + n2 * 0.7);
-  const geom = new THREE.CylinderGeometry(radius, radius * (0.62 + n * 0.48), len, 7);
+  const radius = 0.11 + n * 0.03;
+  const len = length * (0.97 + n2 * 0.05);
+  const geom = new THREE.CylinderGeometry(radius, radius * (0.92 + n * 0.08), len, 7);
   const pos = geom.attributes.position;
   if (!pos) return;
-  const bow = (n - 0.5) * 0.58;
+  const bow = (n - 0.5) * 0.04;
   for (let i = 0; i < pos.count; i++) {
     const along = (pos.getY(i) + len * 0.5) / Math.max(len, 0.01);
     pos.setX(i, pos.getX(i) + Math.sin(along * Math.PI) * bow);
@@ -227,14 +228,14 @@ function addLog(
   const mat = (y < 1.05 ? innTimber(true) : innTimber(false)).clone();
   mat.vertexColors = true;
   const log = mesh(geom, mat, x, y, z);
-  const slide = (n2 - 0.5) * 0.14;
+  const slide = (n2 - 0.5) * 0.02;
   if (axis === 'x') log.position.x += slide;
   else log.position.z += slide;
-  log.position.y += (n - 0.5) * 0.14;
-  if (axis === 'x') log.position.z += (n3 - 0.5) * 0.1;
-  else log.position.x += (n3 - 0.5) * 0.1;
-  log.rotation.y += (n3 - 0.5) * 0.22;
-  log.rotation.z += (n - 0.5) * 0.16;
+  log.position.y += (n - 0.5) * 0.012;
+  if (axis === 'x') log.position.z += (n3 - 0.5) * 0.015;
+  else log.position.x += (n3 - 0.5) * 0.015;
+  log.rotation.y += (n3 - 0.5) * 0.02;
+  log.rotation.z += (n - 0.5) * 0.015;
   parent.add(log);
   if (n > 0.48) {
     const knotMat = innTimber(true).clone();
@@ -257,9 +258,9 @@ function addLog(
     crackMat.vertexColors = false;
     const check = mesh(
       new THREE.BoxGeometry(
-        axis === 'x' ? len * (0.5 + n3 * 0.4) : 0.045,
-        0.045,
-        axis === 'z' ? len * (0.5 + n3 * 0.4) : 0.045,
+        axis === 'x' ? len * 0.22 : 0.02,
+        0.02,
+        axis === 'z' ? len * 0.22 : 0.02,
       ),
       crackMat,
       x,
@@ -378,7 +379,7 @@ function addShakeRoof(parent: THREE.Object3D, width: number, depth: number, peak
       for (let i = 0; i < count; i++) {
         const x = -width / 2 - 0.4 + i * shakeW + (r % 2) * shakeW * 0.5;
         const shake = mesh(
-          new THREE.BoxGeometry(shakeW * 0.92, 0.045, 0.28),
+          new THREE.BoxGeometry(shakeW * 0.96, 0.045, 0.42),
           (i + r) % 3 === 0 ? dark : mid,
           x,
           y,
@@ -440,6 +441,7 @@ function addChimneySmoke(parent: THREE.Object3D, x: number, y: number, z: number
     opacity: 0.28,
     depthWrite: false,
     side: THREE.DoubleSide,
+    alphaMap: softDiscTexture(),
   });
   for (let i = 0; i < 4; i++) {
     const card = new THREE.Mesh(new THREE.PlaneGeometry(0.55 + i * 0.16, 0.62), mat.clone());
@@ -623,6 +625,9 @@ export function buildCabin(opts: {
     );
     root.add(board);
   }
+  root.add(mesh(new THREE.BoxGeometry(width * 0.76, 0.32, 0.08), dark, 0, 0.16, deckZ + 0.45));
+  root.add(mesh(new THREE.BoxGeometry(0.1, 0.32, 1.15), dark, -width * 0.34, 0.16, deckZ));
+  root.add(mesh(new THREE.BoxGeometry(0.1, 0.32, 1.15), dark, width * 0.34, 0.16, deckZ));
   const porchPost = new THREE.CylinderGeometry(0.07, 0.085, 2.15, 8);
   const postL = -width * 0.32;
   const postR = width * 0.32;
@@ -700,10 +705,10 @@ export function buildShop(opts: { sign: string; accent: number }): BuiltPlace {
   const dark = timberDarkMaterial();
   addStoneCourse(root, 2.8, 2.0);
   root.add(mesh(new THREE.BoxGeometry(2.2, 0.9, 0.7), wood, 0, 0.7, -0.3));
+  root.add(mesh(new THREE.BoxGeometry(2.45, 1.85, 0.08), dark, 0, 1.15, -0.82));
   for (let i = 0; i < 8; i++) {
-    const plank = mesh(new THREE.BoxGeometry(0.08, 1.7, 0.18), dark, -1.15 + i * 0.32, 1.05, -0.78);
-    plank.position.x += (i % 2) * 0.015;
-    root.add(plank);
+    const batten = mesh(new THREE.BoxGeometry(0.06, 1.9, 0.035), wood, -1.12 + i * 0.32, 1.15, -0.76);
+    root.add(batten);
   }
   root.add(mesh(new THREE.BoxGeometry(2.5, 0.08, 0.16), wood, 0, 1.95, -0.78));
   root.add(mesh(new THREE.BoxGeometry(2.5, 0.06, 0.1), wood, 0, 0.32, -0.78));
@@ -773,8 +778,8 @@ export function addCampWorks(group: THREE.Group): void {
   trough.rotation.x = -0.18;
   group.add(trough);
   for (let i = 0; i < 4; i++) {
-    const riffle = mesh(new THREE.BoxGeometry(0.34, 0.03, 0.04), dark, 1.35, 0.62, -0.4 + i * 0.35);
-    group.add(riffle);
+    const riffle = mesh(new THREE.BoxGeometry(0.34, 0.03, 0.04), dark, 0, 0.08, -0.55 + i * 0.35);
+    trough.add(riffle);
   }
   group.add(mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.5, 5), dark, 1.15, 0.25, 0.85));
   group.add(mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.7, 5), dark, 1.55, 0.35, -0.45));

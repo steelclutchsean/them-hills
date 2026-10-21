@@ -229,6 +229,37 @@ export function timberMaterial(): THREE.MeshStandardMaterial {
   return applyWood(lit('sierra-timber', PALETTE.timber, 0.88), false);
 }
 
+let hewnTimber: THREE.MeshStandardMaterial | null = null;
+
+/**
+ * Rough-hewn timber. The albedo is the Quaternius megakit bark, the same
+ * paint as the pines, so a square set sits in the Sierra palette instead
+ * of wearing a photograph of lumber.
+ */
+export function hewnTimberMaterial(): THREE.MeshStandardMaterial {
+  if (hewnTimber) return hewnTimber;
+  const map = new THREE.TextureLoader().load('/assets/megakit/Bark_NormalTree.png');
+  map.wrapS = THREE.RepeatWrapping;
+  map.wrapT = THREE.RepeatWrapping;
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.anisotropy = 4;
+  map.repeat.set(1.4, 2.2);
+  const normalMap = new THREE.TextureLoader().load('/assets/megakit/Bark_NormalTree_Normal.png');
+  normalMap.wrapS = THREE.RepeatWrapping;
+  normalMap.wrapT = THREE.RepeatWrapping;
+  normalMap.colorSpace = THREE.NoColorSpace;
+  normalMap.repeat.set(1.4, 2.2);
+  hewnTimber = new THREE.MeshStandardMaterial({
+    map,
+    normalMap,
+    color: 0xffffff,
+    roughness: 0.88,
+    metalness: 0.02,
+    normalScale: new THREE.Vector2(0.85, 0.85),
+  });
+  return hewnTimber;
+}
+
 export function timberDarkMaterial(): THREE.MeshStandardMaterial {
   return applyWood(lit('sierra-timber-dark', PALETTE.timberDark, 0.9), true);
 }
