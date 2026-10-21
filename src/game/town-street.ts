@@ -98,27 +98,28 @@ function clothTexture(hex: string): THREE.CanvasTexture {
 
 function streetTexture(): THREE.CanvasTexture {
   return canvasTex((ctx, w, h) => {
-    ctx.fillStyle = '#6b4424';
+    ctx.fillStyle = '#5a4332';
     ctx.fillRect(0, 0, w, h);
-    for (let i = 0; i < 2200; i++) {
+    const tones = ['#2c2016', '#6a5340', '#3e2e22', '#4e3a2a', '#7a624c', '#24180f'];
+    for (let i = 0; i < 3200; i++) {
       const x = (i * 53) % w;
       const y = (i * 97) % h;
-      ctx.fillStyle = i % 4 === 0 ? '#3a2414' : i % 4 === 1 ? '#a67a48' : i % 4 === 2 ? '#4a2c18' : '#7a5230';
-      ctx.fillRect(x, y, 2 + (i % 3), 2 + (i % 2));
+      ctx.fillStyle = tones[i % tones.length] ?? '#4e3a2a';
+      ctx.fillRect(x, y, 4 + (i % 6), 3 + (i % 4));
     }
-    ctx.fillStyle = 'rgba(18, 8, 4, 0.82)';
-    ctx.fillRect(w * 0.3, 0, w * 0.08, h);
-    ctx.fillRect(w * 0.62, 0, w * 0.07, h);
-    ctx.strokeStyle = 'rgba(36, 18, 8, 0.85)';
-    ctx.lineWidth = 3;
-    for (let i = 0; i < 36; i++) {
-      const x = (i * 71) % (w - 24);
-      const y = (i * 113) % (h - 16);
+    ctx.fillStyle = 'rgba(18, 10, 6, 0.78)';
+    ctx.fillRect(w * 0.27, 0, w * 0.09, h);
+    ctx.fillRect(w * 0.56, 0, w * 0.07, h);
+    ctx.strokeStyle = 'rgba(22, 12, 8, 0.92)';
+    ctx.lineWidth = 6;
+    for (let i = 0; i < 42; i++) {
+      const x = (i * 71) % (w - 48);
+      const y = (i * 113) % (h - 36);
       ctx.beginPath();
-      ctx.arc(x, y, 8, 0.15, Math.PI - 0.15);
+      ctx.ellipse(x, y, 18, 11, 0.35, 0, Math.PI * 2);
       ctx.stroke();
       ctx.beginPath();
-      ctx.arc(x + 12, y + 7, 7, 0.2, Math.PI - 0.1);
+      ctx.ellipse(x + 26, y + 9, 15, 10, -0.25, 0, Math.PI * 2);
       ctx.stroke();
     }
   }, 512, 512);
@@ -586,7 +587,9 @@ function ribbonFrom(
     uv.push(0, t * uvAlong, 1, t * uvAlong);
     if (i < samples.length - 1) {
       const a = i * 2;
-      idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+      // Faces up. The old order pointed the normal into the ground, so the
+      // deck was culled out of the eye-level shot.
+      idx.push(a, a + 2, a + 1, a + 2, a + 3, a + 1);
     }
   });
   const geom = new THREE.BufferGeometry();
@@ -634,7 +637,7 @@ function streetMaterial(): THREE.MeshStandardMaterial {
     polygonOffsetFactor: -2,
     polygonOffsetUnits: -2,
   });
-  mat.customProgramCacheKey = () => 'them-hills-street-dirt-2';
+  mat.customProgramCacheKey = () => 'them-hills-street-dirt-4';
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uGrass = { value: groundMaps().grass };
     shader.vertexShader = shader.vertexShader.replace(
@@ -655,13 +658,18 @@ function streetMaterial(): THREE.MeshStandardMaterial {
         '#include <color_fragment>',
         `#include <color_fragment>
          {
-           float edge = smoothstep(0.0, 0.16, vMapUv.x) * smoothstep(1.0, 0.84, vMapUv.x);
+           float across = vMapUv.x;
+           float edge = smoothstep(0.0, 0.16, across) * smoothstep(1.0, 0.84, across);
            vec3 grass = texture2D(uGrass, vStreetWorld.xz * 0.85).rgb;
-           diffuseColor.rgb = mix(grass, diffuseColor.rgb, edge);
+           vec3 packed = texture2D(map, vStreetWorld.xz * 0.46).rgb;
+           packed *= vec3(0.84, 0.74, 0.6);
+           float grit = fract(sin(dot(floor(vStreetWorld.xz * 7.0), vec2(127.1, 311.7))) * 43758.5453);
+           packed *= mix(0.84, 1.1, grit);
+           diffuseColor.rgb = mix(grass, packed, edge);
            float puddle = 0.0;
-           puddle = max(puddle, 1.0 - smoothstep(0.35, 1.8, distance(vStreetWorld.xz, vec2(-16.4, 1.5))));
-           puddle = max(puddle, 1.0 - smoothstep(0.28, 1.35, distance(vStreetWorld.xz, vec2(-17.2, 22.0))));
-           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.16, 0.22, 0.22), puddle * edge * 0.82);
+           puddle = max(puddle, 1.0 - smoothstep(0.28, 1.15, distance(vStreetWorld.xz, vec2(-17.6, -4.6))));
+           puddle = max(puddle, 1.0 - smoothstep(0.32, 1.35, distance(vStreetWorld.xz, vec2(-16.4, 11.5))));
+           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.11, 0.15, 0.15), puddle * edge * 0.88);
          }`,
       );
   };
