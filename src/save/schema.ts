@@ -230,6 +230,8 @@ export interface WorldState {
   discovered: { siteIds: string[]; mineIds: string[]; hiddenClaimIds: string[] };
   sites: Record<string, SiteState>;
   placements: { sluice?: { siteId: string } };
+  /** Flood, drought, rush, or town fire. Older saves omit it. */
+  event: import('@/game/campaign').WorldEventState;
 }
 
 // ---------- Economy ----------
@@ -399,6 +401,10 @@ export interface FieldworkState {
   coffeeUntil: number;
   /** Completed runs of each machine. Pete's tool jobs read these. */
   machineRuns: { rocker: number; sluice: number; long_tom: number; hydraulic: number };
+  /** Story act. Missing on older v6 blobs; ensureArc fills it. */
+  campaign: import('@/game/campaign').CampaignState;
+  /** North lode: air, timber, ore in the cart, powder. */
+  lode: import('@/game/campaign').LodeState;
 }
 
 export function defaultFieldwork(): FieldworkState {
@@ -416,6 +422,8 @@ export function defaultFieldwork(): FieldworkState {
     fedUntil: 0,
     coffeeUntil: 0,
     machineRuns: { rocker: 0, sluice: 0, long_tom: 0, hydraulic: 0 },
+    campaign: { act: 1, companyPressure: 0, boughtOut: false, savedTown: false, heard: [] },
+    lode: { air: 1, timber: 0, ore: 0, charges: 0, creak: 0, drilled: 0, milled: 0, collapses: 0 },
   };
 }
 
@@ -479,6 +487,7 @@ export function createDefaultSave(): SaveV1 {
       discovered: { siteIds: [], mineIds: [], hiddenClaimIds: [] },
       sites: {},
       placements: {},
+      event: { id: 'calm', startedAt: 0, until: 0, stamp: 0 },
     },
     economy: {
       spotPrice: {

@@ -28,6 +28,7 @@ import {
   getQuestDef,
   type ObjectiveType,
 } from '@/quests/quests';
+import { ensureArc, priced } from '@/game/campaign';
 import type { GroundRead } from '@/game/geology';
 import {
   CABIN_COST,
@@ -195,7 +196,7 @@ type SettingsObjectKey = {
 export const gameStore = createStore<GameStateStore>((set, get) => ({
   save: createDefaultSave(),
 
-  hydrate: (loaded) => set({ save: loaded }),
+  hydrate: (loaded) => set({ save: ensureArc(loaded) }),
 
   serialize: () => {
     const s = get().save;
@@ -421,14 +422,15 @@ export const gameStore = createStore<GameStateStore>((set, get) => ({
   },
 
   purchaseUpgrade(category, cost, newTier, gameTime) {
+    const due = priced(get().save, cost);
     const balance = get().save.wallet.balance;
-    if (balance < cost) return false;
+    if (balance < due) return false;
     set((state) => {
       const tx: Transaction = {
         id: `tx_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
         timestamp: gameTime,
         type: 'purchase',
-        amount: -cost,
+        amount: -due,
         vendorId: 'general_store',
         details: { itemPurchased: `${category}_t${newTier}` },
       };
@@ -437,8 +439,8 @@ export const gameStore = createStore<GameStateStore>((set, get) => ({
           ...state.save,
           wallet: {
             ...state.save.wallet,
-            balance: state.save.wallet.balance - cost,
-            lifetimeSpending: state.save.wallet.lifetimeSpending + cost,
+            balance: state.save.wallet.balance - due,
+            lifetimeSpending: state.save.wallet.lifetimeSpending + due,
             recentTransactions: [...state.save.wallet.recentTransactions.slice(-49), tx],
           },
           equipment: {
@@ -718,6 +720,20 @@ export const gameStore = createStore<GameStateStore>((set, get) => ({
         fieldwork: {
           ...state.save.fieldwork,
           claims: [...state.save.fieldwork.claims, claim],
+          campaign:
+            mineId === 'north'
+              ? {
+                  ...state.save.fieldwork.campaign,
+                  act: state.save.fieldwork.campaign.act < 2 ? 2 : state.save.fieldwork.campaign.act,
+                  heard: state.save.fieldwork.campaign.heard.includes('lode-open')
+                    ? state.save.fieldwork.campaign.heard
+                    : [...state.save.fieldwork.campaign.heard, 'lode-open'],
+                }
+              : state.save.fieldwork.campaign,
+          lode:
+            mineId === 'north'
+              ? { ...state.save.fieldwork.lode, charges: Math.max(2, state.save.fieldwork.lode.charges) }
+              : state.save.fieldwork.lode,
           journal: remember(state.save.fieldwork.journal, {
             id: `lode-${mineId}`,
             title: 'Lode filed',
@@ -801,7 +817,8 @@ export const gameStore = createStore<GameStateStore>((set, get) => ({
   buySupply(id, gameTime) {
     const def = supplyDef(id);
     if (!def) return false;
-    if (get().save.wallet.balance < def.cost) return false;
+    const due = priced(get().save, def.cost);
+    if (get().save.wallet.balance < due) return false;
     set((state) => {
       const consumables = { ...state.save.inventory.carry.consumables };
       const have = (consumables[def.id] ?? 0) + 1;
@@ -819,7 +836,7 @@ export const gameStore = createStore<GameStateStore>((set, get) => ({
       return {
         save: {
           ...state.save,
-          wallet: spend(state.save.wallet, def.cost, gameTime, def.name),
+          wallet: spend(state.save.wallet, due, gameTime, def.name),
           player: { ...state.save.player, meters },
           inventory: {
             ...state.save.inventory,
@@ -931,14 +948,15 @@ export const gameStore = createStore<GameStateStore>((set, get) => ({
 
   hireHand(gameTime) {
     const save = get().save;
-    if (save.fieldwork.hands >= MAX_HANDS || save.wallet.balance < HIRE_COST) return false;
+    const due = priced(save, HIRE_COST);
+    if (save.fieldwork.hands >= MAX_HANDS || save.wallet.balance < due) return false;
     set((state) => {
       const hands = state.save.fieldwork.hands + 1;
       const claims = state.save.fieldwork.claims.map((c) => ({ ...c, jumperSince: null }));
       return {
         save: {
           ...state.save,
-          wallet: spend(state.save.wallet, HIRE_COST, gameTime, 'hired hand'),
+          wallet: spend(state.save.wallet, due, gameTime, 'hired hand'),
           fieldwork: {
             ...state.save.fieldwork,
             hands,

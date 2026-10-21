@@ -33,6 +33,8 @@ const METHOD = {
   sluice: { scale: 2.2, tier: 1.45, dig: 1, geo: false, sec: { steady: 24, rusher: 30, reader: 22 } },
   tom: { scale: 2.75, tier: 1.55, dig: 1, geo: false, sec: { steady: 28, rusher: 34, reader: 24 } },
   monitor: { scale: 3.9, tier: 1.7, dig: 1, geo: false, sec: { steady: 32, rusher: 40, reader: 28 } },
+  // North lode after milling. A run is drill, blast, muck, and the walk to Silas.
+  hardrock: { scale: 4.6, tier: 1.55, dig: 1, geo: false, sec: { steady: 48, rusher: 56, reader: 42 } },
 };
 
 // Styles share the marked creek. The spread is how clean the wash is,
@@ -78,6 +80,15 @@ const LADDER = [
   { name: 'Hand dredge', cost: 1700, next: null },
 ];
 
+// Chapter 2 starts after the placer ladder. Gaps here are not held to the
+// 5–15 minute band: powder is a pocket cost, and the lease is the ending.
+const ARC = [
+  { name: 'Timber the drift', cost: 160, next: 'hardrock' },
+  { name: 'Powder and fuse', cost: 108, next: null },
+  { name: 'Stamp fees', cost: 96, next: null },
+  { name: 'Buy the lease', cost: 4200, next: null, rush: 1.18 },
+];
+
 function gramsPerRun(styleName, methodName) {
   const style = STYLE[styleName];
   const method = METHOD[methodName];
@@ -113,7 +124,21 @@ function play(styleName) {
     });
     if (goal.next) method = goal.next;
   }
-  return { style: styleName, walletStart: gramsPerRun(styleName, 'pan') * DOLLARS_PER_GRAM, rows };
+  const arc = [];
+  for (const goal of ARC) {
+    const perRun = gramsPerRun(styleName, method);
+    const sec = METHOD[method].sec[styleName];
+    const gPerMin = (perRun * 60) / sec;
+    let dPerMin = gPerMin * DOLLARS_PER_GRAM;
+    if (goal.name === 'Powder and fuse') dPerMin *= 0.68;
+    const cost = goal.cost * (goal.rush ?? 1);
+    const gap = Math.max(0, cost - wallet) / dPerMin;
+    minute += gap;
+    wallet = wallet + dPerMin * gap - cost;
+    arc.push({ goal: `${goal.name}${goal.rush ? ' (rush)' : ''}`, gap, at: minute, method, dPerMin, wallet });
+    if (goal.next) method = goal.next;
+  }
+  return { style: styleName, walletStart: gramsPerRun(styleName, 'pan') * DOLLARS_PER_GRAM, rows, arc };
 }
 
 const report = ['steady', 'rusher', 'reader'].map(play);
@@ -123,6 +148,12 @@ for (const played of report) {
     const flag = row.gap < 5 || row.gap > 15 ? '  <<' : '';
     console.log(
       `  ${row.at.toFixed(1).padStart(6)} min  gap ${row.gap.toFixed(1).padStart(5)}  ${row.goal.padEnd(16)} via ${row.method.padEnd(8)} $${row.dPerMin.toFixed(0)}/min${flag}`,
+    );
+  }
+  console.log('  -- arc --');
+  for (const row of played.arc) {
+    console.log(
+      `  ${row.at.toFixed(1).padStart(6)} min  gap ${row.gap.toFixed(1).padStart(5)}  ${row.goal.padEnd(22)} via ${row.method.padEnd(8)} $${row.dPerMin.toFixed(0)}/min`,
     );
   }
 }

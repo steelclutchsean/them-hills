@@ -15,6 +15,7 @@ import {
   type MinigameViz,
   type StageOptions,
 } from './minigames';
+import { createBlastMinigame, createDrillMinigame, createMuckMinigame } from './hardrock';
 import {
   createLongTomMinigame,
   createMonitorMinigame,
@@ -44,7 +45,10 @@ export type StepKind =
   | 'rocker'
   | 'sluice'
   | 'tom'
-  | 'monitor';
+  | 'monitor'
+  | 'drill'
+  | 'blast'
+  | 'muck';
 
 /** Stages played for a stream prospect — the classic 4-step panning flow. */
 const PANNING_STEPS: readonly StepKind[] = ['dig', 'classify', 'pan', 'collect'] as const;
@@ -60,6 +64,9 @@ const STAGE_FACTORY: Record<StepKind, () => Minigame> = {
   sluice: createSluiceMinigame,
   tom: createLongTomMinigame,
   monitor: createMonitorMinigame,
+  drill: createDrillMinigame,
+  blast: createBlastMinigame,
+  muck: createMuckMinigame,
 };
 
 export interface ProspectPlan {
@@ -75,7 +82,17 @@ export function planStages(opts: {
   tutorial: boolean;
   method: WorkMethod;
   asPick: boolean;
+  /** North lode after Pete opens the vein. Drill, blast, muck. */
+  lode?: boolean;
 }): ProspectPlan {
+  if (opts.context === 'mining' && opts.lode) {
+    return {
+      steps: ['drill', 'blast', 'muck'],
+      options: [{}, {}, {}],
+      yieldScale: 0.42,
+      extraDigs: 0,
+    };
+  }
   if (opts.context === 'mining') {
     return {
       steps: ['strike', 'extract', 'collect'],
@@ -226,6 +243,10 @@ export interface ProspectingController {
     tutorial?: boolean;
     /** A purchased pick, separate from shovel tier 3. */
     asPick?: boolean;
+    /** North lode hard-rock loop, once the story has opened the vein. */
+    lode?: boolean;
+    /** Rounds of powder on the belt. The blast reads this. */
+    powder?: number;
   }): boolean;
   update(dt: number, input: ProspectingFrameInput): ProspectingResult | null;
   cancel(): void;
@@ -357,10 +378,14 @@ export function createProspectingController(
       method = 'pan',
       tutorial = false,
       asPick = false,
+      lode = false,
+      powder = 0,
     }) {
       if (session !== null) return false;
-      const plan = planStages({ context, tutorial, method, asPick });
+      const plan = planStages({ context, tutorial, method, asPick, lode });
       const steps = plan.steps;
+      const blastAt = steps.indexOf('blast');
+      if (blastAt >= 0) plan.options[blastAt] = { ...plan.options[blastAt], charges: powder };
       const stages: Minigame[] = steps.map((step) => STAGE_FACTORY[step]());
       // Per-stage tool tier — each stage reads the tool that matters for
       // it. Mining: strike → shovel (pickaxe at T3), extract → detector
@@ -386,6 +411,10 @@ export function createProspectingController(
             return Math.max(1, toolTiers.longTom);
           case 'monitor':
             return 1;
+          case 'drill':
+          case 'blast':
+          case 'muck':
+            return Math.max(1, toolTiers.pick);
         }
       };
       const stageTiers: readonly number[] = steps.map(tierFor);

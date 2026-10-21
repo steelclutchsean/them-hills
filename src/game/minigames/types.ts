@@ -183,10 +183,36 @@ export type MinigameViz =
       kind: 'monitor';
       aim: number;
       band: number;
+      /** 0..1 nozzle pressure. Pay needs this inside the band as well as the aim. */
+      pressure: number;
+      pressureBand: number;
       spray: boolean;
       cut: number;
       waste: number;
       gold: number;
+    }
+  | {
+      kind: 'drill';
+      indicator: number;
+      sweet: number;
+      strikes: number;
+      need: number;
+      flash: number;
+    }
+  | {
+      kind: 'blast';
+      phase: 'place' | 'fuse' | 'retreat';
+      placed: number;
+      fuse: number;
+      retreat: number;
+      charges: number;
+    }
+  | {
+      kind: 'muck';
+      rock: number;
+      scoops: number;
+      need: number;
+      flash: number;
     };
 
 export interface CollectFlakeViz {
@@ -229,6 +255,8 @@ export interface StageOptions {
   wash?: 'pan' | 'sluice' | 'long_tom';
   /** Dig or strike uses the pick. */
   asPick?: boolean;
+  /** Powder on hand for a blast. Zero still finishes; the round just coughs. */
+  charges?: number;
 }
 
 export interface Minigame {

@@ -120,6 +120,22 @@ At minute 180 the classifier stack is the open goal. This is the style the 15-mi
 
 At minute 180 the cache is the open goal. The hand dredge is the last box after it. A reader who also stacks the live tier multipliers clears the ladder sooner than this sheet.
 
+## After the placer ladder
+
+The sim keeps going once the guided ladder has passed minute 180. Those rows are not part of the 5–15 check. Timber ($160 for four sets), powder ($108), and stamp fees ($96) are pocket costs on purpose, the same way coffee is. A dry-week cut (×0.68) is applied to the powder row only, and the lease is priced at the gold-rush markup (×1.18 on $4200).
+
+Hard-rock, once the ore is being milled, is modeled as scale 4.6, tier 1.55, 48 / 56 / 42 seconds. That is one drill, one blast, the muck, and the walk to the stamp mill.
+
+| Style | Lease gap | Clock when the lease is paid | Earning |
+| --- | ---: | ---: | --- |
+| Steady | 33.8 min | 219.5 min | $146/min on the lode, after the rush markup |
+| Rusher | 52.0 min | 248.0 min | $95/min |
+| Reader | 25.2 min | 209.3 min | $196/min |
+
+Standing with the town (20 loads milled and 3 timber sets) is the other ending. It spends the mill fees instead of the $4200, so it is the shorter clock if the stamps keep running. The sheet prices the buyout because that is the expensive door.
+
+Flood, drought, the rush, and the town fire are not a second income curve. Flood walks the pay streak (the same shift rain already uses). Drought is the ×0.68 cut above. The rush raises store prices 18% and puts a jumper on an empty claim. The fire shuts the mill until the bucket line.
+
 ## What this sheet does not cover
 
 - Coffee ($3), beans ($4), a canteen ($6), and nails ($8) are pocket goods. They are not the guided goal, and buying them does not move the tracker.

@@ -1,3 +1,4 @@
+import { ensureArc } from '@/game/campaign';
 import {
   CURRENT_SAVE_VERSION,
   defaultFieldwork,
@@ -145,5 +146,5 @@ export function migrate(raw: unknown): SaveV1 {
       `[save] save was written by a newer game version (v${current.version}); update the game to load.`,
     );
   }
-  return current as unknown as SaveV1;
+  return ensureArc(current as unknown as SaveV1);
 }

@@ -231,14 +231,17 @@ export function createLongTomMinigame(): Minigame {
 
 export function createMonitorMinigame(): Minigame {
   let aim = 0.55;
+  let pressure = 0.55;
   let cut = 0;
   let waste = 0;
   let t = 0;
   let pulse = 0;
   const band = 0.64;
+  const pressureBand = 0.55;
   return {
     start() {
       aim = 0.55;
+      pressure = 0.55;
       cut = 0;
       waste = 0;
       t = 0;
@@ -247,13 +250,17 @@ export function createMonitorMinigame(): Minigame {
     update({ dt, axes, isUseToolDown, effects }): MinigameUpdate {
       t += dt;
       aim = Math.max(0.08, Math.min(0.92, aim - axes.dy * 0.7));
-      const onPay = Math.abs(aim - band) < 0.09;
+      pressure = Math.max(0.08, Math.min(0.92, pressure + axes.dx * 0.65));
+      const aimed = Math.abs(aim - band) < 0.09;
+      const held = Math.abs(pressure - pressureBand) < 0.12;
+      const onPay = aimed && held;
       if (isUseToolDown) {
         if (onPay) {
           cut = Math.min(1.2, cut + dt * 0.42);
           if (Math.floor(t * 8) % 4 === 0) effects.burst({ x: 0.2, y: aim * 0.2, z: -0.7 }, 0xc4a06a, 4, 'dirt');
         } else {
-          waste += dt * 0.28;
+          waste += dt * (pressure > 0.78 ? 0.48 : 0.28);
+          if (pressure > 0.78) effects.shake(0.015, 0.08);
         }
         pulse += dt;
         if (pulse > 0.45) {
@@ -265,6 +272,8 @@ export function createMonitorMinigame(): Minigame {
         kind: 'monitor',
         aim,
         band,
+        pressure,
+        pressureBand,
         spray: isUseToolDown,
         cut,
         waste,
@@ -275,10 +284,14 @@ export function createMonitorMinigame(): Minigame {
         return done(score, cut >= 1 ? 'The pay streak is cut.' : 'The bank is chewed up.', viz);
       }
       const message = !isUseToolDown
-        ? 'Aim at the dark streak and hold to spray'
+        ? 'Look up and down to sweep. Look sideways to set the pressure.'
         : onPay
           ? 'Cutting the pay'
-          : 'Off the streak — you are washing barren dirt';
+          : !held
+            ? pressure > pressureBand
+              ? 'Pressure is high — ease off'
+              : 'Pressure is low — open the valve'
+            : 'Off the streak — sweep back onto the dark band';
       return progress(message, Math.min(1, cut), viz);
     },
   };

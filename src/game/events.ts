@@ -33,6 +33,10 @@ export interface GameplayEvents {
   'machine-beat': { kind: string; quality: number };
   'machine-run': { kind: string };
   'jumper-confront': { claimId: string; how: string };
+  /** A round in the north drift. */
+  blast: { charges: number };
+  'timber-creak': Record<string, never>;
+  'cave-in': Record<string, never>;
 }
 
 type Handler<K extends keyof GameplayEvents> = (payload: GameplayEvents[K]) => void;

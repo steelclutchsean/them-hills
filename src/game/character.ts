@@ -26,7 +26,10 @@ export interface ProspectingActivity {
     | 'rocker'
     | 'sluice'
     | 'tom'
-    | 'monitor';
+    | 'monitor'
+    | 'drill'
+    | 'blast'
+    | 'muck';
   progress: number;
 }
 
@@ -241,7 +244,7 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
   }
 
   function showFor(step: ProspectingActivity['step'] | null, livePan: boolean): void {
-    if (step === 'dig' || step === 'sluice' || step === 'tom' || step === 'strike') {
+    if (step === 'dig' || step === 'sluice' || step === 'tom' || step === 'strike' || step === 'drill' || step === 'muck') {
       rig.showTool('shovel');
     } else if (step === 'pan' && !livePan) rig.showTool('pan');
     else rig.showTool('none');
@@ -305,6 +308,15 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
             break;
           case 'extract':
             requested = 'kneel';
+            break;
+          case 'drill':
+            requested = 'shovel';
+            break;
+          case 'blast':
+            requested = 'kneel';
+            break;
+          case 'muck':
+            requested = 'rock';
             break;
           default:
             requested = 'idle-hold-tool';

@@ -33,10 +33,13 @@ type Work = 'walk' | 'shovel' | 'rock' | 'hose' | 'steal' | 'square';
 
 interface JumperState {
   mesh: THREE.Group;
-  phase: 'steal' | 'approach' | 'square' | 'flee';
+  phase: 'scout' | 'sneak' | 'bluster' | 'steal' | 'approach' | 'square' | 'flee';
+  /** Chosen while they are still circling. */
+  intent: 'sneak' | 'bluster';
   fleeFor: number;
   closeFor: number;
   approachFor: number;
+  scoutFor: number;
 }
 
 export function createCrew(scene: THREE.Scene): Crew {
@@ -123,7 +126,8 @@ export function createCrew(scene: THREE.Scene): Crew {
           rim.layers.enable(1);
           mesh.add(fill, rim);
           root.add(mesh);
-          state = { mesh, phase: 'steal', fleeFor: 0, closeFor: 0, approachFor: 0 };
+          const intent: 'sneak' | 'bluster' = claim.id.charCodeAt(claim.id.length - 1) % 2 === 0 ? 'sneak' : 'bluster';
+          state = { mesh, phase: 'scout', intent, fleeFor: 0, closeFor: 0, approachFor: 0, scoutFor: 0 };
           jumpers.set(claim.id, state);
         }
         const machine = args.machines.find((m) => m.claimId === claim.id);
@@ -135,7 +139,46 @@ export function createCrew(scene: THREE.Scene): Crew {
           state.mesh.position.x - args.playerX,
           state.mesh.position.z - args.playerZ,
         );
-        if (state.phase === 'steal' && dist < 8) state.phase = 'approach';
+        if (state.phase === 'scout') {
+          state.scoutFor += dt;
+          const ang = args.time * 0.7 + claim.x;
+          const radius = 2.3;
+          const x = homeX + Math.cos(ang) * radius;
+          const z = homeZ + Math.sin(ang) * radius;
+          state.mesh.position.set(x, args.groundY(x, z), z);
+          state.mesh.rotation.y = ang + Math.PI / 2;
+          pose(state.mesh, args.time, 'square', 0);
+          if (state.scoutFor > 5.5) state.phase = state.intent;
+        } else if (state.phase === 'sneak') {
+          const coverX = homeX + 6.5;
+          const coverZ = homeZ - 2.4;
+          if (state.scoutFor < 6) {
+            state.mesh.position.set(coverX, args.groundY(coverX, coverZ), coverZ);
+          }
+          state.scoutFor += dt;
+          const dx = homeX - state.mesh.position.x;
+          const dz = homeZ - state.mesh.position.z;
+          const len = Math.max(0.001, Math.hypot(dx, dz));
+          const step = Math.min(len, 1.05 * dt);
+          const x = state.mesh.position.x + (dx / len) * step;
+          const z = state.mesh.position.z + (dz / len) * step;
+          state.mesh.position.set(x, args.groundY(x, z), z);
+          state.mesh.rotation.y = Math.atan2(dx, dz);
+          pose(state.mesh, args.time, 'walk', 3);
+          if (dist < 5.5) state.phase = 'approach';
+          else if (len < 1.2) state.phase = 'steal';
+        } else if (state.phase === 'bluster') {
+          const dx = args.playerX - state.mesh.position.x;
+          const dz = args.playerZ - state.mesh.position.z;
+          const len = Math.max(0.001, Math.hypot(dx, dz));
+          const step = Math.min(Math.max(0, len - 2.2), 2.3 * dt);
+          const x = state.mesh.position.x + (dx / len) * step;
+          const z = state.mesh.position.z + (dz / len) * step;
+          state.mesh.position.set(x, args.groundY(x, z), z);
+          state.mesh.rotation.y = Math.atan2(dx, dz);
+          pose(state.mesh, args.time, 'walk', 4);
+          if (len < 3.2) state.phase = 'square';
+        } else if (state.phase === 'steal' && dist < 8) state.phase = 'approach';
         if (state.phase === 'steal') {
           const x = homeX;
           const z = homeZ;
@@ -160,7 +203,7 @@ export function createCrew(scene: THREE.Scene): Crew {
           state.mesh.rotation.y = Math.atan2(dx, dz);
           state.mesh.position.y = args.groundY(state.mesh.position.x, state.mesh.position.z);
           pose(state.mesh, args.time, 'square', 0);
-        } else {
+        } else if (state.phase === 'flee') {
           state.fleeFor += dt;
           const dx = state.mesh.position.x - args.playerX;
           const dz = state.mesh.position.z - args.playerZ;
@@ -190,7 +233,7 @@ export function createCrew(scene: THREE.Scene): Crew {
       for (const [id, state] of jumpers) {
         if (state.phase === 'flee') continue;
         const d = Math.hypot(state.mesh.position.x - x, state.mesh.position.z - z);
-        const ready = state.phase === 'square';
+        const ready = state.phase === 'square' || state.phase === 'bluster';
         if (!best || d < best.distance) best = { claimId: id, distance: d, ready };
       }
       return best;

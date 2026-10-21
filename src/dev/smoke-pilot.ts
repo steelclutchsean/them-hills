@@ -48,6 +48,10 @@ export interface ThemHillsProbe {
   loopComplete: boolean;
   error: string | null;
   frameLuma: number;
+  drawCalls: number;
+  triangles: number;
+  frameMs: number;
+  frameBudget: { frameMs: number; drawCalls: number; triangles: number };
   peakCarryGrams: number;
   graphics: string;
   saveVersion: number;
@@ -71,6 +75,8 @@ export interface ThemHillsProbe {
   spawnJumper: () => boolean;
   /** Teleport to a named review camera. Returns false for an unknown name. */
   applyShot?: (name: string) => boolean;
+  /** Open a story card or a world-event preview for capture. */
+  previewScene?: (who: string) => boolean;
   /** Live clip. `bind` is true only when an arm is back in the T-pose. */
   playerPose: { clip: string; bind: boolean };
 }

@@ -9,6 +9,9 @@ interface Probe {
   loopComplete: boolean;
   error: string | null;
   frameLuma: number;
+  drawCalls?: number;
+  triangles?: number;
+  frameBudget?: { frameMs: number; drawCalls: number; triangles: number };
   peakCarryGrams: number;
   graphics?: string;
   saveVersion?: number;
@@ -214,8 +217,10 @@ test('captures fixed cameras', async ({ page }) => {
     'night',
     'dawn',
     'inn',
+    'town',
     'creekbank',
     'prospector',
+    'lode',
   ] as const;
   await page.goto('/?shot=spawn');
   await waitReady(page);
@@ -225,11 +230,24 @@ test('captures fixed cameras', async ({ page }) => {
       shot,
     );
     expect(applied, shot).toBe(true);
-    const minLuma = shot === 'night' ? 0.05 : shot === 'dusk' ? 0.15 : 0.4;
+    const minLuma = shot === 'night' ? 0.05 : shot === 'dusk' ? 0.15 : shot === 'lode' ? 0.02 : 0.4;
     await page.waitForFunction((floor) => (window.__themHills?.frameLuma ?? 0) > floor, minLuma, {
       timeout: 15_000,
     });
     await page.waitForTimeout(400);
+    const budget = await page.evaluate(() => {
+      const probe = window.__themHills;
+      return {
+        calls: probe?.drawCalls ?? 0,
+        tris: probe?.triangles ?? 0,
+        budgetCalls: probe?.frameBudget?.drawCalls ?? 0,
+        budgetTris: probe?.frameBudget?.triangles ?? 0,
+      };
+    });
+    expect(budget.calls, `${shot} draw calls`).toBeGreaterThan(8);
+    expect(budget.calls, `${shot} draw calls`).toBeLessThanOrEqual(budget.budgetCalls);
+    expect(budget.tris, `${shot} triangles`).toBeGreaterThan(100);
+    expect(budget.tris, `${shot} triangles`).toBeLessThanOrEqual(budget.budgetTris);
     await page.screenshot({ path: `test-results/visual/${shot}.png` });
   }
   expect(errors, errors.join('\n')).toEqual([]);

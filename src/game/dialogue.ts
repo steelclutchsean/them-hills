@@ -26,7 +26,15 @@ export type DialogueAction =
   | { kind: 'fileLode'; mineId: string; x: number; z: number }
   | { kind: 'scareJumper' }
   | { kind: 'chaseJumper' }
-  | { kind: 'payJumper' };
+  | { kind: 'payJumper' }
+  | { kind: 'beginLode' }
+  | { kind: 'millOre' }
+  | { kind: 'buyPowder' }
+  | { kind: 'buyTimber' }
+  | { kind: 'buyOutCompany' }
+  | { kind: 'standWithTown' }
+  | { kind: 'meetCompany' }
+  | { kind: 'fightFire' };
 
 export interface DialogueOption {
   text: string;
@@ -210,6 +218,13 @@ export const OLD_PETE_DIALOGUE: DialogueTree = {
         text: 'Teach me to read a creek.',
         action: { kind: 'giveLesson' },
         visible: (save) => !save.fieldwork.rumorsHeard.includes('lesson'),
+      },
+      {
+        text: 'The quartz on the north ridge.',
+        action: { kind: 'goto', nodeId: 'vein' },
+        visible: (save) =>
+          (save.fieldwork.campaign?.act ?? 1) < 2 &&
+          (save.equipment.ownedTiers.pick >= 1 || save.equipment.ownedTiers.shovel >= 3),
       },
       {
         text: 'Witness a claim for me.',
@@ -520,6 +535,29 @@ export const OLD_PETE_DIALOGUE: DialogueTree = {
     body: 'That bar will not look the same. File a lode on the ridge when you want rock instead of gravel.',
     options: [{ text: 'Much obliged.', action: { kind: 'leave' } }],
   },
+  vein: {
+    speaker: 'Old Pete',
+    body: 'White quartz is the barren kind. Gray is just the wall. Drill where the white is shot through with rust and honey. That is the vein. I will put two rounds of powder in the crib the day you own a pick.',
+    options: [
+      {
+        text: 'Open the vein.',
+        action: { kind: 'beginLode' },
+        enabled: (save) => save.equipment.ownedTiers.pick >= 1,
+        disabledHint: '(needs a pick)',
+      },
+      { text: 'I will buy the pick.', action: { kind: 'leave' } },
+    ],
+  },
+  veinNeedPick: {
+    speaker: 'Old Pete',
+    body: 'A shovel will move gravel. The ridge wants a pick. Come back with one.',
+    options: [{ text: 'Right.', action: { kind: 'leave' } }],
+  },
+  veinOpen: {
+    speaker: 'Old Pete',
+    body: 'Single-jack on the beat. Spit the fuse and walk back up the drift before it talks. Muck the ore into the cart and take it to Silas. If the timbers creak, lag a set in before you strike again. Bad air puts the candle out.',
+    options: [{ text: 'I hear you.', action: { kind: 'leave' } }],
+  },
   lesson: {
     speaker: 'Old Pete',
     body: 'Look before you count. Black sand on the inside shore is the streak. Gray rock standing in the creek is bedrock. A pile of gravel is the bar. White quartz on the bank means the color is close. Downstream of a boulder, a dark pocket. Press F and a hole remembers the number. Six is pay. Rain walks the black sand, so look again after a storm. J keeps the page.',
@@ -569,6 +607,117 @@ export const JUMPER_DIALOGUE: DialogueTree = {
       { text: "I'll run you down.", action: { kind: 'chaseJumper' } },
       { text: 'Walk away.', action: { kind: 'leave' } },
     ],
+  },
+};
+
+export const SILAS_DIALOGUE: DialogueTree = {
+  root: {
+    speaker: 'Silas Voss',
+    body: 'Stamps are running, if the creek is. Ore in the cart, gold in the poke. I take two dollars a unit and I do not argue the color.',
+    options: [
+      { text: 'Stamp what I hauled.', action: { kind: 'millOre' } },
+      { text: 'Two rounds of powder ($18).', action: { kind: 'buyPowder' }, enabled: (save) => save.wallet.balance >= 18, disabledHint: '(not enough cash)' },
+      { text: 'A set of timbers ($40).', action: { kind: 'buyTimber' }, enabled: (save) => save.wallet.balance >= 40, disabledHint: '(not enough cash)' },
+      { text: 'What is Quinn doing in town?', action: { kind: 'goto', nodeId: 'quinn' }, visible: (save) => (save.fieldwork.campaign?.act ?? 1) >= 3 },
+      { text: 'Goodbye.', action: { kind: 'leave' } },
+    ],
+  },
+  quinn: {
+    speaker: 'Silas Voss',
+    body: 'Consolidated Hydraulic. She will buy the creek or she will wash it down to the bedrock and leave us the mud. Mill enough that the town can tell her no, or pay her price. I will not sell her my stamps.',
+    options: [{ text: 'I will see her.', action: { kind: 'leave' } }],
+  },
+  millDone: {
+    speaker: 'Silas Voss',
+    body: 'That is the honey quartz. It stamps clean. Take it to the assayer before the board moves.',
+    options: [{ text: 'Obliged.', action: { kind: 'leave' } }],
+  },
+  millEmpty: {
+    speaker: 'Silas Voss',
+    body: 'Nothing in the cart. Drill the honey, not the white, and muck it down the rail.',
+    options: [{ text: 'I will.', action: { kind: 'leave' } }],
+  },
+  millBroke: {
+    speaker: 'Silas Voss',
+    body: 'The stamps eat diesel and iron. Come back when the poke can pay the fee.',
+    options: [{ text: 'Right.', action: { kind: 'leave' } }],
+  },
+  millFire: {
+    speaker: 'Silas Voss',
+    body: 'The belts are off. There is a fire up by the inn. Bucket line first, gold second.',
+    options: [{ text: 'I am going.', action: { kind: 'leave' } }],
+  },
+  powderBought: {
+    speaker: 'Silas Voss',
+    body: 'Two rounds. Do not spit a fuse and then admire it.',
+    options: [{ text: 'I will walk back.', action: { kind: 'leave' } }],
+  },
+  timberBought: {
+    speaker: 'Silas Voss',
+    body: 'Lag the set where the cap talks. A creak is the mountain asking you to leave.',
+    options: [{ text: 'I know the sound.', action: { kind: 'leave' } }],
+  },
+};
+
+export const ADA_DIALOGUE: DialogueTree = {
+  root: {
+    speaker: 'Ada Quinn',
+    body: 'Consolidated Hydraulic. This drainage is on our map. You can sell me the lease, or you can watch the monitors take the bars one winter at a time.',
+    options: [
+      { text: 'Say what you came to say.', action: { kind: 'meetCompany' }, visible: (save) => !(save.fieldwork.campaign?.heard ?? []).includes('ada') },
+      { text: 'I have heard the offer.', action: { kind: 'goto', nodeId: 'offer' }, visible: (save) => (save.fieldwork.campaign?.heard ?? []).includes('ada') },
+      { text: 'Not today.', action: { kind: 'leave' } },
+    ],
+  },
+  offer: {
+    speaker: 'Ada Quinn',
+    body: 'Four thousand two hundred dollars and the creek is yours on paper. Or keep milling until Mae and Pete have a reason to stand in the road. I do not wait forever. The pressure on this town only rises.',
+    options: [
+      {
+        text: 'Buy the lease ($4200).',
+        action: { kind: 'buyOutCompany' },
+        enabled: (save) => save.wallet.balance >= 4200,
+        disabledHint: '(not enough cash)',
+      },
+      { text: 'The town will refuse you.', action: { kind: 'standWithTown' } },
+      { text: 'I need time.', action: { kind: 'leave' } },
+    ],
+  },
+  short: {
+    speaker: 'Ada Quinn',
+    body: 'That is not the price. Come back when the assayer has paid you, or do not come back.',
+    options: [{ text: 'I will.', action: { kind: 'leave' } }],
+  },
+  notYet: {
+    speaker: 'Ada Quinn',
+    body: 'A speech is not a town. Mill twenty loads and timber the drift. Then we will see who stands with you.',
+    options: [{ text: 'Then that is the work.', action: { kind: 'leave' } }],
+  },
+  bought: {
+    speaker: 'Ada Quinn',
+    body: 'Signed. The monitors come off the creek in the morning. Do not write me unless the ridge fails you.',
+    options: [{ text: 'We are done.', action: { kind: 'leave' } }],
+  },
+  stood: {
+    speaker: 'Ada Quinn',
+    body: 'Mae will not rent me a room and Silas will not stamp my ore. Keep the drainage. Consolidated has other rivers.',
+    options: [{ text: 'Safe road.', action: { kind: 'leave' } }],
+  },
+};
+
+export const FIRE_DIALOGUE: DialogueTree = {
+  root: {
+    speaker: 'Innkeeper Mae',
+    body: 'The shed caught. Buckets, not speeches. Pass them up and do not let it take the inn.',
+    options: [
+      { text: 'On the line.', action: { kind: 'fightFire' } },
+      { text: 'I cannot.', action: { kind: 'leave' } },
+    ],
+  },
+  held: {
+    speaker: 'Innkeeper Mae',
+    body: 'Scorched, and standing. Silas can run the stamps. You have a room if you want it.',
+    options: [{ text: 'Glad of it.', action: { kind: 'leave' } }],
   },
 };
 

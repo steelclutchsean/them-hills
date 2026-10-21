@@ -205,7 +205,8 @@ export function createMonitorView(): MachineView<Extract<MinigameViz, { kind: 'm
       cut.scale.y = 0.2 + viz.cut * 1.4;
       cut.visible = viz.cut > 0.02;
       spray.visible = true;
-      spray.scale.setScalar(viz.spray ? 1.15 : 0.35);
+      const nozzlePressure = 0.45 + viz.pressure * 0.9;
+      spray.scale.set(viz.spray ? nozzlePressure : 0.35, viz.spray ? nozzlePressure : 0.35, viz.spray ? 1 : 0.4);
       (spray.material as THREE.MeshBasicMaterial).opacity = viz.spray ? 0.55 : 0.18;
       spray.position.y = nozzle.position.y;
     },

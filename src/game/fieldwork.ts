@@ -1,3 +1,4 @@
+import { priced } from '@/game/campaign';
 import { EQUIPMENT, getNextUpgrade, type EquipmentCategory } from '@/economy/equipment';
 import type { GroundRead } from '@/game/geology';
 import { stakeable } from '@/game/geology';
@@ -244,8 +245,8 @@ export function buildListings(save: SaveV1): StoreListing[] {
       displayName: EQUIPMENT[category].displayName,
       ownedLabel: ownedTier > 0 ? `T${ownedTier}` : '—',
       nextLabel: next ? (gated ? 'Quest locked' : next.label) : 'Maxed',
-      nextCost: next && !gated ? next.cost : null,
-      affordable: Boolean(next && !gated && wallet >= next.cost),
+      nextCost: next && !gated ? priced(save, next.cost) : null,
+      affordable: Boolean(next && !gated && wallet >= priced(save, next.cost)),
       questGated: gated,
     });
   }
@@ -257,8 +258,8 @@ export function buildListings(save: SaveV1): StoreListing[] {
       displayName: supply.name,
       ownedLabel: `×${owned}`,
       nextLabel: 'Buy',
-      nextCost: supply.cost,
-      affordable: wallet >= supply.cost,
+      nextCost: priced(save, supply.cost),
+      affordable: wallet >= priced(save, supply.cost),
       questGated: false,
     });
     if (owned > 0) {
@@ -315,8 +316,8 @@ export function buildListings(save: SaveV1): StoreListing[] {
     displayName: 'Hire a hand',
     ownedLabel: `${save.fieldwork.hands}`,
     nextLabel: save.fieldwork.hands >= MAX_HANDS ? 'Crew full' : 'Hire',
-    nextCost: save.fieldwork.hands >= MAX_HANDS ? null : HIRE_COST,
-    affordable: save.fieldwork.hands < MAX_HANDS && wallet >= HIRE_COST,
+    nextCost: save.fieldwork.hands >= MAX_HANDS ? null : priced(save, HIRE_COST),
+    affordable: save.fieldwork.hands < MAX_HANDS && wallet >= priced(save, HIRE_COST),
     questGated: false,
   });
   return rows;
@@ -333,7 +334,7 @@ export function bestCamp(claims: readonly ClaimRecord[]): 0 | 1 | 2 {
 export function openingGuide(save: SaveV1): {
   title: string;
   detail: string;
-  beam: 'creek' | 'assayer' | 'pete' | 'store' | 'claim' | 'rocker' | 'sluice' | 'tom' | 'monitor';
+  beam: 'creek' | 'assayer' | 'pete' | 'store' | 'claim' | 'rocker' | 'sluice' | 'tom' | 'monitor' | 'lode' | 'mill' | 'company';
 } | null {
   const carry =
     save.inventory.carry.gold.flake_g +
@@ -456,8 +457,44 @@ export function openingGuide(save: SaveV1): {
   if (runs.hydraulic < 1) {
     return {
       title: 'Cut the streak',
-      detail: 'A hand is on the hose. Aim the monitor at the dark band and hold the spray there.',
+      detail: 'A hand is on the hose. Sweep the dark band and keep the water pressure in the middle.',
       beam: 'monitor',
+    };
+  }
+  const arc = save.fieldwork.campaign;
+  const lode = save.fieldwork.lode;
+  if (arc && arc.act < 2) {
+    return {
+      title: 'The north vein',
+      detail:
+        owned.pick < 1
+          ? 'Buy a pick, then ask Pete about the quartz on the north ridge. White is barren. Honey is the vein.'
+          : 'Ask Pete to open the north vein. Drill the honey quartz, not the white.',
+      beam: 'pete',
+    };
+  }
+  if (arc && lode && arc.act < 3) {
+    return {
+      title: lode.ore >= 1 ? 'Haul the ore' : 'Drill the north lode',
+      detail:
+        lode.ore >= 1
+          ? 'The cart is loaded. Silas Voss at the stamp mill will run it. Two dollars a unit.'
+          : 'In the north drift: single-jack, a timed fuse, then muck the ore. Timber the set if the caps creak.',
+      beam: lode.ore >= 1 ? 'mill' : 'lode',
+    };
+  }
+  if (arc && !arc.boughtOut && !arc.savedTown && arc.act < 4) {
+    return {
+      title: 'Quinn is in town',
+      detail: 'Ada Quinn of Consolidated Hydraulic is with the wagon. Hear the offer before the monitors take the bars.',
+      beam: 'company',
+    };
+  }
+  if (arc && !arc.boughtOut && !arc.savedTown) {
+    return {
+      title: 'The lease',
+      detail: 'Buy Quinn out for $4200, or mill 20 loads and timber the drift so Mae and Pete can refuse her.',
+      beam: 'company',
     };
   }
   if (owned.pick < 1) {
@@ -515,6 +552,17 @@ export function openingGuide(save: SaveV1): {
 
 export function journalLines(save: SaveV1): string[] {
   const lines: string[] = [];
+  const arc = save.fieldwork.campaign;
+  const lode = save.fieldwork.lode;
+  if (arc) {
+    const ending = arc.boughtOut ? 'The lease is yours.' : arc.savedTown ? 'The town held.' : `Act ${arc.act}.`;
+    lines.push(ending);
+  }
+  if (lode && (lode.ore > 0 || lode.milled > 0)) {
+    lines.push(`Ore in the cart ${lode.ore.toFixed(1)}. Milled ${lode.milled.toFixed(0)}. Timber sets ${lode.timber}.`);
+  }
+  const eventId = save.world.event?.id;
+  if (eventId && eventId !== 'calm') lines.push(`The country is in a ${eventId}.`);
   lines.push(`Working with a ${methodLabel(save.fieldwork.method).toLowerCase()}.`);
   if (save.fieldwork.hands > 0) lines.push(`Crew: ${save.fieldwork.hands} hand${save.fieldwork.hands === 1 ? '' : 's'}.`);
   if (save.fieldwork.claims.length === 0) {

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { darkenCaveMeshes, dressNorthLode } from '@/game/north-lode';
 import { addMineWorks } from '@/game/structures';
 import { kitRockMaterial, stoneMaterial } from '@/render/painterly';
 import { RAPIER } from '@/physics/world';
@@ -304,6 +305,11 @@ export function createMineEntrance(
     CAVE_FRONT_Z - CAVE_DEPTH / 2,
   );
   group.add(caveRight);
+
+  if (config.id === 'north') {
+    darkenCaveMeshes([caveFloor, caveCeil, caveBack, caveLeft, caveRight]);
+    dressNorthLode(group);
+  }
 
   // Subtle warm "ore vein" glow at the back to give the player something to walk toward.
   const veinMat = new THREE.MeshStandardMaterial({

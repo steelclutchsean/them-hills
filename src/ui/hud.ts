@@ -4,6 +4,7 @@ import type { ActionState, InputDevice } from '@/input/manager';
 import type { CharacterState } from '@/game/character';
 import type { ProspectingSnapshot } from '@/game/prospecting';
 import type { WeatherView } from '@/game/weather';
+import { paintPortrait, portraitIdFor } from '@/ui/portraits';
 import type { QuestProgressView } from '@/quests/quests';
 import type { GoldStash } from '@/save/schema';
 
@@ -62,6 +63,7 @@ export interface HudUpdate {
   dialogue: {
     speaker: string;
     body: string;
+    portrait: string;
     options: { text: string; enabled: boolean; hint?: string }[];
     selectedIndex: number;
   } | null;
@@ -69,6 +71,10 @@ export interface HudUpdate {
   questTracker: QuestProgressView[];
   /** First-session objective. Shown even when no quest has been accepted. */
   guide: { title: string; detail: string } | null;
+  /** World-event line under the compass. */
+  banner: string | null;
+  /** Air, timber, ore — shown while the lode or the act is in play. */
+  arcStatus: string | null;
   /** Short label for the tools in hand, e.g. "Shovel T1 · Pan T1". */
   toolsLabel: string;
   /** Pointer lock is held. When false during play, the HUD asks for a click. */
@@ -400,6 +406,45 @@ const STYLE = `
     border-color: rgba(212, 122, 42, 0.7);
     text-align: left;
   }
+  .hud-banner {
+    position: fixed;
+    top: 58px;
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: min(640px, 86vw);
+    padding: 8px 14px;
+    background: rgba(42, 22, 12, 0.88);
+    color: #f3e0c4;
+    border: 1px solid rgba(212, 148, 74, 0.7);
+    border-radius: 4px;
+    font-size: 13px;
+    letter-spacing: 0.02em;
+    text-align: center;
+    pointer-events: none;
+    z-index: 24;
+  }
+  .hud-arc {
+    position: fixed;
+    top: 96px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: #e7d3b0;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    pointer-events: none;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+    z-index: 24;
+  }
+  .hud-dialogue .dlg-layout { display: flex; gap: 12px; align-items: flex-start; }
+  .hud-dialogue .dlg-portrait {
+    width: 84px;
+    height: 108px;
+    border-radius: 3px;
+    background: #24180f;
+    flex: none;
+    image-rendering: auto;
+  }
+  .hud-dialogue .dlg-copy { flex: 1; min-width: 0; }
   .hud-dialogue .dlg-speaker {
     font-weight: 600;
     color: #d47a2a;
@@ -704,6 +749,15 @@ export function mountHud(root: HTMLElement, hooks: HudHooks = {}): MountedHud {
   document.body.appendChild(compass);
   const compassCtx = compass.getContext('2d');
 
+  const banner = document.createElement('div');
+  banner.className = 'hud-banner';
+  banner.hidden = true;
+  document.body.appendChild(banner);
+  const arcStatus = document.createElement('div');
+  arcStatus.className = 'hud-arc';
+  arcStatus.hidden = true;
+  document.body.appendChild(arcStatus);
+
   const prompt = document.createElement('div');
   prompt.className = 'hud-prompt';
   prompt.hidden = true;
@@ -922,6 +976,10 @@ export function mountHud(root: HTMLElement, hooks: HudHooks = {}): MountedHud {
   return {
     update(s) {
       lines.clock!.textContent = s.clockText;
+      banner.hidden = !s.banner;
+      banner.textContent = s.banner ?? '';
+      arcStatus.hidden = !s.arcStatus;
+      arcStatus.textContent = s.arcStatus ?? '';
       const wIcon =
         s.weather.state === 'clear'
           ? '☀'
@@ -1134,15 +1192,27 @@ export function mountHud(root: HTMLElement, hooks: HudHooks = {}): MountedHud {
         dialogue.hidden = false;
         dialogue.innerHTML = '';
 
+        const layout = document.createElement('div');
+        layout.className = 'dlg-layout';
+        const portrait = document.createElement('canvas');
+        portrait.className = 'dlg-portrait';
+        portrait.width = 84;
+        portrait.height = 108;
+        const ctx = portrait.getContext('2d');
+        if (ctx) paintPortrait(ctx, portraitIdFor(s.dialogue.portrait || s.dialogue.speaker));
+        const copy = document.createElement('div');
+        copy.className = 'dlg-copy';
         const speaker = document.createElement('div');
         speaker.className = 'dlg-speaker';
         speaker.textContent = s.dialogue.speaker;
-        dialogue.appendChild(speaker);
+        copy.appendChild(speaker);
 
         const body = document.createElement('div');
         body.className = 'dlg-body';
         body.textContent = s.dialogue.body;
-        dialogue.appendChild(body);
+        copy.appendChild(body);
+        layout.append(portrait, copy);
+        dialogue.appendChild(layout);
 
         s.dialogue.options.forEach((opt, idx) => {
           const row = document.createElement('div');

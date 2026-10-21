@@ -16,15 +16,22 @@ import { bearingFromYaw, createCameraRig } from '@/game/camera-rig';
 import { createCamp } from '@/game/camp';
 import { createCharacter } from '@/game/character';
 import {
+  ADA_DIALOGUE,
+  FIRE_DIALOGUE,
   INNKEEPER_DIALOGUE,
   JUMPER_DIALOGUE,
   OLD_PETE_DIALOGUE,
+  SILAS_DIALOGUE,
   getCurrentNode,
   resolveBody,
   resolveOptions,
   startDialogue,
   type DialogueSession,
 } from '@/game/dialogue';
+import { applyArcAction, bankOre, placerEventFactor, tickArc, timberInPlace } from '@/game/campaign';
+import { createTownArc } from '@/game/town-arc';
+import { updateNorthLode } from '@/game/north-lode';
+import { frameBudget, noteFrameTime } from '@/engine/frame-budget';
 import { createGeneralStore } from '@/game/general-store';
 import { createGrassField } from '@/game/grass-field';
 import { createHeadlamp } from '@/game/headlamp';
@@ -57,7 +64,7 @@ import {
 } from '@/game/scatter';
 import { createMotes } from '@/game/motes';
 import { createLightShafts } from '@/game/shafts';
-import { emitGameplay, bindGameplayAudio } from '@/game/events';
+import { emitGameplay, bindGameplayAudio, onGameplay } from '@/game/events';
 import { createClaimMarkers } from '@/game/claim-markers';
 import { createCrew } from '@/game/crew';
 import { createGeologyMarks } from '@/game/geology-marks';
@@ -347,6 +354,7 @@ async function bootstrap(): Promise<void> {
 
   // ---- Old Pete ----
   const oldPete = createOldPete(renderer.scene, (x, z) => terrain.getHeightAt(x, z));
+  const townArc = createTownArc(renderer.scene, (x, z) => terrain.getHeightAt(x, z));
 
   // ---- Mine entrances ----
   // Four mines spread around the map. The original "north" stays as the
@@ -634,6 +642,12 @@ async function bootstrap(): Promise<void> {
   // viewmodel space; the shake offset is applied to the camera each
   // frame AFTER cameraMode positions it.
   const fx = createEffectSystem();
+  onGameplay('blast', (payload) => {
+    if (payload.charges > 0) {
+      fx.kickFov(8, 0.7);
+      fx.rumble(220, 0.45, 0.85);
+    }
+  });
   renderer.camera.add(fx.particlesGroup);
   renderer.scene.add(fx.worldGroup);
   // Per-stage swing trackers — tool meshes animate on rising-edge
@@ -893,6 +907,13 @@ async function bootstrap(): Promise<void> {
     z: assayer?.position.z ?? 0,
   };
   let frameLuma = 0;
+  let drawCalls = 0;
+  let triangles = 0;
+  let frameMs = 0;
+  let interiorShot = false;
+  let arcBanner: string | null = null;
+  let arcStatusLine: string | null = null;
+  const playtestLock = params.has('smoke') || params.has('shot') || params.has('freezeSave');
 
   function publishProbe(): void {
     const save = gameStore.getState().save;
@@ -910,6 +931,10 @@ async function bootstrap(): Promise<void> {
       loopComplete: view.loopComplete,
       error: view.error,
       frameLuma,
+      drawCalls,
+      triangles,
+      frameMs,
+      frameBudget: frameBudget(),
       peakCarryGrams: view.peakCarryGrams,
       save: async () => {
         await saveCurrentState(buildSaveSnapshot());
@@ -1107,6 +1132,7 @@ async function bootstrap(): Promise<void> {
       applyShot: (name: string) => {
         const shot = reviewShot(name);
         if (!shot) return false;
+        interiorShot = name === 'lode';
         character.group.visible = true;
         const y = terrain.getHeightAt(shot.x, shot.z) + 1.5;
         character.placeAt(shot.x, y, shot.z);
@@ -1116,6 +1142,55 @@ async function bootstrap(): Promise<void> {
         cameraRig.setArmLength(shot.arm);
         setReviewPose(shot.pose);
         worldTime = reviewWorldTime(shot.hour);
+        return true;
+      },
+      previewScene: (who: string) => {
+        character.group.visible = false;
+        interiorShot = false;
+        if (who === 'pete') {
+          dialogue = startDialogue('old_pete', OLD_PETE_DIALOGUE);
+          dialogue.currentNodeId = 'vein';
+        } else if (who === 'silas') {
+          dialogue = startDialogue('silas', SILAS_DIALOGUE);
+          const y = terrain.getHeightAt(townArc.millPos.x + 2.2, townArc.millPos.z + 1.4);
+          character.placeAt(townArc.millPos.x + 2.2, y + 0.2, townArc.millPos.z + 1.4);
+          cameraRig.setAvoidance(false);
+          cameraRig.setArmLength(4.2);
+          cameraRig.setYawPitch(Math.atan2(-2.2, -1.4), 0.12);
+        } else if (who === 'ada') {
+          const snap = gameStore.getState().serialize();
+          snap.fieldwork = {
+            ...snap.fieldwork,
+            campaign: { ...snap.fieldwork.campaign, act: 4, heard: [...snap.fieldwork.campaign.heard, 'ada'] },
+          };
+          gameStore.getState().hydrate(snap);
+          townArc.update(worldTime, 4, false);
+          dialogue = startDialogue('ada', ADA_DIALOGUE);
+          dialogue.currentNodeId = 'offer';
+          const y = terrain.getHeightAt(townArc.companyPos.x + 2.4, townArc.companyPos.z);
+          character.placeAt(townArc.companyPos.x + 2.4, y + 0.2, townArc.companyPos.z);
+          cameraRig.setAvoidance(false);
+          cameraRig.setArmLength(5);
+          cameraRig.setYawPitch(Math.PI / 2, 0.08);
+        } else if (who === 'fire') {
+          const snap = gameStore.getState().serialize();
+          snap.world = {
+            ...snap.world,
+            event: { id: 'fire', startedAt: worldTime, until: worldTime + 600, stamp: worldTime },
+          };
+          gameStore.getState().hydrate(snap);
+          dialogue = startDialogue('fire', FIRE_DIALOGUE);
+        } else if (who === 'flood') {
+          const snap = gameStore.getState().serialize();
+          snap.world = {
+            ...snap.world,
+            event: { id: 'flood', startedAt: worldTime, until: worldTime + 600, stamp: worldTime },
+          };
+          gameStore.getState().hydrate(snap);
+          arcBanner = 'Spring flood — the pay streak walked downstream.';
+        } else {
+          return false;
+        }
         return true;
       },
     };
@@ -1316,6 +1391,7 @@ async function bootstrap(): Promise<void> {
     // the 6s pan and 9s collect never finish inside the test budget.
     maxFrameDt: smoke.active ? 1 : 0.25,
     update: (dt) => {
+      frameMs = dt * 1000;
       input.poll();
       if (document.hidden) {
         publishProbe();
@@ -1607,6 +1683,14 @@ async function bootstrap(): Promise<void> {
             character.getColliderHandle(),
             dt,
           );
+          if (interiorShot) {
+            const north = mines.find((m) => m.id === 'mine_north');
+            if (north) {
+              const origin = north.position;
+              renderer.camera.position.set(origin.x + 1.15, origin.y + 1.35, origin.z - 2.15);
+              renderer.camera.lookAt(origin.x - 0.85, origin.y + 1.05, origin.z - 7.6);
+            }
+          }
         }
       }
 
@@ -1622,6 +1706,9 @@ async function bootstrap(): Promise<void> {
         !nearStore &&
         !nearInn &&
         oldPete.isPlayerNear(charPos);
+      const nearMill = !inSession && !nearPete && townArc.nearMill(charPos);
+      const nearCompany = !inSession && !nearPete && !nearMill && townArc.nearCompany(charPos);
+      const nearFire = !inSession && townArc.nearFire(charPos);
       // Find the mine the player is closest to (only one can be "near" at
       // a time given the interact-radius gating). null if not near any.
       let nearestMine: MineInfo | null = null;
@@ -1869,10 +1956,19 @@ async function bootstrap(): Promise<void> {
           break;
         }
       }
-      if (inCave) {
+      if (inCave || interiorShot) {
         renderer.ambient.intensity = 0.04;
         renderer.hemi.intensity = 0.015;
       }
+      const northMine = mines.find((m) => m.id === 'mine_north');
+      if (northMine) {
+        updateNorthLode(northMine.group, worldTime, gameStore.getState().save.fieldwork.lode.creak);
+      }
+      townArc.update(
+        worldTime,
+        gameStore.getState().save.fieldwork.campaign.act,
+        gameStore.getState().save.world.event.id === 'fire',
+      );
 
       // Sky wrote the sun's arc position. Slide the shadow frustum onto the
       // player, then publish one lighting block for every custom shader.
@@ -2046,6 +2142,27 @@ async function bootstrap(): Promise<void> {
                     audio.playConfirm();
                   }
                 }
+              } else if (
+                action.kind === 'beginLode' ||
+                action.kind === 'millOre' ||
+                action.kind === 'buyPowder' ||
+                action.kind === 'buyTimber' ||
+                action.kind === 'buyOutCompany' ||
+                action.kind === 'standWithTown' ||
+                action.kind === 'meetCompany' ||
+                action.kind === 'fightFire'
+              ) {
+                const arc = applyArcAction(gameStore.getState().save, action, worldTime);
+                gameStore.getState().hydrate(arc.save);
+                if (dialogue) {
+                  dialogue.currentNodeId = arc.node;
+                  dialogue.selectionIdx = 0;
+                }
+                if (arc.hint) {
+                  hintText = arc.hint;
+                  hintUntil = worldTime + 4.5;
+                }
+                audio.playConfirm();
               }
             }
           }
@@ -2182,6 +2299,9 @@ async function bootstrap(): Promise<void> {
               nuggetGrams: result.reward.nugget_g,
             });
             gameStore.getState().markTutorialComplete();
+            if (result.siteId === 'mine_north_cave' && gameStore.getState().save.fieldwork.campaign.act >= 2) {
+              gameStore.getState().hydrate(bankOre(gameStore.getState().save, result.skillBonus, worldTime));
+            }
             if (
               result.method === 'rocker' ||
               result.method === 'sluice' ||
@@ -2217,6 +2337,12 @@ async function bootstrap(): Promise<void> {
       } else if (nearPete && interactJustPressed) {
         dialogue = startDialogue('old_pete', OLD_PETE_DIALOGUE);
         console.log('[dialogue] opened old_pete');
+      } else if (nearFire && interactJustPressed) {
+        dialogue = startDialogue('fire', FIRE_DIALOGUE);
+      } else if (nearMill && interactJustPressed) {
+        dialogue = startDialogue('silas', SILAS_DIALOGUE);
+      } else if (nearCompany && interactJustPressed) {
+        dialogue = startDialogue('ada', ADA_DIALOGUE);
       } else if (nearMine && nearestMine && interactJustPressed) {
         const shovelTier = mineAccessTier(gameStore.getState().save.equipment.ownedTiers);
         if (nearestMine.tryUnlock(shovelTier)) {
@@ -2267,6 +2393,18 @@ async function bootstrap(): Promise<void> {
         console.log(
           `[camp] rested — meters refilled, time advanced ${(CAMP_REST_TIME_ADVANCE / 3600).toFixed(0)}h`,
         );
+      } else if (
+        interactJustPressed &&
+        mines.some((m) => m.id === 'mine_north' && m.isPlayerInside(charPos)) &&
+        !nearestSite
+      ) {
+        const lagged = timberInPlace(gameStore.getState().save, worldTime);
+        if (lagged.ok) {
+          gameStore.getState().hydrate(lagged.save);
+          audio.playConfirm();
+        }
+        hintText = lagged.reason;
+        hintUntil = worldTime + 4;
       } else if (nearestSite && interactJustPressed) {
         // Mine cave sites get a higher dig-count range than stream sites
         // (more gold per location). Detect by the optional bonusYield field
@@ -2313,7 +2451,10 @@ async function bootstrap(): Promise<void> {
             hintUntil = worldTime + 4;
           }
           const tutorial = !gameStore.getState().save.progression.tutorialCompleted && !isMineSite;
-          const yieldMultiplier = globalMult * survivalMult * siteBonus * geo;
+          const northLode =
+            isMineSite && nearestSite.site.id === 'mine_north_cave' && fieldNow.campaign.act >= 2;
+          const eventCut = isMineSite ? 1 : placerEventFactor(gameStore.getState().save);
+          const yieldMultiplier = globalMult * survivalMult * siteBonus * geo * eventCut;
           prospect.start({
             siteId: nearestSite.site.id,
             context: isMineSite ? 'mining' : 'panning',
@@ -2326,6 +2467,8 @@ async function bootstrap(): Promise<void> {
             method,
             tutorial,
             asPick: ownedNow.pick >= 1,
+            lode: northLode,
+            powder: fieldNow.lode.charges,
           });
           audio.playSplash();
           emitGameplay('prospect-start', { siteId: nearestSite.site.id });
@@ -2337,6 +2480,31 @@ async function bootstrap(): Promise<void> {
       }
 
       // 11. HUD
+      const arc = tickArc(gameStore.getState().save, dt, {
+        allowEvents: simRunning && !playtestLock && !document.hidden,
+        inNorth: mines.some((m) => m.id === 'mine_north' && m.isPlayerInside(character.getPosition())),
+        gameTime: worldTime,
+      });
+      if (arc.changed) gameStore.getState().hydrate(arc.save);
+      arcBanner = arc.banner;
+      arcStatusLine = arc.status;
+      if (arc.creakPulse) {
+        fx.shake(0.03, 0.25);
+        emitGameplay('timber-creak', {});
+        hintText = 'The timbers are talking.';
+        hintUntil = worldTime + 3;
+      }
+      if (arc.collapsed || arc.blackout) {
+        const north = mines.find((m) => m.id === 'mine_north');
+        if (north) {
+          const y = terrain.getHeightAt(north.position.x, north.position.z + 2);
+          character.placeAt(north.position.x, y + 0.2, north.position.z + 2.2);
+        }
+        fx.shake(arc.collapsed ? 0.12 : 0.05, arc.collapsed ? 0.6 : 0.3);
+        if (arc.collapsed) emitGameplay('cave-in', {});
+        hintText = arc.collapsed ? 'The cap came down.' : 'Bad air. You are at the portal.';
+        hintUntil = worldTime + 4;
+      }
       const save = gameStore.getState().save;
       const interactGlyph =
         input.lastInputDevice() === 'gamepad'
@@ -2382,6 +2550,7 @@ async function bootstrap(): Promise<void> {
           audio.playConfirm();
         }
       }
+      const insideNorth = mines.some((m) => m.id === 'mine_north' && m.isPlayerInside(charPos));
       const promptInfo = inSession
         ? null
         : nearestVendor
@@ -2392,7 +2561,13 @@ async function bootstrap(): Promise<void> {
               ? { text: 'Talk to Innkeeper', glyph: interactGlyph }
               : nearPete
                 ? { text: 'Talk to Old Pete', glyph: interactGlyph }
-                : nearMine
+                : nearFire
+                  ? { text: 'Join the bucket line', glyph: interactGlyph }
+                  : nearMill
+                    ? { text: 'Talk to Silas Voss', glyph: interactGlyph }
+                    : nearCompany
+                      ? { text: 'Talk to Ada Quinn', glyph: interactGlyph }
+                      : nearMine
                   ? { text: minePromptText, glyph: interactGlyph }
                   : nearCamp
                     ? { text: 'Rest at Camp (4h)', glyph: interactGlyph }
@@ -2412,7 +2587,9 @@ async function bootstrap(): Promise<void> {
                                       : 'Aim the monitor',
                               glyph: interactGlyph,
                             }
-                          : nearestSite
+                          : insideNorth && !nearestSite
+                            ? { text: 'Lag a timber set ($40)', glyph: interactGlyph }
+                            : nearestSite
                             ? {
                                 text: `Prospect the ${groundHere.label}`,
                                 glyph: interactGlyph,
@@ -2540,6 +2717,13 @@ async function bootstrap(): Promise<void> {
             beam = { x: oldPete.position.x, z: oldPete.position.z };
           } else if (opening.beam === 'store') {
             beam = { x: generalStore.position.x, z: generalStore.position.z };
+          } else if (opening.beam === 'lode') {
+            const north = mines.find((m) => m.id === 'mine_north');
+            if (north) beam = { x: north.position.x, z: north.position.z - 4 };
+          } else if (opening.beam === 'mill') {
+            beam = { x: townArc.millPos.x, z: townArc.millPos.z };
+          } else if (opening.beam === 'company') {
+            beam = { x: townArc.companyPos.x, z: townArc.companyPos.z };
           }
         }
       }
@@ -2628,6 +2812,8 @@ async function bootstrap(): Promise<void> {
         bearingDeg: bearingFromYaw(cameraRig.getYaw()),
         prompt: shownPrompt,
         guide,
+        banner: arcBanner,
+        arcStatus: arcStatusLine,
         toolsLabel: `${methodLabel(save.fieldwork.method)} · Shovel T${save.equipment.ownedTiers.shovel} · Pan T${save.equipment.ownedTiers.pan}`,
         lookLocked: document.pointerLockElement === canvas || uiBlocked,
         subtitles: gameStore.getState().save.settings.subtitles === true,
@@ -2665,7 +2851,23 @@ async function bootstrap(): Promise<void> {
       presentedFrames += 1;
       if (presentedFrames === 2) spawnGrass();
       frameLuma = samplePresentedLuma(renderer.renderer);
-      if (window.__themHills) window.__themHills.frameLuma = frameLuma;
+      drawCalls = renderer.renderer.info.render.calls;
+      triangles = renderer.renderer.info.render.triangles;
+      const shed = noteFrameTime(frameMs, playtestLock);
+      if (shed === 'godrays' && RENDER_QUALITY.godrays) {
+        RENDER_QUALITY.godrays = false;
+        renderer.applyGraphics();
+      } else if (shed === 'ao' && RENDER_QUALITY.ao) {
+        RENDER_QUALITY.ao = false;
+        renderer.applyGraphics();
+      }
+      if (window.__themHills) {
+        window.__themHills.frameLuma = frameLuma;
+        window.__themHills.drawCalls = drawCalls;
+        window.__themHills.triangles = triangles;
+        window.__themHills.frameMs = frameMs;
+        window.__themHills.frameBudget = frameBudget();
+      }
     },
   });
   publishProbe();
@@ -2855,6 +3057,7 @@ function buildDialogueOverlay(
 ): {
   speaker: string;
   body: string;
+  portrait: string;
   options: { text: string; enabled: boolean; hint?: string }[];
   selectedIndex: number;
 } | null {
@@ -2862,6 +3065,7 @@ function buildDialogueOverlay(
   if (!node) return null;
   return {
     speaker: node.speaker,
+    portrait: node.speaker,
     body: resolveBody(session),
     options: resolveOptions(session, save),
     selectedIndex: session.selectionIdx,
