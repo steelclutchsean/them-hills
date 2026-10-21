@@ -127,9 +127,20 @@ export function groundDetailMap(): THREE.CanvasTexture {
   return detail;
 }
 
-/** Max anisotropy above the low tier. Low stays at 4 so software GL does not pay for it. */
-export function applyGroundAnisotropy(maxAnisotropy: number, low: boolean): void {
-  const aniso = low ? 4 : Math.max(1, maxAnisotropy);
+/**
+ * Max anisotropy above the low tier. Low stays at 4. Software GL caps at 8:
+ * the device maximum made the lode readback miss the camera suite.
+ */
+export function applyGroundAnisotropy(
+  maxAnisotropy: number,
+  low: boolean,
+  software: boolean,
+): void {
+  const aniso = low
+    ? 4
+    : software
+      ? Math.min(8, Math.max(1, maxAnisotropy))
+      : Math.max(1, maxAnisotropy);
   const painted = groundMaps();
   for (const tex of [
     painted.grass,

@@ -191,18 +191,19 @@ export function createPostPipeline(
       vec2 base = floor(p);
       vec2 f = fract(p);
       float d0 = linearEye(texture2D(tDepth, vUv).r);
-      vec3 acc = vec3(0.0);
-      float wsum = 0.0;
-      for (int j = 0; j < 2; j++) {
-        for (int i = 0; i < 2; i++) {
-          vec2 coord = clamp(base + vec2(float(i), float(j)) + 0.5, vec2(0.5), size - 0.5);
-          vec2 uv = coord / size;
-          float dz = abs(linearEye(texture2D(tDepth, uv).r) - d0);
-          float w = (i == 0 ? 1.0 - f.x : f.x) * (j == 0 ? 1.0 - f.y : f.y) * exp(-dz * 0.08);
-          acc += texture2D(tDiffuse, uv).rgb * w;
-          wsum += w;
-        }
-      }
+      vec2 c00 = clamp(base + vec2(0.5, 0.5), vec2(0.5), size - 0.5) / size;
+      vec2 c10 = clamp(base + vec2(1.5, 0.5), vec2(0.5), size - 0.5) / size;
+      vec2 c01 = clamp(base + vec2(0.5, 1.5), vec2(0.5), size - 0.5) / size;
+      vec2 c11 = clamp(base + vec2(1.5, 1.5), vec2(0.5), size - 0.5) / size;
+      float w00 = (1.0 - f.x) * (1.0 - f.y) * exp(-abs(linearEye(texture2D(tDepth, c00).r) - d0) * 0.08);
+      float w10 = f.x * (1.0 - f.y) * exp(-abs(linearEye(texture2D(tDepth, c10).r) - d0) * 0.08);
+      float w01 = (1.0 - f.x) * f.y * exp(-abs(linearEye(texture2D(tDepth, c01).r) - d0) * 0.08);
+      float w11 = f.x * f.y * exp(-abs(linearEye(texture2D(tDepth, c11).r) - d0) * 0.08);
+      float wsum = w00 + w10 + w01 + w11;
+      vec3 acc = texture2D(tDiffuse, c00).rgb * w00
+        + texture2D(tDiffuse, c10).rgb * w10
+        + texture2D(tDiffuse, c01).rgb * w01
+        + texture2D(tDiffuse, c11).rgb * w11;
       vec3 texel = wsum > 0.0001 ? acc / wsum : texture2D(tDiffuse, vUv).rgb;
       gl_FragColor = vec4(mix(vec3(1.0), texel, intensity), 1.0);
     }
