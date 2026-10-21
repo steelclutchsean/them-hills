@@ -326,16 +326,21 @@ export function bestCamp(claims: readonly ClaimRecord[]): 0 | 1 | 2 {
   return tier;
 }
 
-export function openingGuide(save: SaveV1): { title: string; detail: string; beam: 'creek' | 'assayer' | 'pete' | 'store' } | null {
+export function openingGuide(save: SaveV1): {
+  title: string;
+  detail: string;
+  beam: 'creek' | 'assayer' | 'pete' | 'store' | 'claim' | 'rocker' | 'sluice' | 'tom' | 'monitor';
+} | null {
   const carry =
     save.inventory.carry.gold.flake_g +
     save.inventory.carry.gold.picker_g +
     save.inventory.carry.gold.nugget_g;
-  if (!save.progression.firstSaleCompleted && save.progression.stats.totalPansPerformed === 0) {
+  const jumped = save.fieldwork.claims.find((c) => c.jumperSince !== null);
+  if (jumped) {
     return {
-      title: 'First claim',
-      detail: 'Walk east to the gold beam in Coyote Creek. Stand on the ring and press E. Shift sprints.',
-      beam: 'creek',
+      title: 'Someone on your claim',
+      detail: `A jumper is working ${jumped.name}. Walk up and confront them — shout, chase, or pay them off.`,
+      beam: 'claim',
     };
   }
   if (!save.progression.firstSaleCompleted && carry > 1e-4) {
@@ -345,11 +350,15 @@ export function openingGuide(save: SaveV1): { title: string; detail: string; bea
       beam: 'assayer',
     };
   }
-  const jumped = save.fieldwork.claims.find((c) => c.jumperSince !== null);
-  if (jumped) {
+  const fresh =
+    !save.progression.firstSaleCompleted &&
+    save.progression.stats.totalPansPerformed === 0 &&
+    save.fieldwork.claims.length === 0 &&
+    carry <= 1e-4;
+  if (fresh) {
     return {
-      title: 'Someone on your claim',
-      detail: `A jumper is working ${jumped.name}. Walk up and confront them — shout, chase, or pay them off.`,
+      title: 'First claim',
+      detail: 'Walk east to the gold beam in Coyote Creek. Stand on the ring and press E. Shift sprints.',
       beam: 'creek',
     };
   }
@@ -387,7 +396,7 @@ export function openingGuide(save: SaveV1): { title: string; detail: string; bea
     return {
       title: 'Rock the box',
       detail: 'Stand at the rocker on your claim and press E. Tap when the box reaches either end.',
-      beam: 'creek',
+      beam: 'rocker',
     };
   }
   if (owned.sluice < 2) {
@@ -401,7 +410,7 @@ export function openingGuide(save: SaveV1): { title: string; detail: string; bea
     return {
       title: 'Run the sluice',
       detail: 'Work the sluice on your claim. Feed, set the flow, clean the riffles.',
-      beam: 'creek',
+      beam: 'sluice',
     };
   }
   if (owned.longTom < 1) {
@@ -415,7 +424,7 @@ export function openingGuide(save: SaveV1): { title: string; detail: string; bea
     return {
       title: 'Wash a yard',
       detail: 'Stand at the long tom and press E. Shake the grizzly when it rises, then clean the riffles.',
-      beam: 'creek',
+      beam: 'tom',
     };
   }
   if (save.fieldwork.hands < 1) {
@@ -436,7 +445,7 @@ export function openingGuide(save: SaveV1): { title: string; detail: string; bea
     return {
       title: 'Cut the streak',
       detail: 'A hand is on the hose. Aim the monitor at the dark band and hold the spray there.',
-      beam: 'creek',
+      beam: 'monitor',
     };
   }
   if (owned.pick < 1) {

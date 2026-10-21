@@ -30,12 +30,22 @@ const BANK_WIDTH = 2.2; // meters past halfWidth where the gravel lip stays
 const BANK_HEIGHT = 1.15; // raised berm so the creek has a readable bank
 const BANK_TRANSITION = 2.6; // meters past the lip where gravel fades to grass
 
+export interface PaySplat {
+  x: number;
+  z: number;
+  radius: number;
+  /** 1 black sand, 2 gravel, 3 quartz, 4 bedrock. */
+  kind: number;
+}
+
 export interface Terrain {
   /** Chunked visual meshes. The physics collider stays one heightfield. */
   mesh: THREE.Group;
   collider: RAPIER.Collider;
   /** Ground height at world (x, z), bilinear interpolated. Matches the Rapier collider. */
   getHeightAt(x: number, z: number): number;
+  /** Blend pay streaks into the existing terrain splat. At most 32. */
+  setPayStreaks(marks: readonly PaySplat[]): void;
 }
 
 /** Column-major index: heights[i + j * nrows] where i = row (Z), j = col (X). */
@@ -184,6 +194,7 @@ const TERRAIN_FS = /* glsl */ `
   uniform sampler2D uGravel;
   uniform sampler2D uRock;
   uniform vec4 uPaths[10];
+  uniform vec4 uPay[32];
   uniform vec3 uLampPos[4];
   uniform vec3 uLampColor[4];
   uniform float uLampRange;
@@ -261,6 +272,35 @@ const TERRAIN_FS = /* glsl */ `
       wear = max(wear, 1.0 - smoothstep(0.35, 1.7, pd));
     }
     albedo = mix(albedo, dirt * 0.58, wear * 0.92);
+
+    // Pay tells blended into the splat. xy center, z radius, w kind
+    // (1 black sand, 2 gravel, 3 quartz, 4 bedrock). Gameplay fills these.
+    for (int i = 0; i < 32; i++) {
+      float r = uPay[i].z;
+      if (r < 0.05) continue;
+      float d = length(worldXZ - uPay[i].xy);
+      float w = 1.0 - smoothstep(r * 0.28, r, d);
+      if (w < 0.02) continue;
+      float kind = uPay[i].w;
+      vec3 tint = gravel;
+      float amt = 0.62;
+      if (kind < 1.5) {
+        tint = dirt * vec3(0.16, 0.14, 0.12);
+        amt = 0.82;
+      } else if (kind < 2.5) {
+        tint = gravel * vec3(0.92, 0.86, 0.76);
+        amt = 0.74;
+      } else if (kind < 3.5) {
+        tint = rock * vec3(1.42, 1.36, 1.18);
+        amt = 0.58;
+      } else {
+        tint = rock * vec3(0.62, 0.66, 0.7);
+        amt = 0.7;
+      }
+      float grit = noise(worldXZ * 2.8 + kind * 3.0);
+      w *= smoothstep(0.12, 0.62, grit * 0.65 + w);
+      albedo = mix(albedo, tint, clamp(w * amt, 0.0, 0.88));
+    }
 
     // Detail normal from the same hash noise, added in world XZ so lighting
     // breaks up the heightfield's large facets without extra vertices.
@@ -488,6 +528,7 @@ export function createTerrain(world: RAPIER.World, courses: readonly Watercourse
       uGravel: { value: painted.gravel },
       uRock: { value: painted.rock },
       uPaths: { value: PATHS },
+      uPay: { value: Array.from({ length: 32 }, () => new THREE.Vector4()) },
       uLampPos: { value: LAMP_POS },
       uLampColor: { value: LAMP_COLOR },
       uLampRange: { value: 7 },
@@ -533,6 +574,8 @@ export function createTerrain(world: RAPIER.World, courses: readonly Watercourse
   const colliderDesc = RAPIER.ColliderDesc.heightfield(SUBDIVS, SUBDIVS, heights, scale);
   const collider = world.createCollider(colliderDesc);
 
+  const paySlots = uniforms.uPay!.value as THREE.Vector4[];
+
   return {
     mesh,
     collider,
@@ -555,6 +598,14 @@ export function createTerrain(world: RAPIER.World, courses: readonly Watercourse
       const h0 = h00 + (h10 - h00) * tx;
       const h1 = h01 + (h11 - h01) * tx;
       return (h0 + (h1 - h0) * tz) * HEIGHT_SCALE;
+    },
+    setPayStreaks(marks) {
+      for (let i = 0; i < paySlots.length; i++) {
+        const mark = marks[i];
+        const slot = paySlots[i]!;
+        if (!mark) slot.set(0, 0, 0, 0);
+        else slot.set(mark.x, mark.z, mark.radius, mark.kind);
+      }
     },
   };
 }

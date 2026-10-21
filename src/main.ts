@@ -67,14 +67,8 @@ import {
   openingGuide,
   townQuote,
 } from '@/game/fieldwork';
-import { createPlacedMachines, type MachineKind } from '@/game/machines/placed';
-import {
-  createLongTomView,
-  createMonitorView,
-  createRockerView,
-  createSluiceView,
-} from '@/game/machines/views';
-import { SKY_SECONDS_PER_DAY, createSkyController, formatClock, getSkyHour } from '@/game/sky';
+import { createPlacedMachines, layout, workStance, type MachineKind } from '@/game/machines/placed';
+import { SKY_SECONDS_PER_DAY, createSkyController, formatClock, getSkyHour, worldTimeForSkyHour } from '@/game/sky';
 import {
   createStream,
   createStreamRegistry,
@@ -341,10 +335,14 @@ async function bootstrap(): Promise<void> {
     r: c.radius,
   }));
   const claimMarkers = createClaimMarkers(renderer.scene);
-  const geologyMarks = createGeologyMarks(renderer.scene, STREAM_CONFIGS, boulderPoints, (x, z) =>
-    terrain.getHeightAt(x, z),
+  const geologyMarks = createGeologyMarks(
+    renderer.scene,
+    STREAM_CONFIGS,
+    boulderPoints,
+    (x, z) => terrain.getHeightAt(x, z),
+    (splats) => terrain.setPayStreaks(splats),
   );
-  const placedMachines = createPlacedMachines(renderer.scene);
+  const placedMachines = createPlacedMachines(renderer.scene, courses);
   const crew = createCrew(renderer.scene);
   // Static ball colliders for each boulder so the player can't walk through
   // them. Bank-side, in-stream, and mine-ring boulders all block — in-stream
@@ -574,15 +572,6 @@ async function bootstrap(): Promise<void> {
   renderer.camera.add(strikeMeter.group);
   const extractMeter = createExtractMeterView();
   renderer.camera.add(extractMeter.group);
-  const rockerView = createRockerView();
-  const sluiceView = createSluiceView();
-  const longTomView = createLongTomView();
-  const monitorView = createMonitorView();
-  renderer.camera.add(rockerView.group, sluiceView.group, longTomView.group, monitorView.group);
-  rockerView.setVisible(false);
-  sluiceView.setVisible(false);
-  longTomView.setVisible(false);
-  monitorView.setVisible(false);
   // Shared particle pool + camera-shake for all minigame stages.
   // Parent the particle group to the camera so bursts render in
   // viewmodel space; the shake offset is applied to the camera each
@@ -876,7 +865,37 @@ async function bootstrap(): Promise<void> {
             hydraulic: 1,
           },
         };
-        snap.fieldwork = { ...snap.fieldwork, hands: Math.max(1, snap.fieldwork.hands) };
+        const heard = snap.fieldwork.rumorsHeard.includes('lesson')
+          ? snap.fieldwork.rumorsHeard
+          : [...snap.fieldwork.rumorsHeard, 'lesson'];
+        snap.fieldwork = {
+          ...snap.fieldwork,
+          hands: Math.max(1, snap.fieldwork.hands),
+          rumorsHeard: heard,
+          samples:
+            snap.fieldwork.samples.length > 0
+              ? snap.fieldwork.samples
+              : [
+                  {
+                    id: 'showcase-sample',
+                    streamId: 'coyote_creek',
+                    x: 18,
+                    z: -40,
+                    habitat: 'inside_bend',
+                    colors: 8,
+                    gameTime: worldTime,
+                  },
+                ],
+        };
+        snap.progression = {
+          ...snap.progression,
+          firstSaleCompleted: true,
+          tutorialCompleted: true,
+          stats: {
+            ...snap.progression.stats,
+            totalPansPerformed: Math.max(1, snap.progression.stats.totalPansPerformed),
+          },
+        };
         gameStore.getState().hydrate(snap);
         if (!gameStore.getState().save.fieldwork.claims.some((c) => c.kind === 'placer')) {
           const spot = richestPlacer(STREAM_CONFIGS, snap.fieldwork.payShift, boulderPoints);
@@ -893,6 +912,7 @@ async function bootstrap(): Promise<void> {
         const claim = saveNow.fieldwork.claims.find((c) => c.kind === 'placer');
         if (!claim) return false;
         if (prospect.isActive()) prospect.cancel();
+        standAtMachine(machineKind);
         const method =
           machineKind === 'longtom' ? 'long_tom' : machineKind === 'monitor' ? 'hydraulic' : machineKind;
         return prospect.start({
@@ -913,9 +933,20 @@ async function bootstrap(): Promise<void> {
         prospect.cancel();
       },
       lookAt: (x: number, z: number) => {
-        const y = terrain.getHeightAt(x + 5, z + 3) + 1.7;
-        character.placeAt(x + 5, y, z + 3);
-        cameraRig.setYawPitch(Math.atan2(-5, -3), -0.35);
+        const machines = layout(gameStore.getState().save, courses);
+        const focus = machines.find((m) => m.kind === 'sluice') ?? machines[0];
+        const fx = focus ? -Math.sin(focus.yaw) : 0;
+        const fz = focus ? -Math.cos(focus.yaw) : 1;
+        const px = focus ? focus.x - fx * 6.2 + -fz * 2.6 : x;
+        const pz = focus ? focus.z - fz * 6.2 + fx * 2.6 : z;
+        const y = terrain.getHeightAt(px, pz) + 0.95;
+        character.placeAt(px, y, pz);
+        const yaw = Math.atan2(px - (focus?.x ?? x), pz - (focus?.z ?? z));
+        character.setYaw(yaw);
+        cameraRig.setAvoidance(false);
+        cameraRig.setYawPitch(yaw, -0.32);
+        cameraRig.setArmLength(5.6);
+        worldTime = worldTimeForSkyHour(15.2);
       },
       spawnJumper: () => {
         const saveNow = gameStore.getState().serialize();
@@ -985,6 +1016,25 @@ async function bootstrap(): Promise<void> {
     if (mode === 'world') renderer.scene.add(panView.group);
     else renderer.camera.add(panView.group);
     panView.setMount(mode);
+  }
+
+  function machineAnchor(step: string | null): THREE.Vector3 | null {
+    const kind =
+      step === 'rocker' ? 'rocker' : step === 'sluice' ? 'sluice' : step === 'tom' ? 'longtom' : step === 'monitor' ? 'monitor' : null;
+    if (!kind) return null;
+    const machine = placedMachines.list().find((m) => m.kind === kind);
+    if (!machine) return null;
+    return new THREE.Vector3(machine.x, terrain.getHeightAt(machine.x, machine.z) + 0.55, machine.z);
+  }
+
+  function standAtMachine(kind: MachineKind): void {
+    const machine = layout(gameStore.getState().save, courses).find((m) => m.kind === kind);
+    if (!machine) return;
+    const stance = workStance(machine);
+    const y = terrain.getHeightAt(stance.x, stance.z) + 0.95;
+    character.placeAt(stance.x, y, stance.z);
+    character.setYaw(stance.yaw);
+    cameraRig.setYawPitch(stance.yaw, -0.15);
   }
 
   // ---- Game loop ----
@@ -1141,10 +1191,6 @@ async function bootstrap(): Promise<void> {
         collectView.setVisible(false);
         strikeMeter.setVisible(false);
         extractMeter.setVisible(false);
-        rockerView.setVisible(false);
-        sluiceView.setVisible(false);
-        longTomView.setVisible(false);
-        monitorView.setVisible(false);
       }
 
       // Tick the FX system every frame (particle motion + shake decay)
@@ -1158,10 +1204,12 @@ async function bootstrap(): Promise<void> {
 
       if (prospecting) {
         const snapForCam = prospect.getSnapshot();
+        const stepForCam = snapForCam?.step ?? null;
+        const machineFocus = machineAnchor(stepForCam);
         cameraMode.updateProspectView(
           charPosForCamera,
-          snapForCam?.step ?? null,
-          character.getToolFocus(),
+          stepForCam,
+          machineFocus ?? character.getToolFocus(),
         );
         // Shake rides ON TOP of the base camera placement during the
         // prospect view. It's a per-frame offset and never permanent.
@@ -1235,18 +1283,6 @@ async function bootstrap(): Promise<void> {
             pickaxeMesh.visible = true;
             extractMeter.update(v);
             extractMeter.setVisible(true);
-          } else if (v?.kind === 'rocker') {
-            rockerView.update(v);
-            rockerView.setVisible(true);
-          } else if (v?.kind === 'sluice') {
-            sluiceView.update(v);
-            sluiceView.setVisible(true);
-          } else if (v?.kind === 'longtom') {
-            longTomView.update(v);
-            longTomView.setVisible(true);
-          } else if (v?.kind === 'monitor') {
-            monitorView.update(v);
-            monitorView.setVisible(true);
           }
         }
       } else {
@@ -1314,7 +1350,8 @@ async function bootstrap(): Promise<void> {
         worldTime,
       );
       const nearJumperInfo = !inSession ? crew.nearestJumper(charPos.x, charPos.z) : null;
-      const nearJumper = nearJumperInfo !== null && nearJumperInfo.distance < 3.2;
+      const jumperClose = nearJumperInfo !== null && nearJumperInfo.distance < 7.5;
+      const nearJumper = nearJumperInfo !== null && nearJumperInfo.ready && nearJumperInfo.distance < 3.6;
       const nearMachineInfo =
         !inSession && !nearJumper ? placedMachines.nearest(charPos.x, charPos.z, 2.5) : null;
       // Closest panning site across both streams and the cave (if unlocked).
@@ -2010,7 +2047,9 @@ async function bootstrap(): Promise<void> {
                   : nearCamp
                     ? { text: 'Rest at Camp (4h)', glyph: interactGlyph }
                     : nearJumper
-                      ? { text: 'Confront the jumper', glyph: interactGlyph }
+                      ? { text: 'He squares up — confront him', glyph: interactGlyph }
+                      : jumperClose
+                        ? { text: 'A jumper is coming off your dirt', glyph: '' }
                       : nearMachineInfo
                         ? {
                             text:
@@ -2091,10 +2130,37 @@ async function bootstrap(): Promise<void> {
       let guide: { title: string; detail: string } | null = null;
       let beam: { x: number; z: number } | null = null;
       if (!params.has('shot')) {
-        const opening = openingGuide(save);
+        const liveStep = prospect.getSnapshot()?.step ?? null;
+        const working =
+          liveStep === 'rocker'
+            ? { title: 'Rock the box', detail: 'Tap when the box reaches either end.' }
+            : liveStep === 'sluice'
+              ? { title: 'Run the sluice', detail: 'Shovel the hopper, hold the flow, then pick the gold from the riffles.' }
+              : liveStep === 'tom'
+                ? { title: 'Wash a yard', detail: 'Shake the grizzly when it rises, then clean the lower box.' }
+                : liveStep === 'monitor'
+                  ? { title: 'Cut the streak', detail: 'Aim the monitor at the dark band and hold the spray.' }
+                  : null;
+        const opening = working ? { ...working, beam: 'creek' as const } : openingGuide(save);
         if (opening) {
           guide = { title: opening.title, detail: opening.detail };
-          if (opening.beam === 'creek') {
+          const machineBeam =
+            opening.beam === 'rocker' || opening.beam === 'sluice' || opening.beam === 'tom' || opening.beam === 'monitor'
+              ? opening.beam === 'tom'
+                ? 'longtom'
+                : opening.beam
+              : null;
+          if (machineBeam || opening.beam === 'claim') {
+            const placed = placedMachines.list();
+            const target = machineBeam
+              ? placed.find((m) => m.kind === machineBeam)
+              : placed[0];
+            if (target) beam = { x: target.x, z: target.z };
+            else {
+              const claim = save.fieldwork.claims.find((c) => c.kind === 'placer');
+              if (claim) beam = { x: claim.x, z: claim.z };
+            }
+          } else if (opening.beam === 'creek') {
             const coyote = streams.streams.find((s) => s.id === 'coyote_creek');
             let bestD = Infinity;
             for (const site of coyote?.sites ?? []) {
@@ -2113,7 +2179,7 @@ async function bootstrap(): Promise<void> {
           }
         }
       }
-      if (beam) {
+      if (beam && Math.hypot(beam.x - charPos.x, beam.z - charPos.z) > 14) {
         beacon.visible = true;
         beacon.position.set(beam.x, terrain.getHeightAt(beam.x, beam.z) + 13, beam.z);
       } else {
@@ -2343,7 +2409,7 @@ function buildExclusionGrid(
 function poseStep(step: StepKind): 'dig' | 'classify' | 'pan' | 'collect' | 'strike' | 'extract' {
   if (step === 'rocker') return 'classify';
   if (step === 'sluice' || step === 'tom') return 'dig';
-  if (step === 'monitor') return 'pan';
+  if (step === 'monitor') return 'classify';
   return step;
 }
 

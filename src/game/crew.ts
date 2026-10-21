@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import type { ClaimRecord } from '@/save/schema';
 import type { PlacedMachine } from '@/game/machines/placed';
+import { PALETTE } from '@/render/palette';
 
-// Hired hands and claim jumpers as people in the world. Hands walk the
-// machines. Jumpers stand on a claim until you confront them, then run.
+// Hired hands and claim jumpers. Hands shovel, rock, or work a hose.
+// A jumper steals until you close in, then squares up before you can answer.
 
 export interface CrewUpdate {
   caughtClaimId: string | null;
@@ -12,7 +13,7 @@ export interface CrewUpdate {
 
 export interface Crew {
   update(dt: number, args: CrewArgs): CrewUpdate;
-  nearestJumper(x: number, z: number): { claimId: string; distance: number } | null;
+  nearestJumper(x: number, z: number): { claimId: string; distance: number; ready: boolean } | null;
   startChase(claimId: string): void;
 }
 
@@ -26,11 +27,14 @@ interface CrewArgs {
   time: number;
 }
 
+type Work = 'walk' | 'shovel' | 'rock' | 'hose' | 'steal' | 'square';
+
 interface JumperState {
   mesh: THREE.Group;
-  phase: 'work' | 'flee';
+  phase: 'steal' | 'approach' | 'square' | 'flee';
   fleeFor: number;
   closeFor: number;
+  approachFor: number;
 }
 
 export function createCrew(scene: THREE.Scene): Crew {
@@ -45,7 +49,7 @@ export function createCrew(scene: THREE.Scene): Crew {
       let caughtClaimId: string | null = null;
       let escapedClaimId: string | null = null;
       while (hands.length < args.hands) {
-        const mesh = person(0x3d5270, 0xc2a36a);
+        const mesh = person(0x3d5270, PALETTE.bark);
         mesh.name = `hand-${hands.length}`;
         root.add(mesh);
         hands.push(mesh);
@@ -57,17 +61,26 @@ export function createCrew(scene: THREE.Scene): Crew {
         const claim = args.claims[i % Math.max(1, args.claims.length)];
         const spots = args.machines.filter((m) => !claim || m.claimId === claim.id);
         const home = claim ? { x: claim.x, z: claim.z } : { x: 0, z: 0 };
-        const route = [home, ...spots.map((m) => ({ x: m.x, z: m.z }))];
-        if (route.length === 0) route.push(home);
-        const leg = Math.floor(args.time * 0.22 + i) % route.length;
-        const next = route[(leg + 1) % route.length] ?? home;
-        const cur = route[leg] ?? home;
-        const f = (args.time * 0.22 + i) % 1;
-        const x = cur.x + (next.x - cur.x) * f;
-        const z = cur.z + (next.z - cur.z) * f;
+        const route = spots.length > 0 ? spots.map((m) => ({ x: m.x, z: m.z, kind: m.kind })) : [{ x: home.x, z: home.z, kind: 'rocker' as const }];
+        const leg = Math.floor(args.time * 0.18 + i) % route.length;
+        const next = route[(leg + 1) % route.length] ?? route[0]!;
+        const cur = route[leg] ?? route[0]!;
+        const f = (args.time * 0.18 + i) % 1;
+        const traveling = f < 0.72;
+        const x = traveling ? cur.x + (next.x - cur.x) * (f / 0.72) : next.x;
+        const z = traveling ? cur.z + (next.z - cur.z) * (f / 0.72) : next.z;
         mesh.position.set(x, args.groundY(x, z), z);
-        mesh.rotation.y = Math.atan2(next.x - cur.x, next.z - cur.z);
-        mesh.position.y += Math.abs(Math.sin(args.time * 6 + i)) * 0.04;
+        const faceX = traveling ? next.x - cur.x : args.playerX - x;
+        const faceZ = traveling ? next.z - cur.z : args.playerZ - z;
+        if (Math.hypot(faceX, faceZ) > 0.05) mesh.rotation.y = Math.atan2(faceX, faceZ);
+        const work: Work = traveling
+          ? 'walk'
+          : next.kind === 'monitor'
+            ? 'hose'
+            : next.kind === 'rocker'
+              ? 'rock'
+              : 'shovel';
+        pose(mesh, args.time, work, i);
       }
 
       const live = new Set(args.claims.filter((c) => c.jumperSince !== null).map((c) => c.id));
@@ -83,29 +96,57 @@ export function createCrew(scene: THREE.Scene): Crew {
           const mesh = person(0x8c2f2f, 0x24180f);
           mesh.name = `jumper-${claim.id}`;
           const sack = new THREE.Mesh(
-            new THREE.SphereGeometry(0.12, 6, 5),
-            new THREE.MeshStandardMaterial({ color: 0x6b4e2e, flatShading: true }),
+            new THREE.SphereGeometry(0.13, 7, 6),
+            new THREE.MeshStandardMaterial({ color: PALETTE.timberDark, roughness: 0.8 }),
           );
-          sack.position.set(0.22, 0.7, 0);
+          sack.position.set(0.16, 0.78, -0.12);
+          sack.castShadow = true;
           mesh.add(sack);
           root.add(mesh);
-          state = { mesh, phase: 'work', fleeFor: 0, closeFor: 0 };
+          state = { mesh, phase: 'steal', fleeFor: 0, closeFor: 0, approachFor: 0 };
           jumpers.set(claim.id, state);
         }
-        if (state.phase === 'work') {
-          const bob = Math.sin(args.time * 4) * 0.05;
-          state.mesh.position.set(claim.x + 0.7, args.groundY(claim.x, claim.z) + bob, claim.z + 0.4);
-          state.mesh.rotation.y = Math.atan2(args.playerX - claim.x, args.playerZ - claim.z);
+        const machine = args.machines.find((m) => m.claimId === claim.id);
+        const fx = machine ? -Math.sin(machine.yaw) : 0;
+        const fz = machine ? -Math.cos(machine.yaw) : 1;
+        const homeX = machine ? machine.x - fx * 0.75 : claim.x;
+        const homeZ = machine ? machine.z - fz * 0.75 : claim.z;
+        const dist = Math.hypot(state.mesh.position.x - args.playerX, state.mesh.position.z - args.playerZ);
+        if (state.phase === 'steal' && dist < 8) state.phase = 'approach';
+        if (state.phase === 'steal') {
+          const x = homeX;
+          const z = homeZ;
+          state.mesh.position.set(x, args.groundY(x, z), z);
+          state.mesh.rotation.y = machine ? machine.yaw + Math.PI : 0;
+          pose(state.mesh, args.time, 'steal', 0);
+        } else if (state.phase === 'approach') {
+          state.approachFor += dt;
+          const dx = args.playerX - state.mesh.position.x;
+          const dz = args.playerZ - state.mesh.position.z;
+          const len = Math.max(0.001, Math.hypot(dx, dz));
+          const step = Math.min(len - 2.4, 2.4 * dt);
+          const x = state.mesh.position.x + (dx / len) * Math.max(0, step);
+          const z = state.mesh.position.z + (dz / len) * Math.max(0, step);
+          state.mesh.position.set(x, args.groundY(x, z), z);
+          state.mesh.rotation.y = Math.atan2(dx, dz);
+          pose(state.mesh, args.time, 'walk', 1);
+          if (state.approachFor > 1.15 || len < 2.7) state.phase = 'square';
+        } else if (state.phase === 'square') {
+          const dx = args.playerX - state.mesh.position.x;
+          const dz = args.playerZ - state.mesh.position.z;
+          state.mesh.rotation.y = Math.atan2(dx, dz);
+          state.mesh.position.y = args.groundY(state.mesh.position.x, state.mesh.position.z);
+          pose(state.mesh, args.time, 'square', 0);
         } else {
           state.fleeFor += dt;
           const dx = state.mesh.position.x - args.playerX;
           const dz = state.mesh.position.z - args.playerZ;
           const len = Math.max(0.001, Math.hypot(dx, dz));
-          const step = 3.1 * dt;
-          const x = state.mesh.position.x + (dx / len) * step;
-          const z = state.mesh.position.z + (dz / len) * step;
+          const x = state.mesh.position.x + (dx / len) * 3.1 * dt;
+          const z = state.mesh.position.z + (dz / len) * 3.1 * dt;
           state.mesh.position.set(x, args.groundY(x, z), z);
           state.mesh.rotation.y = Math.atan2(dx, dz);
+          pose(state.mesh, args.time, 'walk', 2);
           if (len < 4.2) state.closeFor += dt;
           else state.closeFor = Math.max(0, state.closeFor - dt);
           if (state.closeFor > 2.4) {
@@ -122,38 +163,125 @@ export function createCrew(scene: THREE.Scene): Crew {
       return { caughtClaimId, escapedClaimId };
     },
     nearestJumper(x, z) {
-      let best: { claimId: string; distance: number } | null = null;
+      let best: { claimId: string; distance: number; ready: boolean } | null = null;
       for (const [id, state] of jumpers) {
-        if (state.phase !== 'work') continue;
+        if (state.phase === 'flee') continue;
         const d = Math.hypot(state.mesh.position.x - x, state.mesh.position.z - z);
-        if (!best || d < best.distance) best = { claimId: id, distance: d };
+        const ready = state.phase === 'square';
+        if (!best || d < best.distance) best = { claimId: id, distance: d, ready };
       }
       return best;
     },
     startChase(claimId) {
       const state = jumpers.get(claimId);
-      if (state) state.phase = 'flee';
+      if (state && state.phase !== 'flee') state.phase = 'flee';
     },
   };
 }
 
+function pose(mesh: THREE.Group, time: number, work: Work, seed: number): void {
+  const armL = mesh.getObjectByName('arm-l');
+  const armR = mesh.getObjectByName('arm-r');
+  const legL = mesh.getObjectByName('leg-l');
+  const legR = mesh.getObjectByName('leg-r');
+  const shovel = mesh.getObjectByName('shovel');
+  const hose = mesh.getObjectByName('hand-hose');
+  if (shovel) shovel.visible = work === 'shovel' || work === 'steal';
+  if (hose) hose.visible = work === 'hose';
+  const swing = Math.sin(time * 7 + seed);
+  if (work === 'walk') {
+    if (armL) armL.rotation.x = swing * 0.7;
+    if (armR) armR.rotation.x = -swing * 0.7;
+    if (legL) legL.rotation.x = -swing * 0.55;
+    if (legR) legR.rotation.x = swing * 0.55;
+    mesh.position.y += Math.abs(swing) * 0.03;
+  } else if (work === 'shovel' || work === 'steal') {
+    const dig = Math.sin(time * 3.2 + seed);
+    if (armL) armL.rotation.x = -0.4 + dig * 0.9;
+    if (armR) armR.rotation.x = -0.8 + dig * 0.55;
+    if (legL) legL.rotation.x = 0.1;
+    if (legR) legR.rotation.x = -0.15;
+  } else if (work === 'rock') {
+    const rock = Math.sin(time * 2.6 + seed);
+    if (armL) armL.rotation.x = -0.6;
+    if (armR) armR.rotation.z = rock * 0.8;
+    if (armR) armR.rotation.x = -0.4;
+    if (legL) legL.rotation.x = 0.05;
+    if (legR) legR.rotation.x = -0.05;
+  } else if (work === 'hose') {
+    if (armL) armL.rotation.x = -1.1;
+    if (armR) armR.rotation.x = -1.15 + Math.sin(time * 1.4) * 0.12;
+    if (legL) legL.rotation.x = 0.2;
+    if (legR) legR.rotation.x = -0.1;
+  } else {
+    if (armL) armL.rotation.x = -2.4;
+    if (armR) armR.rotation.x = -2.4;
+    if (armL) armL.rotation.z = 0.4;
+    if (armR) armR.rotation.z = -0.4;
+    if (legL) legL.rotation.x = 0.15;
+    if (legR) legR.rotation.x = -0.2;
+  }
+}
+
 function person(shirt: number, hat: number): THREE.Group {
   const g = new THREE.Group();
-  const body = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.16, 0.18, 0.62, 6),
-    new THREE.MeshStandardMaterial({ color: shirt, roughness: 0.8, flatShading: true }),
-  );
-  body.position.y = 0.62;
-  const head = new THREE.Mesh(
-    new THREE.SphereGeometry(0.13, 7, 6),
-    new THREE.MeshStandardMaterial({ color: 0xd2b48c, roughness: 0.7, flatShading: true }),
-  );
-  head.position.y = 1.05;
-  const brim = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.16, 0.16, 0.04, 7),
-    new THREE.MeshStandardMaterial({ color: hat, roughness: 0.85, flatShading: true }),
-  );
-  brim.position.y = 1.16;
-  g.add(body, head, brim);
+  const cloth = new THREE.MeshStandardMaterial({ color: shirt, roughness: 0.82 });
+  const skin = new THREE.MeshStandardMaterial({ color: 0xc9926a, roughness: 0.72 });
+  const dark = new THREE.MeshStandardMaterial({ color: PALETTE.timberDark, roughness: 0.86 });
+  const hatMat = new THREE.MeshStandardMaterial({ color: hat, roughness: 0.8 });
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 0.52, 7), cloth);
+  body.position.y = 0.78;
+  body.castShadow = true;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 7), skin);
+  head.position.y = 1.16;
+  head.castShadow = true;
+  const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.035, 8), hatMat);
+  brim.position.y = 1.26;
+  brim.castShadow = true;
+  const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 0.1, 8), hatMat);
+  crown.position.y = 1.32;
+  g.add(body, head, brim, crown);
+
+  const legGeo = new THREE.CylinderGeometry(0.06, 0.07, 0.42, 6);
+  const legL = new THREE.Mesh(legGeo, dark);
+  legL.name = 'leg-l';
+  legL.position.set(-0.08, 0.28, 0);
+  legL.castShadow = true;
+  const legR = new THREE.Mesh(legGeo, dark);
+  legR.name = 'leg-r';
+  legR.position.set(0.08, 0.28, 0);
+  legR.castShadow = true;
+  g.add(legL, legR);
+
+  const armGeo = new THREE.CylinderGeometry(0.045, 0.05, 0.42, 6);
+  const armL = new THREE.Group();
+  armL.name = 'arm-l';
+  armL.position.set(-0.24, 0.98, 0);
+  const armLMesh = new THREE.Mesh(armGeo, cloth);
+  armLMesh.position.y = -0.2;
+  armLMesh.castShadow = true;
+  armL.add(armLMesh);
+  const shovel = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.62, 0.03), dark);
+  shovel.position.set(0.02, -0.35, 0.16);
+  shovel.rotation.x = 0.5;
+  shovel.name = 'shovel';
+  shovel.visible = false;
+  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.12, 0.02), new THREE.MeshStandardMaterial({ color: 0x8d8478, metalness: 0.45, roughness: 0.4 }));
+  blade.position.set(0.02, -0.64, 0.28);
+  shovel.add(blade);
+  armL.add(shovel);
+  const armR = new THREE.Group();
+  armR.name = 'arm-r';
+  armR.position.set(0.24, 0.98, 0);
+  const armRMesh = new THREE.Mesh(armGeo, cloth);
+  armRMesh.position.y = -0.2;
+  armRMesh.castShadow = true;
+  armR.add(armRMesh);
+  const hose = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.025, 6, 10, Math.PI), dark);
+  hose.name = 'hand-hose';
+  hose.position.set(-0.05, -0.28, 0.12);
+  hose.visible = false;
+  armR.add(hose);
+  g.add(armL, armR);
   return g;
 }

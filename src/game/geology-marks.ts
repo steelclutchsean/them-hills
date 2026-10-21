@@ -1,34 +1,40 @@
 import * as THREE from 'three';
 import { payMarks, type BoulderPoint, type PayMark } from '@/game/geology';
-import type { ColorSample } from '@/save/schema';
+import type { ColorSample, Habitat } from '@/save/schema';
 import type { StreamConfig } from '@/game/stream';
 
-// Visual tells for the pay streak. These sit on the banks and stick up
-// through the creek so a player can learn them on foot. Sampling leaves
-// a hole and a board with the color count. Terrain itself is untouched.
+// Pay streaks are splats in the terrain shader. Sample holes stay as flat
+// decals on the ground so a color count is readable without a prop.
+
+export interface PaySplat {
+  x: number;
+  z: number;
+  radius: number;
+  kind: number;
+}
 
 export interface GeologyMarks {
   sync(payShift: Record<string, number>, samples: readonly ColorSample[]): void;
   counts(): { marks: number; holes: number };
 }
 
+const KIND: Partial<Record<Habitat, number>> = {
+  inside_bend: 1,
+  boulder_lee: 1,
+  gravel_bar: 2,
+  bedrock: 4,
+};
+
 export function createGeologyMarks(
   scene: THREE.Scene,
   streams: readonly StreamConfig[],
   boulders: readonly BoulderPoint[],
   groundY: (x: number, z: number) => number,
+  paint: (splats: readonly PaySplat[]) => void,
 ): GeologyMarks {
   const root = new THREE.Group();
   root.name = 'geology-marks';
   scene.add(root);
-
-  const sand = makeBatch(root, new THREE.BoxGeometry(1.35, 0.035, 0.28), 0x1c1814, 80);
-  const shore = makeBatch(root, new THREE.CircleGeometry(0.85, 7), 0xc4a36a, 80);
-  const gravel = makeBatch(root, new THREE.DodecahedronGeometry(0.11, 0), 0xb08960, 120);
-  const bedrock = makeBatch(root, new THREE.BoxGeometry(0.9, 0.42, 0.55), 0x7d848c, 40);
-  const quartz = makeBatch(root, new THREE.OctahedronGeometry(0.1, 0), 0xf3efe4, 60);
-  const lee = makeBatch(root, new THREE.CircleGeometry(0.42, 8), 0x2a241c, 24);
-
   const holes = new THREE.Group();
   holes.name = 'sample-holes';
   root.add(holes);
@@ -39,55 +45,30 @@ export function createGeologyMarks(
   let sampleKey = '';
 
   function lay(marks: readonly PayMark[]): void {
-    const buckets = {
-      sand: [] as THREE.Matrix4[],
-      shore: [] as THREE.Matrix4[],
-      gravel: [] as THREE.Matrix4[],
-      bedrock: [] as THREE.Matrix4[],
-      quartz: [] as THREE.Matrix4[],
-      lee: [] as THREE.Matrix4[],
-    };
-    const m = new THREE.Matrix4();
-    const q = new THREE.Quaternion();
-    const s = new THREE.Vector3();
-    const p = new THREE.Vector3();
-    const place = (list: THREE.Matrix4[], x: number, y: number, z: number, yaw: number, sx = 1, sy = 1, sz = 1) => {
-      if (list.length >= 120) return;
-      p.set(x, y, z);
-      q.setFromEuler(new THREE.Euler(list === buckets.shore || list === buckets.lee ? -Math.PI / 2 : 0, yaw, 0));
-      s.set(sx, sy, sz);
-      list.push(m.clone().compose(p, q, s));
-    };
-    for (const mark of marks) {
-      const y = groundY(mark.x, mark.z);
-      if (mark.habitat === 'inside_bend') {
-        place(buckets.sand, mark.x, y + 0.05, mark.z, mark.flowYaw);
-        place(buckets.shore, mark.x, y + 0.04, mark.z, mark.flowYaw, 1, 1, 1);
-      } else if (mark.habitat === 'gravel_bar') {
-        place(buckets.gravel, mark.x, y + 0.08, mark.z, mark.flowYaw, 1, 0.7, 1);
-        place(buckets.gravel, mark.x + 0.18, y + 0.06, mark.z + 0.1, 0.4, 0.7, 0.5, 0.7);
-      } else if (mark.habitat === 'bedrock') {
-        place(buckets.bedrock, mark.x, y + 0.22, mark.z, mark.flowYaw);
-      } else if (mark.habitat === 'boulder_lee') {
-        place(buckets.lee, mark.x, y + 0.05, mark.z, mark.flowYaw);
+    const ranked = [...marks].sort((a, b) => b.pay - a.pay);
+    const chosen: PaySplat[] = [];
+    const take = (mark: PayMark, kind: number, radius: number, spacing: number) => {
+      if (chosen.length >= 32) return;
+      for (const have of chosen) {
+        if (Math.hypot(have.x - mark.x, have.z - mark.z) < spacing) return;
       }
-      if (mark.pay > 0.62 && mark.habitat !== 'tail') {
-        place(buckets.quartz, mark.x + 0.22, y + 0.1, mark.z - 0.12, 0.6);
+      chosen.push({ x: mark.x, z: mark.z, radius, kind });
+    };
+    for (const spacing of [7, 4, 2.2]) {
+      for (const mark of ranked) {
+        const kind = KIND[mark.habitat];
+        if (!kind) continue;
+        const radius = kind === 2 ? 2.1 : kind === 4 ? 1.5 : 2.4;
+        take(mark, kind, radius, spacing);
       }
+      if (chosen.length >= 24) break;
     }
-    sand.set(buckets.sand);
-    shore.set(buckets.shore);
-    gravel.set(buckets.gravel);
-    bedrock.set(buckets.bedrock);
-    quartz.set(buckets.quartz);
-    lee.set(buckets.lee);
-    markCount =
-      buckets.sand.length +
-      buckets.shore.length +
-      buckets.gravel.length +
-      buckets.bedrock.length +
-      buckets.quartz.length +
-      buckets.lee.length;
+    for (const mark of ranked) {
+      if (mark.pay < 0.62 || mark.habitat === 'tail') continue;
+      take(mark, 3, 0.85, 3.5);
+    }
+    paint(chosen);
+    markCount = chosen.length;
   }
 
   return {
@@ -105,27 +86,33 @@ export function createGeologyMarks(
         holes.remove(child);
       }
       for (const sample of samples) {
-        const y = groundY(sample.x, sample.z);
-        const hole = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.16, 0.2, 0.08, 8),
-          new THREE.MeshStandardMaterial({ color: 0x3a2a1c, roughness: 1, flatShading: true }),
+        const y = groundY(sample.x, sample.z) + 0.025;
+        const disc = new THREE.Mesh(
+          new THREE.CircleGeometry(0.34, 12),
+          new THREE.MeshStandardMaterial({
+            color: 0x241910,
+            roughness: 1,
+            polygonOffset: true,
+            polygonOffsetFactor: -1,
+            polygonOffsetUnits: -1,
+          }),
         );
-        hole.position.set(sample.x, y + 0.03, sample.z);
-        hole.name = 'sample-hole';
-        holes.add(hole);
-        const board = new THREE.Mesh(
-          new THREE.PlaneGeometry(0.28, 0.16),
-          new THREE.MeshBasicMaterial({ map: countTexture(sample.colors), transparent: true }),
+        disc.rotation.x = -Math.PI / 2;
+        disc.position.set(sample.x, y, sample.z);
+        disc.name = 'sample-hole';
+        const tag = new THREE.Mesh(
+          new THREE.CircleGeometry(0.16, 10),
+          new THREE.MeshBasicMaterial({
+            map: countTexture(sample.colors),
+            polygonOffset: true,
+            polygonOffsetFactor: -2,
+            polygonOffsetUnits: -2,
+          }),
         );
-        board.position.set(sample.x, y + 0.42, sample.z);
-        board.name = 'sample-count';
-        holes.add(board);
-        const peg = new THREE.Mesh(
-          new THREE.BoxGeometry(0.02, 0.36, 0.02),
-          new THREE.MeshStandardMaterial({ color: 0x6b4a2a, roughness: 0.8 }),
-        );
-        peg.position.set(sample.x, y + 0.22, sample.z);
-        holes.add(peg);
+        tag.rotation.x = -Math.PI / 2;
+        tag.position.set(sample.x, y + 0.01, sample.z);
+        tag.name = 'sample-count';
+        holes.add(disc, tag);
       }
       holeCount = samples.length;
     },
@@ -133,48 +120,21 @@ export function createGeologyMarks(
   };
 }
 
-function makeBatch(
-  parent: THREE.Group,
-  geometry: THREE.BufferGeometry,
-  color: number,
-  capacity: number,
-): { set(matrices: readonly THREE.Matrix4[]): void } {
-  const material = new THREE.MeshStandardMaterial({
-    color,
-    roughness: 0.92,
-    metalness: 0,
-    flatShading: true,
-  });
-  const mesh = new THREE.InstancedMesh(geometry, material, capacity);
-  mesh.count = 0;
-  mesh.name = `geo-${color.toString(16)}`;
-  parent.add(mesh);
-  const dummy = new THREE.Matrix4();
-  return {
-    set(matrices) {
-      const n = Math.min(capacity, matrices.length);
-      for (let i = 0; i < n; i++) mesh.setMatrixAt(i, matrices[i] ?? dummy);
-      mesh.count = n;
-      mesh.instanceMatrix.needsUpdate = true;
-    },
-  };
-}
-
 function countTexture(colors: number): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = 128;
-  canvas.height = 64;
+  canvas.height = 128;
   const ctx = canvas.getContext('2d');
   if (ctx) {
-    ctx.fillStyle = '#2a2118';
-    ctx.fillRect(0, 0, 128, 64);
-    ctx.strokeStyle = '#e2c27a';
-    ctx.strokeRect(3, 3, 122, 58);
-    ctx.fillStyle = colors >= 6 ? '#f0d060' : '#d9d2c5';
-    ctx.font = 'bold 36px sans-serif';
+    ctx.fillStyle = '#3a2a1c';
+    ctx.beginPath();
+    ctx.arc(64, 64, 60, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = colors >= 6 ? '#e2b34a' : '#e7d7b4';
+    ctx.font = 'bold 64px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(String(colors), 64, 34);
+    ctx.fillText(String(colors), 64, 68);
   }
   const tex = new THREE.CanvasTexture(canvas);
   tex.needsUpdate = true;

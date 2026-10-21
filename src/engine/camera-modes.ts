@@ -96,6 +96,38 @@ export function createCameraModeController(camera: THREE.PerspectiveCamera): Cam
     setFov(pan ? PAN_FOV : DIG_FOV);
   }
 
+  // Player and the world machine, three-quarter, far enough that neither
+  // clips the near plane. `focus` is the machine, not the wrist.
+  function machineFrame(charPos: THREE.Vector3, focus: THREE.Vector3, step: string): void {
+    const spec =
+      step === 'sluice'
+        ? { back: 4.15, side: 1.85, height: 0.72, fov: 38, look: 0.15 }
+        : step === 'tom'
+          ? { back: 5.1, side: 2.15, height: 0.85, fov: 36, look: 0.2 }
+          : step === 'monitor'
+            ? { back: 4.7, side: 2.05, height: 0.95, fov: 40, look: 0.45 }
+            : { back: 3.7, side: 1.7, height: 0.7, fov: 40, look: 0.25 };
+    forward.set(focus.x - charPos.x, 0, focus.z - charPos.z);
+    if (forward.lengthSq() < 0.04) {
+      forward.set(-Math.sin(lockedYaw), 0, -Math.cos(lockedYaw));
+    } else {
+      forward.normalize();
+    }
+    right.set(-forward.z, 0, forward.x);
+    camera.position.set(
+      charPos.x - forward.x * spec.back + right.x * spec.side,
+      charPos.y + spec.height,
+      charPos.z - forward.z * spec.back + right.z * spec.side,
+    );
+    lookTarget.set(
+      charPos.x * 0.38 + focus.x * 0.62,
+      charPos.y * 0.45 + focus.y * 0.55 + spec.look,
+      charPos.z * 0.38 + focus.z * 0.62,
+    );
+    camera.lookAt(lookTarget);
+    setFov(spec.fov);
+  }
+
   return {
     isInProspectView: () => inProspect,
     enterProspectView(charPos, characterYaw) {
@@ -112,7 +144,9 @@ export function createCameraModeController(camera: THREE.PerspectiveCamera): Cam
     updateProspectView(charPos, step, focus) {
       if (!inProspect) return;
       if (step === 'dig' || step === 'pan') closeThird(charPos, focus, step);
-      else firstPerson(charPos);
+      else if (step === 'rocker' || step === 'sluice' || step === 'tom' || step === 'monitor') {
+        machineFrame(charPos, focus, step);
+      } else firstPerson(charPos);
     },
   };
 }
