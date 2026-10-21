@@ -123,6 +123,8 @@ export interface GrassField {
   }): void;
   /** Drop blades from the end. Cannot grow past the count allocated at creation. */
   setCount(count: number): void;
+  /** 0 green, 1 drought-brown. Applied to the instance colors. */
+  setDry(amount: number): void;
 }
 
 export function createGrassField(terrain: Terrain, opts: GrassFieldOpts): GrassField {
@@ -215,6 +217,9 @@ export function createGrassField(terrain: Terrain, opts: GrassFieldOpts): GrassF
   instGeom.setAttribute('aScale', new THREE.InstancedBufferAttribute(scales, 1));
   instGeom.setAttribute('aColorBase', new THREE.InstancedBufferAttribute(colorBase, 3));
   instGeom.setAttribute('aColorTip', new THREE.InstancedBufferAttribute(colorTip, 3));
+  const origBase = colorBase.slice();
+  const origTip = colorTip.slice();
+  let dryApplied = 0;
   instGeom.instanceCount = placed;
 
   // Bounding sphere is required for some renderers; we set a generous one
@@ -251,6 +256,25 @@ export function createGrassField(terrain: Terrain, opts: GrassFieldOpts): GrassF
     mesh,
     setCount(count: number) {
       instGeom.instanceCount = Math.max(0, Math.min(placed, Math.floor(count)));
+    },
+    setDry(amount: number) {
+      const k = Math.max(0, Math.min(1, amount));
+      if (Math.abs(k - dryApplied) < 0.02) return;
+      dryApplied = k;
+      const brownB = [0.4, 0.32, 0.14];
+      const brownT = [0.62, 0.46, 0.18];
+      for (let i = 0; i < placed * 3; i += 3) {
+        colorBase[i] = (origBase[i] ?? 0) * (1 - k) + brownB[0]! * k;
+        colorBase[i + 1] = (origBase[i + 1] ?? 0) * (1 - k) + brownB[1]! * k;
+        colorBase[i + 2] = (origBase[i + 2] ?? 0) * (1 - k) + brownB[2]! * k;
+        colorTip[i] = (origTip[i] ?? 0) * (1 - k) + brownT[0]! * k;
+        colorTip[i + 1] = (origTip[i + 1] ?? 0) * (1 - k) + brownT[1]! * k;
+        colorTip[i + 2] = (origTip[i + 2] ?? 0) * (1 - k) + brownT[2]! * k;
+      }
+      const baseAttr = instGeom.getAttribute('aColorBase');
+      const tipAttr = instGeom.getAttribute('aColorTip');
+      baseAttr.needsUpdate = true;
+      tipAttr.needsUpdate = true;
     },
     update(_state) {
       // Sun, hemisphere, and time are the shared frame uniform block.

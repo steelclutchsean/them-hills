@@ -30,7 +30,19 @@ import {
 } from '@/game/dialogue';
 import { applyArcAction, bankOre, placerEventFactor, tickArc, timberInPlace } from '@/game/campaign';
 import { createTownArc } from '@/game/town-arc';
-import { updateNorthLode } from '@/game/north-lode';
+import { createWorldDress } from '@/game/world-dress';
+import {
+  digDrift,
+  driftBuried,
+  driftKeepOut,
+  driftNearFall,
+  frameDriftShow,
+  playDriftBlast,
+  playDriftCaveIn,
+  setDriftBearer,
+  setDriftFuse,
+  updateNorthLode,
+} from '@/game/north-lode';
 import { frameBudget, noteFrameTime } from '@/engine/frame-budget';
 import { createGeneralStore } from '@/game/general-store';
 import { createGrassField } from '@/game/grass-field';
@@ -308,6 +320,8 @@ async function bootstrap(): Promise<void> {
     renderer.scene.add(s.group);
   }
   const streams = createStreamRegistry(streamList);
+  const worldDress = createWorldDress(renderer.scene, courses, (x, z) => terrain.getHeightAt(x, z));
+  let waterStageKey = '';
 
   // Site respawn: every in-game midnight, all streams regenerate fresh
   // sites at new positions. The epoch number = day index (worldTime in
@@ -650,6 +664,8 @@ async function bootstrap(): Promise<void> {
   // frame AFTER cameraMode positions it.
   const fx = createEffectSystem();
   onGameplay('blast', (payload) => {
+    const north = mines.find((mine) => mine.id === 'mine_north');
+    if (north) playDriftBlast(north.group, false);
     if (payload.charges > 0) {
       fx.kickFov(8, 0.7);
       fx.rumble(220, 0.45, 0.85);
@@ -1152,18 +1168,45 @@ async function bootstrap(): Promise<void> {
         return true;
       },
       previewScene: (who: string) => {
-        character.group.visible = false;
-        interiorShot = false;
+        const north = mines.find((mine) => mine.id === 'mine_north');
+        const hideHero = who === 'blast' || who === 'cavein';
+        character.group.visible = !hideHero;
+        interiorShot = who === 'blast' || who === 'cavein';
+        if (who === 'blast' && north) {
+          playDriftBlast(north.group, true);
+          return true;
+        }
+        if (who === 'cavein' && north) {
+          playDriftCaveIn(north.group);
+          return true;
+        }
+        if (who === 'dig' && north) {
+          digDrift(north.group);
+          return true;
+        }
+        if (who === 'quench') {
+          townArc.quench();
+          return true;
+        }
+        const scriptEvent = (id: 'flood' | 'drought' | 'rush' | 'fire') => {
+          const snap = gameStore.getState().serialize();
+          snap.world = {
+            ...snap.world,
+            event: { id, startedAt: worldTime, until: worldTime + 900, stamp: worldTime },
+          };
+          gameStore.getState().hydrate(snap);
+        };
         if (who === 'pete') {
           dialogue = startDialogue('old_pete', OLD_PETE_DIALOGUE);
           dialogue.currentNodeId = 'vein';
+          const y = terrain.getHeightAt(-1.5, 6.4);
+          character.placeAt(-1.5, y + 0.2, 6.4);
+          character.setYaw(Math.PI);
         } else if (who === 'silas') {
           dialogue = startDialogue('silas', SILAS_DIALOGUE);
-          const y = terrain.getHeightAt(townArc.millPos.x + 2.2, townArc.millPos.z + 1.4);
-          character.placeAt(townArc.millPos.x + 2.2, y + 0.2, townArc.millPos.z + 1.4);
-          cameraRig.setAvoidance(false);
-          cameraRig.setArmLength(4.2);
-          cameraRig.setYawPitch(Math.atan2(-2.2, -1.4), 0.12);
+          const y = terrain.getHeightAt(townArc.millPos.x + 2.4, townArc.millPos.z + 0.2);
+          character.placeAt(townArc.millPos.x + 2.4, y + 0.2, townArc.millPos.z + 0.2);
+          character.setYaw(Math.PI * 0.85);
         } else if (who === 'ada') {
           const snap = gameStore.getState().serialize();
           snap.fieldwork = {
@@ -1171,30 +1214,20 @@ async function bootstrap(): Promise<void> {
             campaign: { ...snap.fieldwork.campaign, act: 4, heard: [...snap.fieldwork.campaign.heard, 'ada'] },
           };
           gameStore.getState().hydrate(snap);
-          townArc.update(worldTime, 4, false);
+          townArc.update(worldTime, 4, 4, false, false);
           dialogue = startDialogue('ada', ADA_DIALOGUE);
           dialogue.currentNodeId = 'offer';
-          const y = terrain.getHeightAt(townArc.companyPos.x + 2.4, townArc.companyPos.z);
-          character.placeAt(townArc.companyPos.x + 2.4, y + 0.2, townArc.companyPos.z);
-          cameraRig.setAvoidance(false);
-          cameraRig.setArmLength(5);
-          cameraRig.setYawPitch(Math.PI / 2, 0.08);
+          const y = terrain.getHeightAt(townArc.companyPos.x + 3.2, townArc.companyPos.z);
+          character.placeAt(townArc.companyPos.x + 3.2, y + 0.2, townArc.companyPos.z);
+          character.setYaw(-Math.PI / 2);
         } else if (who === 'fire') {
-          const snap = gameStore.getState().serialize();
-          snap.world = {
-            ...snap.world,
-            event: { id: 'fire', startedAt: worldTime, until: worldTime + 600, stamp: worldTime },
-          };
-          gameStore.getState().hydrate(snap);
+          scriptEvent('fire');
           dialogue = startDialogue('fire', FIRE_DIALOGUE);
-        } else if (who === 'flood') {
-          const snap = gameStore.getState().serialize();
-          snap.world = {
-            ...snap.world,
-            event: { id: 'flood', startedAt: worldTime, until: worldTime + 600, stamp: worldTime },
-          };
-          gameStore.getState().hydrate(snap);
-          arcBanner = 'Spring flood — the pay streak walked downstream.';
+          const y = terrain.getHeightAt(townArc.firePos.x + 3.2, townArc.firePos.z + 1.2);
+          character.placeAt(townArc.firePos.x + 3.2, y + 0.2, townArc.firePos.z + 1.2);
+        } else if (who === 'flood' || who === 'drought' || who === 'rush') {
+          scriptEvent(who);
+          arcBanner = who;
         } else {
           return false;
         }
@@ -1551,6 +1584,11 @@ async function bootstrap(): Promise<void> {
         carrying: carryGold.flake_g + carryGold.picker_g + carryGold.nugget_g > 0.05,
         ground: (x, z) => terrain.getHeightAt(x, z),
       });
+      const northBody = mines.find((mine) => mine.id === 'mine_north');
+      const held = character.getPosition();
+      if (northBody && driftKeepOut(northBody.group, northBody.position, held)) {
+        character.placeAt(held.x, held.y, held.z);
+      }
 
       // 6. Camera position. During a prospect minigame, swap the spring-arm
       // rig for the fixed first-person prospect view + tool viewmodel.
@@ -1690,14 +1728,14 @@ async function bootstrap(): Promise<void> {
             character.getColliderHandle(),
             dt,
           );
-          if (interiorShot) {
-            const north = mines.find((m) => m.id === 'mine_north');
-            if (north) {
-              const origin = north.position;
-              renderer.camera.position.set(origin.x + 1.15, origin.y + 1.35, origin.z - 2.15);
-              renderer.camera.lookAt(origin.x - 0.85, origin.y + 1.05, origin.z - 7.6);
-            }
+          const northCam = mines.find((m) => m.id === 'mine_north');
+          if (interiorShot && northCam) {
+            const origin = northCam.position;
+            renderer.camera.position.set(origin.x + 1.15, origin.y + 1.35, origin.z - 2.15);
+            renderer.camera.lookAt(origin.x - 0.85, origin.y + 1.05, origin.z - 7.6);
           }
+          if (northCam) frameDriftShow(northCam.group, northCam.position, renderer.camera);
+          frameDialogue(dialogue, townArc, character.getPosition(), renderer.camera, chaseFov);
         }
       }
 
@@ -1968,14 +2006,43 @@ async function bootstrap(): Promise<void> {
         renderer.hemi.intensity = 0.015;
       }
       const northMine = mines.find((m) => m.id === 'mine_north');
+      const inNorth = !!northMine && northMine.isPlayerInside(charPos);
+      if (inNorth || interiorShot) renderer.sun.intensity = 0.02;
       if (northMine) {
-        updateNorthLode(northMine.group, worldTime, gameStore.getState().save.fieldwork.lode.creak);
+        if (inNorth) {
+          const local = charPos.clone().sub(northMine.position);
+          local.y += 1.25;
+          setDriftBearer(northMine.group, local);
+        } else {
+          setDriftBearer(northMine.group, null);
+        }
+        const viz = prospect.getSnapshot()?.viz;
+        if (viz?.kind === 'blast' && (viz.phase === 'fuse' || viz.phase === 'retreat')) {
+          setDriftFuse(northMine.group, viz.phase === 'retreat' ? 1 : viz.fuse);
+        }
+        updateNorthLode(
+          northMine.group,
+          worldTime,
+          gameStore.getState().save.fieldwork.lode.creak,
+          dt,
+        );
       }
+      const arcSave = gameStore.getState().save;
       townArc.update(
         worldTime,
-        gameStore.getState().save.fieldwork.campaign.act,
-        gameStore.getState().save.world.event.id === 'fire',
+        dt,
+        arcSave.fieldwork.campaign.act,
+        arcSave.world.event.id === 'fire',
+        arcSave.fieldwork.campaign.savedTown,
       );
+      const dressed = worldDress.update(arcSave.world.event.id, worldTime, dt);
+      const stageKey = `${dressed.rise.toFixed(3)}|${dressed.spread.toFixed(3)}`;
+      if (stageKey !== waterStageKey) {
+        waterStageKey = stageKey;
+        streams.setStage(dressed.rise, dressed.spread);
+      }
+      grass?.setDry(dressed.dry);
+      for (const cover of grassCovers) cover.setDry(dressed.dry);
 
       // Sky wrote the sun's arc position. Slide the shadow frustum onto the
       // player, then publish one lighting block for every custom shader.
@@ -2161,6 +2228,10 @@ async function bootstrap(): Promise<void> {
               ) {
                 const arc = applyArcAction(gameStore.getState().save, action, worldTime);
                 gameStore.getState().hydrate(arc.save);
+                if (action.kind === 'fightFire') townArc.quench();
+                if (action.kind === 'standWithTown' && arc.save.fieldwork.campaign.savedTown) {
+                  townArc.rebuild();
+                }
                 if (dialogue) {
                   dialogue.currentNodeId = arc.node;
                   dialogue.selectionIdx = 0;
@@ -2403,6 +2474,16 @@ async function bootstrap(): Promise<void> {
       } else if (
         interactJustPressed &&
         mines.some((m) => m.id === 'mine_north' && m.isPlayerInside(charPos)) &&
+        mines.some((m) => m.id === 'mine_north' && driftBuried(m.group) && driftNearFall(m.position.z, charPos.z))
+      ) {
+        const north = mines.find((m) => m.id === 'mine_north');
+        const dug = north ? digDrift(north.group) : 1;
+        audio.playDigSwing(0.6);
+        hintText = dug >= 1 ? 'You are through the fall.' : 'Dig. The rock is still in the drift.';
+        hintUntil = worldTime + 2.5;
+      } else if (
+        interactJustPressed &&
+        mines.some((m) => m.id === 'mine_north' && m.isPlayerInside(charPos)) &&
         !nearestSite
       ) {
         const lagged = timberInPlace(gameStore.getState().save, worldTime);
@@ -2501,15 +2582,16 @@ async function bootstrap(): Promise<void> {
         hintText = 'The timbers are talking.';
         hintUntil = worldTime + 3;
       }
-      if (arc.collapsed || arc.blackout) {
+      if (arc.collapsed) {
         const north = mines.find((m) => m.id === 'mine_north');
-        if (north) {
-          const y = terrain.getHeightAt(north.position.x, north.position.z + 2);
-          character.placeAt(north.position.x, y + 0.2, north.position.z + 2.2);
-        }
-        fx.shake(arc.collapsed ? 0.12 : 0.05, arc.collapsed ? 0.6 : 0.3);
-        if (arc.collapsed) emitGameplay('cave-in', {});
-        hintText = arc.collapsed ? 'The cap came down.' : 'Bad air. You are at the portal.';
+        if (north) playDriftCaveIn(north.group);
+        fx.shake(0.14, 0.7);
+        emitGameplay('cave-in', {});
+        hintText = 'The cap came down. Dig through, or back out.';
+        hintUntil = worldTime + 5;
+      } else if (arc.blackout) {
+        fx.shake(0.04, 0.25);
+        hintText = 'Bad air. Walk for the portal.';
         hintUntil = worldTime + 4;
       }
       const save = gameStore.getState().save;
@@ -2594,7 +2676,15 @@ async function bootstrap(): Promise<void> {
                                       : 'Aim the monitor',
                               glyph: interactGlyph,
                             }
-                          : insideNorth && !nearestSite
+                          : insideNorth &&
+                              mines.some(
+                                (m) =>
+                                  m.id === 'mine_north' &&
+                                  driftBuried(m.group) &&
+                                  driftNearFall(m.position.z, charPos.z),
+                              )
+                            ? { text: 'Dig through the fall', glyph: interactGlyph }
+                            : insideNorth && !nearestSite
                             ? { text: 'Lag a timber set ($40)', glyph: interactGlyph }
                             : nearestSite
                             ? {
@@ -3084,18 +3174,60 @@ function buildDialogueOverlay(
   speaker: string;
   body: string;
   portrait: string;
+  cinematic: boolean;
   options: { text: string; enabled: boolean; hint?: string }[];
   selectedIndex: number;
 } | null {
   const node = getCurrentNode(session);
   if (!node) return null;
+  const cinematic = session.treeId !== 'jumper';
   return {
     speaker: node.speaker,
-    portrait: node.speaker,
+    portrait: cinematic ? '' : node.speaker,
+    cinematic,
     body: resolveBody(session),
     options: resolveOptions(session, save),
     selectedIndex: session.selectionIdx,
   };
+}
+
+function frameDialogue(
+  session: DialogueSession | null,
+  arc: { actor(id: 'pete' | 'mae' | 'silas' | 'ada' | 'fire'): THREE.Vector3 | null },
+  player: THREE.Vector3,
+  camera: THREE.PerspectiveCamera,
+  chaseFov: number,
+): void {
+  const id =
+    session?.treeId === 'old_pete'
+      ? 'pete'
+      : session?.treeId === 'innkeeper'
+        ? 'mae'
+        : session?.treeId === 'silas'
+          ? 'silas'
+          : session?.treeId === 'ada'
+            ? 'ada'
+            : session?.treeId === 'fire'
+              ? 'fire'
+              : null;
+  const npc = id ? arc.actor(id) : null;
+  if (!npc) {
+    if (camera.fov === 36) {
+      camera.fov = chaseFov;
+      camera.updateProjectionMatrix();
+    }
+    return;
+  }
+  const mid = player.clone().add(npc).multiplyScalar(0.5);
+  const across = new THREE.Vector3().subVectors(npc, player);
+  across.y = 0;
+  if (across.lengthSq() < 0.04) across.set(1, 0, 0);
+  across.normalize();
+  const side = new THREE.Vector3(-across.z, 0, across.x);
+  camera.position.set(mid.x + side.x * 3.15, mid.y + 1.55, mid.z + side.z * 3.15);
+  camera.lookAt(mid.x, mid.y + 1.2, mid.z);
+  camera.fov = 36;
+  camera.updateProjectionMatrix();
 }
 
 bootstrap().catch((e: unknown) => {

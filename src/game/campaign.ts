@@ -157,7 +157,7 @@ export function tickArc(
       journal = remember(journal, {
         id: `blackout-${Math.floor(ctx.gameTime)}`,
         title: 'Bad air',
-        body: 'The candle went out. You came to at the portal.',
+        body: 'The candle died. Walk for the portal before the next breath.',
         gameTime: ctx.gameTime,
       });
     }
@@ -171,7 +171,7 @@ export function tickArc(
       journal = remember(journal, {
         id: `cavein-${lode.collapses}`,
         title: 'Cave-in',
-        body: 'The cap rock talked, then it came down. Timber the set before you drill again.',
+        body: 'The cap rock came down across the drift. Dig through it, or back out the way you came.',
         gameTime: ctx.gameTime,
       });
     }

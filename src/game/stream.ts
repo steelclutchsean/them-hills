@@ -77,6 +77,7 @@ export interface Stream {
    * No-op when called with the same epoch as the current set.
    */
   setEpoch(epoch: number): void;
+  setStage(rise: number, spread: number): void;
 }
 
 const VERT_SHADER = /* glsl */ `
@@ -426,6 +427,9 @@ export function createStream(terrain: Terrain, cfg: StreamConfig, course: Waterc
   group.add(bed);
 
   const waterMesh = new THREE.Mesh(buildRibbon(course), waterMat);
+  const waterBase = Float32Array.from(
+    (waterMesh.geometry.getAttribute('position') as THREE.BufferAttribute).array,
+  );
   waterMesh.name = `water_${cfg.id}`;
   waterMesh.receiveShadow = true;
   waterMesh.castShadow = false;
@@ -540,6 +544,24 @@ export function createStream(terrain: Terrain, cfg: StreamConfig, course: Waterc
       if (epoch === currentEpoch) return;
       regenerateSites(epoch);
     },
+    setStage(rise, spread) {
+      const geom = waterMesh.geometry;
+      const attr = geom.getAttribute('position') as THREE.BufferAttribute;
+      for (let i = 0; i < attr.count; i += 2) {
+        const x0 = waterBase[i * 3] ?? 0;
+        const y0 = waterBase[i * 3 + 1] ?? 0;
+        const z0 = waterBase[i * 3 + 2] ?? 0;
+        const x1 = waterBase[(i + 1) * 3] ?? 0;
+        const y1 = waterBase[(i + 1) * 3 + 1] ?? 0;
+        const z1 = waterBase[(i + 1) * 3 + 2] ?? 0;
+        const mx = (x0 + x1) * 0.5;
+        const mz = (z0 + z1) * 0.5;
+        attr.setXYZ(i, mx + (x0 - mx) * spread, y0 + rise, mz + (z0 - mz) * spread);
+        attr.setXYZ(i + 1, mx + (x1 - mx) * spread, y1 + rise, mz + (z1 - mz) * spread);
+      }
+      attr.needsUpdate = true;
+      geom.computeBoundingSphere();
+    },
   };
   return stream;
 }
@@ -567,6 +589,8 @@ export interface StreamRegistry {
   isInStreamZone(x: number, z: number, padding?: number): boolean;
   /** Push a new epoch to every stream; sites regenerate if the epoch changed. */
   setEpoch(epoch: number): void;
+  /** Raise or drop the surface and widen or narrow the ribbon. Calm is 0, 1. */
+  setStage(rise: number, spread: number): void;
 }
 
 export function createStreamRegistry(streams: Stream[]): StreamRegistry {
@@ -599,6 +623,9 @@ export function createStreamRegistry(streams: Stream[]): StreamRegistry {
     },
     setEpoch(epoch) {
       for (const s of streams) s.setEpoch(epoch);
+    },
+    setStage(rise, spread) {
+      for (const s of streams) s.setStage(rise, spread);
     },
   };
 }

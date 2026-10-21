@@ -64,6 +64,7 @@ export interface HudUpdate {
     speaker: string;
     body: string;
     portrait: string;
+    cinematic?: boolean;
     options: { text: string; enabled: boolean; hint?: string }[];
     selectedIndex: number;
   } | null;
@@ -433,6 +434,16 @@ const STYLE = `
     letter-spacing: 0.04em;
     pointer-events: none;
     text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+    z-index: 24;
+  }
+  .hud-dialogue.is-cinema {
+    position: fixed;
+    left: 50%;
+    bottom: 28px;
+    top: auto;
+    transform: translateX(-50%);
+    width: min(680px, 90vw);
+    background: rgba(18, 12, 8, 0.62);
     z-index: 24;
   }
   .hud-dialogue .dlg-layout { display: flex; gap: 12px; align-items: flex-start; }
@@ -1191,6 +1202,7 @@ export function mountHud(root: HTMLElement, hooks: HudHooks = {}): MountedHud {
       if (s.dialogue) {
         dialogue.hidden = false;
         dialogue.innerHTML = '';
+        dialogue.classList.toggle('is-cinema', !!s.dialogue.cinematic);
 
         const layout = document.createElement('div');
         layout.className = 'dlg-layout';
@@ -1199,7 +1211,9 @@ export function mountHud(root: HTMLElement, hooks: HudHooks = {}): MountedHud {
         portrait.width = 84;
         portrait.height = 108;
         const ctx = portrait.getContext('2d');
-        if (ctx) paintPortrait(ctx, portraitIdFor(s.dialogue.portrait || s.dialogue.speaker));
+        if (!s.dialogue.cinematic && ctx) {
+          paintPortrait(ctx, portraitIdFor(s.dialogue.portrait || s.dialogue.speaker));
+        }
         const copy = document.createElement('div');
         copy.className = 'dlg-copy';
         const speaker = document.createElement('div');
@@ -1211,7 +1225,7 @@ export function mountHud(root: HTMLElement, hooks: HudHooks = {}): MountedHud {
         body.className = 'dlg-body';
         body.textContent = s.dialogue.body;
         copy.appendChild(body);
-        layout.append(portrait, copy);
+        layout.append(s.dialogue.cinematic ? copy : portrait, ...(s.dialogue.cinematic ? [] : [copy]));
         dialogue.appendChild(layout);
 
         s.dialogue.options.forEach((opt, idx) => {

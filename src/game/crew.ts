@@ -29,7 +29,7 @@ interface CrewArgs {
   time: number;
 }
 
-type Work = 'walk' | 'shovel' | 'rock' | 'hose' | 'steal' | 'square';
+type Work = 'walk' | 'shovel' | 'rock' | 'hose' | 'steal' | 'square' | 'idle';
 
 interface JumperState {
   mesh: THREE.Group;
@@ -280,6 +280,11 @@ function pose(mesh: THREE.Group, time: number, work: Work, seed: number): void {
     swing(armR, -0.8 + dig * 0.55);
     swing(legL, 0.1);
     swing(legR, -0.15);
+  } else if (work === 'idle') {
+    swing(armL, -0.42, 0.18 + Math.sin(time * 1.3 + seed) * 0.04);
+    swing(armR, -0.5, -0.22);
+    swing(legL, 0.04);
+    swing(legR, -0.06);
   } else if (work === 'rock') {
     const rock = Math.sin(time * 2.6 + seed);
     swing(armL, -0.6);
@@ -297,6 +302,14 @@ function pose(mesh: THREE.Group, time: number, work: Work, seed: number): void {
     swing(legL, 0.15);
     swing(legR, -0.2);
   }
+}
+
+export function spawnNpc(shirt: number, hat: number): THREE.Group {
+  return person(shirt, hat);
+}
+
+export function poseNpc(mesh: THREE.Group, time: number, work: 'idle' | 'walk' | 'shovel', seed = 0): void {
+  pose(mesh, time, work, seed);
 }
 
 function person(shirt: number, hat: number): THREE.Group {

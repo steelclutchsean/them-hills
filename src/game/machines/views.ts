@@ -192,7 +192,30 @@ export function createMonitorView(): MachineView<Extract<MinigameViz, { kind: 'm
   );
   spray.rotation.z = -Math.PI / 2.3;
   spray.position.set(0.08, 0.06, 0.02);
-  group.add(spray);
+  const reachGhost = spray.clone();
+  (reachGhost.material as THREE.MeshBasicMaterial) = new THREE.MeshBasicMaterial({
+    color: 0x9bb8c4,
+    transparent: true,
+    opacity: 0.12,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  group.add(spray, reachGhost);
+  const gauge = new THREE.Group();
+  gauge.position.set(-0.42, 0.22, 0.12);
+  const face = new THREE.Mesh(
+    new THREE.CircleGeometry(0.11, 20),
+    new THREE.MeshBasicMaterial({ map: pressureFace(), transparent: true }),
+  );
+  const needle = new THREE.Mesh(
+    new THREE.BoxGeometry(0.012, 0.09, 0.004),
+    new THREE.MeshBasicMaterial({ color: 0xf2e2c4 }),
+  );
+  needle.position.y = 0.03;
+  const needlePivot = new THREE.Group();
+  needlePivot.add(needle);
+  gauge.add(face, needlePivot);
+  group.add(gauge);
   forceTopDraw(group);
   return {
     group,
@@ -205,13 +228,51 @@ export function createMonitorView(): MachineView<Extract<MinigameViz, { kind: 'm
       cut.scale.y = 0.2 + viz.cut * 1.4;
       cut.visible = viz.cut > 0.02;
       spray.visible = true;
-      const nozzlePressure = 0.45 + viz.pressure * 0.9;
-      spray.scale.set(viz.spray ? nozzlePressure : 0.35, viz.spray ? nozzlePressure : 0.35, viz.spray ? 1 : 0.4);
-      (spray.material as THREE.MeshBasicMaterial).opacity = viz.spray ? 0.55 : 0.18;
+      const reach = 0.4 + viz.pressure * 1.85;
+      const width = 0.45 + viz.pressure * 0.55;
+      const live = viz.spray ? 1 : 0.35;
+      spray.scale.set(width * live, reach * live, width * live);
+      reachGhost.scale.set(0.55, 0.4 + 1.85, 0.55);
+      (spray.material as THREE.MeshBasicMaterial).opacity = viz.spray ? 0.62 : 0.16;
       spray.position.y = nozzle.position.y;
+      spray.position.x = 0.06 + reach * live * 0.08;
+      reachGhost.position.copy(spray.position);
+      reachGhost.rotation.copy(spray.rotation);
+      const sweep = -2.2 + viz.pressure * 2.6;
+      needlePivot.rotation.z = sweep;
     },
     setVisible(v) {
       group.visible = v;
     },
   };
+}
+
+function pressureFace(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('[monitor] no gauge context');
+  ctx.clearRect(0, 0, 128, 128);
+  ctx.fillStyle = '#1c140e';
+  ctx.beginPath();
+  ctx.arc(64, 64, 60, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.lineWidth = 10;
+  ctx.strokeStyle = '#5c4a36';
+  ctx.beginPath();
+  ctx.arc(64, 64, 46, Math.PI * 0.2, Math.PI * 1.65);
+  ctx.stroke();
+  ctx.strokeStyle = '#e6c36a';
+  ctx.lineWidth = 12;
+  ctx.beginPath();
+  ctx.arc(64, 64, 46, -0.95, -0.2);
+  ctx.stroke();
+  ctx.fillStyle = '#f0e2c8';
+  ctx.font = 'bold 15px Georgia, serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('WATER', 64, 74);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
 }
