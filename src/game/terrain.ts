@@ -276,7 +276,11 @@ const TERRAIN_FS = /* glsl */ `
     albedo *= mix(0.78, 1.22, macro);
     albedo.r *= mix(0.92, 1.12, mottle);
     albedo.g *= mix(1.08, 0.9, mottle);
-    float rough = mix(0.92, 0.72, maskShaped);
+    float rough = mix(0.92, 0.78, maskShaped);
+    // Wet sand just outside the channel. Darker and cooler than the dry bank,
+    // so the waterline is not a chalk ring.
+    float wetBand = smoothstep(0.18, 0.62, maskShaped);
+    albedo = mix(albedo, albedo * vec3(0.7, 0.76, 0.72), wetBand * 0.4);
     // Wet bank: the gravel lip goes dark where it meets the water.
     albedo *= mix(1.0, 0.56, smoothstep(0.15, 0.95, vBankMask));
 
@@ -362,7 +366,7 @@ const TERRAIN_FS = /* glsl */ `
     float specPow = mix(12.0, 72.0, clamp(1.0 - rough, 0.0, 1.0));
     float spec = pow(max(dot(n, halfDir), 0.0), specPow) * (1.0 - rough);
     // Banks read wet; open ground stays matte.
-    spec *= shadow * mix(0.03, 0.32, maskShaped);
+    spec *= shadow * mix(0.03, 0.12, maskShaped);
     lit += uSunColor * spec * uSunIntensity;
 
     // Caustics on the wet bed. Scrolling product noise, only where the
