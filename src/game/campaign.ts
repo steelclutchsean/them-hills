@@ -458,7 +458,7 @@ export function applyArcAction(
       journal: remember(save.fieldwork.journal, {
         id: 'fire-out',
         title: 'Bucket line',
-        body: 'The inn is scorched and standing. Silas can run the stamps again.',
+        body: 'The shed is charred and the inn is still standing. Silas can run the stamps again.',
         gameTime,
       }),
     },

@@ -1185,6 +1185,12 @@ async function bootstrap(): Promise<void> {
           return true;
         }
         if (who === 'quench') {
+          const snap = gameStore.getState().serialize();
+          snap.world = {
+            ...snap.world,
+            event: { id: 'calm', startedAt: worldTime, until: worldTime, stamp: worldTime },
+          };
+          gameStore.getState().hydrate(snap);
           townArc.quench();
           return true;
         }
