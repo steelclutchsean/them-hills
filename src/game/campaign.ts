@@ -181,7 +181,8 @@ export function tickArc(
   }
 
   if (ctx.allowEvents) {
-    const window = SCHEDULE.find((row) => ctx.gameTime >= row.start && ctx.gameTime < row.end) ?? null;
+    const window =
+      SCHEDULE.find((row) => ctx.gameTime >= row.start && ctx.gameTime < row.end) ?? null;
     const scripted = event.id !== 'calm' && ctx.gameTime < event.until;
     const nextId = scripted ? event.id : (window?.id ?? 'calm');
     if (event.id !== nextId) {
@@ -194,7 +195,14 @@ export function tickArc(
       if (line) {
         journal = remember(journal, {
           id: `event-${nextId}-${Math.floor(ctx.gameTime / 100)}`,
-          title: nextId === 'flood' ? 'Spring flood' : nextId === 'drought' ? 'Dry season' : nextId === 'rush' ? 'The rush' : 'Town fire',
+          title:
+            nextId === 'flood'
+              ? 'Spring flood'
+              : nextId === 'drought'
+                ? 'Dry season'
+                : nextId === 'rush'
+                  ? 'The rush'
+                  : 'Town fire',
           body: line,
           gameTime: ctx.gameTime,
         });
@@ -211,7 +219,9 @@ export function tickArc(
         };
       }
       if (event.id === 'rush') {
-        const open = claims.find((c) => c.kind === 'placer' && c.jumperSince === null && c.pay > 0.2);
+        const open = claims.find(
+          (c) => c.kind === 'placer' && c.jumperSince === null && c.pay > 0.2,
+        );
         if (open && save.fieldwork.hands < 1) {
           claims = claims.map((c) => (c.id === open.id ? { ...c, jumperSince: ctx.gameTime } : c));
         }
@@ -229,7 +239,10 @@ export function tickArc(
   const banner = eventBanner(event.id);
   let status: string | null = null;
   if (ctx.inNorth) {
-    const air = lode.air < 0.35 ? 'Bad air. Get out or the candle dies.' : `Air ${Math.round(lode.air * 100)}%`;
+    const air =
+      lode.air < 0.35
+        ? 'Bad air. Get out or the candle dies.'
+        : `Air ${Math.round(lode.air * 100)}%`;
     const wood = lode.creak > 0.55 ? 'The timbers are talking.' : `Timber ${lode.timber}`;
     status = `${air}  ·  ${wood}  ·  Ore ${lode.ore.toFixed(1)}`;
   } else if (campaign.act >= 2) {
@@ -314,7 +327,10 @@ export function applyArcAction(
       ...save,
       fieldwork: {
         ...save.fieldwork,
-        campaign: { ...save.fieldwork.campaign, act: save.fieldwork.campaign.act < 2 ? 2 : save.fieldwork.campaign.act },
+        campaign: {
+          ...save.fieldwork.campaign,
+          act: save.fieldwork.campaign.act < 2 ? 2 : save.fieldwork.campaign.act,
+        },
         lode: { ...save.fieldwork.lode, charges: Math.max(2, save.fieldwork.lode.charges) },
         journal: remember(save.fieldwork.journal, {
           id: 'lode-open',
@@ -368,7 +384,10 @@ export function applyArcAction(
     save = spend(save, cost, gameTime, 'powder');
     save = {
       ...save,
-      fieldwork: { ...save.fieldwork, lode: { ...save.fieldwork.lode, charges: save.fieldwork.lode.charges + 2 } },
+      fieldwork: {
+        ...save.fieldwork,
+        lode: { ...save.fieldwork.lode, charges: save.fieldwork.lode.charges + 2 },
+      },
     };
     return { save, node: 'powderBought', hint: null };
   }
@@ -429,7 +448,8 @@ export function applyArcAction(
   }
 
   if (action.kind === 'standWithTown') {
-    const ready = save.fieldwork.lode.milled >= MILL_GOAL && save.fieldwork.lode.timber >= TIMBER_GOAL;
+    const ready =
+      save.fieldwork.lode.milled >= MILL_GOAL && save.fieldwork.lode.timber >= TIMBER_GOAL;
     if (!ready) return { save, node: 'notYet', hint: null };
     save = withHeard(save, 'stood');
     save = {
@@ -448,11 +468,15 @@ export function applyArcAction(
     return { save, node: 'stood', hint: 'Quinn has no creek left to take.' };
   }
 
-  if (save.world.event.id !== 'fire') return { save, node: 'root', hint: 'The fire is already out.' };
+  if (save.world.event.id !== 'fire')
+    return { save, node: 'root', hint: 'The fire is already out.' };
   save = withHeard(save, 'fire-out');
   save = {
     ...save,
-    world: { ...save.world, event: { ...save.world.event, id: 'calm', until: gameTime, stamp: gameTime } },
+    world: {
+      ...save.world,
+      event: { ...save.world.event, id: 'calm', until: gameTime, stamp: gameTime },
+    },
     fieldwork: {
       ...save.fieldwork,
       journal: remember(save.fieldwork.journal, {
@@ -491,10 +515,14 @@ export function bankOre(save: SaveV1, skill: number, gameTime: number): SaveV1 {
   };
 }
 
-export function timberInPlace(save: SaveV1, gameTime: number): { save: SaveV1; ok: boolean; reason: string } {
+export function timberInPlace(
+  save: SaveV1,
+  gameTime: number,
+): { save: SaveV1; ok: boolean; reason: string } {
   const next = ensureArc(save);
   const cost = priced(next, TIMBER_COST);
-  if (next.wallet.balance < cost) return { save: next, ok: false, reason: `A timber set is $${cost}.` };
+  if (next.wallet.balance < cost)
+    return { save: next, ok: false, reason: `A timber set is $${cost}.` };
   const spent = spend(next, cost, gameTime, 'timber-set');
   return {
     ok: true,

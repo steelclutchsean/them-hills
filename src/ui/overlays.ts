@@ -123,7 +123,13 @@ export function mountOverlays(opts: {
     }
     const title = document.createElement('h2');
     title.textContent =
-      id === 'pause' ? 'Paused' : id === 'help' ? 'Controls' : id === 'journal' ? 'Journal' : 'Pack';
+      id === 'pause'
+        ? 'Paused'
+        : id === 'help'
+          ? 'Controls'
+          : id === 'journal'
+            ? 'Journal'
+            : 'Pack';
     card.appendChild(title);
     if (id === 'help' || id === 'pause') {
       const list = document.createElement('ul');
@@ -314,7 +320,10 @@ export function mountOverlays(opts: {
       fresh.textContent = 'New game';
       fresh.hidden = !titleOpts.hasContinue;
       fresh.addEventListener('click', () => {
-        if (titleOpts.hasContinue && !window.confirm('Start a new claim book? The continue page is set aside.')) {
+        if (
+          titleOpts.hasContinue &&
+          !window.confirm('Start a new claim book? The continue page is set aside.')
+        ) {
           return;
         }
         titleOpts.onNewGame();

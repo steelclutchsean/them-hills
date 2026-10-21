@@ -127,8 +127,17 @@ export function createCrew(scene: THREE.Scene): Crew {
           rim.layers.enable(1);
           mesh.add(fill, rim);
           root.add(mesh);
-          const intent: 'sneak' | 'bluster' = claim.id.charCodeAt(claim.id.length - 1) % 2 === 0 ? 'sneak' : 'bluster';
-          state = { mesh, phase: 'scout', intent, fleeFor: 0, closeFor: 0, approachFor: 0, scoutFor: 0 };
+          const intent: 'sneak' | 'bluster' =
+            claim.id.charCodeAt(claim.id.length - 1) % 2 === 0 ? 'sneak' : 'bluster';
+          state = {
+            mesh,
+            phase: 'scout',
+            intent,
+            fleeFor: 0,
+            closeFor: 0,
+            approachFor: 0,
+            scoutFor: 0,
+          };
           jumpers.set(claim.id, state);
         }
         const machine = args.machines.find((m) => m.claimId === claim.id);
@@ -292,8 +301,10 @@ function pose(mesh: THREE.Group, time: number, work: Work, seed: number): void {
     swing(armL, -0.55 - slam * 0.7);
     const elbowR = limb(mesh, 'lowerarm_r', 'no-elbow-r');
     const elbowL = limb(mesh, 'lowerarm_l', 'no-elbow-l');
-    if (elbowR && typeof elbowR.userData.restX !== 'number') elbowR.userData.restX = elbowR.rotation.x;
-    if (elbowL && typeof elbowL.userData.restX !== 'number') elbowL.userData.restX = elbowL.rotation.x;
+    if (elbowR && typeof elbowR.userData.restX !== 'number')
+      elbowR.userData.restX = elbowR.rotation.x;
+    if (elbowL && typeof elbowL.userData.restX !== 'number')
+      elbowL.userData.restX = elbowL.rotation.x;
     swing(elbowR, -0.7 - slam * 0.35);
     swing(elbowL, -0.45);
     const spine = limb(mesh, 'spine_02', 'no-spine');

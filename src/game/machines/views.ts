@@ -107,7 +107,10 @@ export function createSluiceView(): MachineView<Extract<MinigameViz, { kind: 'sl
         const dot = dots[i];
         if (dot) dot.visible = has > 0 && viz.phase === 'cleanup';
         const bar = bars[i];
-        if (bar) (bar.material as THREE.MeshStandardMaterial).emissive = new THREE.Color(has && viz.phase !== 'feed' ? 0x3a2a08 : 0x000000);
+        if (bar)
+          (bar.material as THREE.MeshStandardMaterial).emissive = new THREE.Color(
+            has && viz.phase !== 'feed' ? 0x3a2a08 : 0x000000,
+          );
       });
     },
     setVisible(v) {
@@ -128,7 +131,10 @@ export function createLongTomView(): MachineView<Extract<MinigameViz, { kind: 'l
   group.add(fill);
   const grizzly = new THREE.Group();
   for (let i = 0; i < 4; i++) {
-    const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.26, 5), mat(0xb7b7b7, 0.35));
+    const rod = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.008, 0.008, 0.26, 5),
+      mat(0xb7b7b7, 0.35),
+    );
     rod.rotation.z = Math.PI / 2;
     rod.position.set(-0.09 + i * 0.06, 0.16, 0.28);
     grizzly.add(rod);
@@ -175,7 +181,10 @@ export function createMonitorView(): MachineView<Extract<MinigameViz, { kind: 'm
   const stand = box(0.08, 0.28, 0.08, 0x333333);
   stand.position.set(-0.28, -0.02, 0.1);
   group.add(stand);
-  const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.06, 0.34, 8), mat(0x9aa3ad, 0.4));
+  const nozzle = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.03, 0.06, 0.34, 8),
+    mat(0x9aa3ad, 0.4),
+  );
   nozzle.rotation.z = -Math.PI / 2.4;
   nozzle.position.set(-0.08, 0.08, 0.05);
   group.add(nozzle);
@@ -188,7 +197,12 @@ export function createMonitorView(): MachineView<Extract<MinigameViz, { kind: 'm
   group.add(cut);
   const spray = new THREE.Mesh(
     new THREE.ConeGeometry(0.08, 0.42, 8, 1, true),
-    new THREE.MeshBasicMaterial({ color: 0xd5e7ef, transparent: true, opacity: 0.35, side: THREE.DoubleSide }),
+    new THREE.MeshBasicMaterial({
+      color: 0xd5e7ef,
+      transparent: true,
+      opacity: 0.35,
+      side: THREE.DoubleSide,
+    }),
   );
   spray.rotation.z = -Math.PI / 2.3;
   spray.position.set(0.08, 0.06, 0.02);

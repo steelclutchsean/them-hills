@@ -282,7 +282,8 @@ export const OLD_PETE_DIALOGUE: DialogueTree = {
       {
         text: 'The tom is washed.',
         action: { kind: 'turnInQuest', questId: 'pete_tom', completeNode: 'tomDone' },
-        visible: (save) => isQuestActive(save, 'pete_tom') && isQuestObjectivesMet(save, 'pete_tom'),
+        visible: (save) =>
+          isQuestActive(save, 'pete_tom') && isQuestObjectivesMet(save, 'pete_tom'),
       },
       {
         text: 'I want the monitor.',
@@ -307,7 +308,8 @@ export const OLD_PETE_DIALOGUE: DialogueTree = {
       {
         text: 'I cut the streak.',
         action: { kind: 'turnInQuest', questId: 'pete_hose', completeNode: 'hoseDone' },
-        visible: (save) => isQuestActive(save, 'pete_hose') && isQuestObjectivesMet(save, 'pete_hose'),
+        visible: (save) =>
+          isQuestActive(save, 'pete_hose') && isQuestObjectivesMet(save, 'pete_hose'),
       },
       { text: 'What are folks saying?', action: { kind: 'hearRumor' } },
       {
@@ -389,7 +391,10 @@ export const OLD_PETE_DIALOGUE: DialogueTree = {
     speaker: 'Old Pete',
     body: "I'll witness it. Stand where the colors count high — inside bend, gravel bar, bedrock, or the pocket behind a boulder — and file it. First one the county will record for nothing. Come back when it's yours.",
     options: [
-      { text: "I'll file it.", action: { kind: 'acceptQuest', questId: 'pete_stake', acceptedNode: 'stakeAccepted' } },
+      {
+        text: "I'll file it.",
+        action: { kind: 'acceptQuest', questId: 'pete_stake', acceptedNode: 'stakeAccepted' },
+      },
       { text: 'Not yet.', action: { kind: 'goto', nodeId: 'root' } },
     ],
   },
@@ -467,7 +472,10 @@ export const OLD_PETE_DIALOGUE: DialogueTree = {
     speaker: 'Old Pete',
     body: 'Buy the rocker at the store and it will sit on your claim. Rock it. Tap at each end of the swing, when the water is thrown. A tap in the middle just slops.',
     options: [
-      { text: "I'll rock it.", action: { kind: 'acceptQuest', questId: 'pete_rocker', acceptedNode: 'rockerAccepted' } },
+      {
+        text: "I'll rock it.",
+        action: { kind: 'acceptQuest', questId: 'pete_rocker', acceptedNode: 'rockerAccepted' },
+      },
       { text: 'Not yet.', action: { kind: 'goto', nodeId: 'root' } },
     ],
   },
@@ -485,7 +493,10 @@ export const OLD_PETE_DIALOGUE: DialogueTree = {
     speaker: 'Old Pete',
     body: 'A full sluice is three jobs in one. Shovel gravel into the hopper when the load is over it. Set the gate so the riffles stay wet and do not flood. Then pick the gold that caught.',
     options: [
-      { text: "I'll feed it.", action: { kind: 'acceptQuest', questId: 'pete_sluice', acceptedNode: 'sluiceAccepted' } },
+      {
+        text: "I'll feed it.",
+        action: { kind: 'acceptQuest', questId: 'pete_sluice', acceptedNode: 'sluiceAccepted' },
+      },
       { text: 'Later.', action: { kind: 'goto', nodeId: 'root' } },
     ],
   },
@@ -503,7 +514,10 @@ export const OLD_PETE_DIALOGUE: DialogueTree = {
     speaker: 'Old Pete',
     body: 'The tom wants a yard of gravel. Shake the grizzly when it rises so the rocks dance off. The color falls into the lower box. Clean that box.',
     options: [
-      { text: "I'll wash a yard.", action: { kind: 'acceptQuest', questId: 'pete_tom', acceptedNode: 'tomAccepted' } },
+      {
+        text: "I'll wash a yard.",
+        action: { kind: 'acceptQuest', questId: 'pete_tom', acceptedNode: 'tomAccepted' },
+      },
       { text: 'Later.', action: { kind: 'goto', nodeId: 'root' } },
     ],
   },
@@ -521,7 +535,10 @@ export const OLD_PETE_DIALOGUE: DialogueTree = {
     speaker: 'Old Pete',
     body: 'The bank has a dark band. That is the pay. Aim the nozzle there and hold. Spray the barren dirt and you only move mud. Your hand keeps the hose from whipping.',
     options: [
-      { text: "I'll cut it.", action: { kind: 'acceptQuest', questId: 'pete_hose', acceptedNode: 'hoseAccepted' } },
+      {
+        text: "I'll cut it.",
+        action: { kind: 'acceptQuest', questId: 'pete_hose', acceptedNode: 'hoseAccepted' },
+      },
       { text: 'Not today.', action: { kind: 'goto', nodeId: 'root' } },
     ],
   },
@@ -616,9 +633,23 @@ export const SILAS_DIALOGUE: DialogueTree = {
     body: 'Stamps are running, if the creek is. Ore in the cart, gold in the poke. I take two dollars a unit and I do not argue the color.',
     options: [
       { text: 'Stamp what I hauled.', action: { kind: 'millOre' } },
-      { text: 'Two rounds of powder ($18).', action: { kind: 'buyPowder' }, enabled: (save) => save.wallet.balance >= 18, disabledHint: '(not enough cash)' },
-      { text: 'A set of timbers ($40).', action: { kind: 'buyTimber' }, enabled: (save) => save.wallet.balance >= 40, disabledHint: '(not enough cash)' },
-      { text: 'What is Quinn doing in town?', action: { kind: 'goto', nodeId: 'quinn' }, visible: (save) => (save.fieldwork.campaign?.act ?? 1) >= 3 },
+      {
+        text: 'Two rounds of powder ($18).',
+        action: { kind: 'buyPowder' },
+        enabled: (save) => save.wallet.balance >= 18,
+        disabledHint: '(not enough cash)',
+      },
+      {
+        text: 'A set of timbers ($40).',
+        action: { kind: 'buyTimber' },
+        enabled: (save) => save.wallet.balance >= 40,
+        disabledHint: '(not enough cash)',
+      },
+      {
+        text: 'What is Quinn doing in town?',
+        action: { kind: 'goto', nodeId: 'quinn' },
+        visible: (save) => (save.fieldwork.campaign?.act ?? 1) >= 3,
+      },
       { text: 'Goodbye.', action: { kind: 'leave' } },
     ],
   },
@@ -664,8 +695,16 @@ export const ADA_DIALOGUE: DialogueTree = {
     speaker: 'Ada Quinn',
     body: 'Consolidated Hydraulic. This drainage is on our map. You can sell me the lease, or you can watch the monitors take the bars one winter at a time.',
     options: [
-      { text: 'Say what you came to say.', action: { kind: 'meetCompany' }, visible: (save) => !(save.fieldwork.campaign?.heard ?? []).includes('ada') },
-      { text: 'I have heard the offer.', action: { kind: 'goto', nodeId: 'offer' }, visible: (save) => (save.fieldwork.campaign?.heard ?? []).includes('ada') },
+      {
+        text: 'Say what you came to say.',
+        action: { kind: 'meetCompany' },
+        visible: (save) => !(save.fieldwork.campaign?.heard ?? []).includes('ada'),
+      },
+      {
+        text: 'I have heard the offer.',
+        action: { kind: 'goto', nodeId: 'offer' },
+        visible: (save) => (save.fieldwork.campaign?.heard ?? []).includes('ada'),
+      },
       { text: 'Not today.', action: { kind: 'leave' } },
     ],
   },

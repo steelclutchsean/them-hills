@@ -24,7 +24,15 @@ export function paintPortrait(ctx: CanvasRenderingContext2D, id: PortraitId): vo
 
   const skin = id === 'ada' ? '#e4c8a8' : id === 'silas' ? '#c49a72' : '#d7b08a';
   const shirt =
-    id === 'mae' ? '#c46a2a' : id === 'ada' ? '#1c1a22' : id === 'jumper' ? '#8c2f2f' : id === 'silas' ? '#5a4632' : '#6b4a2a';
+    id === 'mae'
+      ? '#c46a2a'
+      : id === 'ada'
+        ? '#1c1a22'
+        : id === 'jumper'
+          ? '#8c2f2f'
+          : id === 'silas'
+            ? '#5a4632'
+            : '#6b4a2a';
   ctx.fillStyle = shirt;
   ctx.beginPath();
   ctx.ellipse(w / 2, h * 0.92, w * 0.42, h * 0.28, 0, Math.PI, 0);

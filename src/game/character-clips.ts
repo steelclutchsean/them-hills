@@ -105,7 +105,8 @@ function clipFromJson(name: string, def: ClipDef): THREE.AnimationClip {
 
 function fadeFor(name: string): number {
   if (name === 'jump' || name === 'fall' || name === 'land') return 0.12;
-  if (name === 'shovel' || name === 'rock' || name === 'aim' || name === 'pan' || name === 'sort') return 0.22;
+  if (name === 'shovel' || name === 'rock' || name === 'aim' || name === 'pan' || name === 'sort')
+    return 0.22;
   return 0.28;
 }
 
@@ -239,11 +240,13 @@ function applyTool(rig: CharacterRig, opts: MotionOptions): void {
   if (!shoulder || !elbow || !hand) return;
   hand.updateWorldMatrix(true, false);
   const gap = gripOrigin.setFromMatrixPosition(hand.matrixWorld).distanceTo(opts.toolTarget);
-  const cap = opts.tool === 'pan' ? 0.78 : opts.tool === 'dig' ? 0.62 : opts.tool === 'rock' ? 0.42 : 0.34;
+  const cap =
+    opts.tool === 'pan' ? 0.78 : opts.tool === 'dig' ? 0.62 : opts.tool === 'rock' ? 0.42 : 0.34;
   // Far from the tool, reach for it. Close in, leave the mocap swing alone.
   const weight = Math.max(0.12, Math.min(cap, (gap - 0.12) / 0.38));
   solveTwoBone(shoulder, elbow, hand, opts.toolTarget, weight);
-  if (opts.tool === 'dig' || opts.tool === 'pan') blendGrip(hand, opts.toolTarget, Math.min(0.45, weight));
+  if (opts.tool === 'dig' || opts.tool === 'pan')
+    blendGrip(hand, opts.toolTarget, Math.min(0.45, weight));
 }
 
 function solveTwoBone(
@@ -284,13 +287,21 @@ function solveTwoBone(
     1,
   );
   const bend = Math.acos(cosRoot);
-  desiredMid.copy(rootPos).addScaledVector(reach, Math.cos(bend) * upperLen).addScaledVector(pole, Math.sin(bend) * upperLen);
+  desiredMid
+    .copy(rootPos)
+    .addScaledVector(reach, Math.cos(bend) * upperLen)
+    .addScaledVector(pole, Math.sin(bend) * upperLen);
   aimChild(root, mid, desiredMid, weight);
   root.updateWorldMatrix(true, true);
   aimChild(mid, end, target, weight);
 }
 
-function aimChild(bone: THREE.Object3D, child: THREE.Object3D, want: THREE.Vector3, weight: number): void {
+function aimChild(
+  bone: THREE.Object3D,
+  child: THREE.Object3D,
+  want: THREE.Vector3,
+  weight: number,
+): void {
   if (!bone.parent) return;
   bone.updateWorldMatrix(true, false);
   child.updateWorldMatrix(true, false);

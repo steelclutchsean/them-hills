@@ -58,11 +58,7 @@ function tentCloth(): THREE.CanvasTexture {
   return tex;
 }
 
-function wallTent(
-  canvas: THREE.Material,
-  wood: THREE.Material,
-  index: number,
-): THREE.Group {
+function wallTent(canvas: THREE.Material, wood: THREE.Material, index: number): THREE.Group {
   const tent = new THREE.Group();
   tent.name = index === 0 ? 'rush-tent' : `rush-tent-${index}`;
   const wall = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.35, 3.1), canvas);

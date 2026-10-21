@@ -3,12 +3,7 @@ import type { Minigame, MinigameUpdate, MinigameViz, StageOptions } from '@/game
 
 // Each machine is its own minigame. None of these emit a pan viz.
 
-function progress(
-  message: string,
-  value: number,
-  viz: MinigameViz,
-  left = 0,
-): MinigameUpdate {
+function progress(message: string, value: number, viz: MinigameViz, left = 0): MinigameUpdate {
   return {
     kind: 'in_progress',
     progress: { progress: value, message, panTapsRemaining: left, viz },
@@ -153,7 +148,12 @@ export function createSluiceMinigame(): Minigame {
                 ? 'Open the gate — the riffles are dry'
                 : 'Hold the water in the riffles'
             : 'Pick the gold sitting in the riffles';
-      return progress(message, phase === 'feed' ? shovels / 3 : phase === 'flow' ? held / 2.2 : cleaned / 3, viz, goldLeft);
+      return progress(
+        message,
+        phase === 'feed' ? shovels / 3 : phase === 'flow' ? held / 2.2 : cleaned / 3,
+        viz,
+        goldLeft,
+      );
     },
   };
 }
@@ -217,7 +217,8 @@ export function createLongTomMinigame(): Minigame {
         lastTap,
       };
       const goldLeft = slots.reduce((n, v) => n + v, 0);
-      if (phase === 'cleanup' && goldLeft === 0) return done(score / 7, 'The tom is cleaned out.', viz);
+      if (phase === 'cleanup' && goldLeft === 0)
+        return done(score / 7, 'The tom is cleaned out.', viz);
       const message =
         phase === 'grizzly'
           ? shake > 0.78
@@ -257,7 +258,8 @@ export function createMonitorMinigame(): Minigame {
       if (isUseToolDown) {
         if (onPay) {
           cut = Math.min(1.2, cut + dt * 0.42);
-          if (Math.floor(t * 8) % 4 === 0) effects.burst({ x: 0.2, y: aim * 0.2, z: -0.7 }, 0xc4a06a, 4, 'dirt');
+          if (Math.floor(t * 8) % 4 === 0)
+            effects.burst({ x: 0.2, y: aim * 0.2, z: -0.7 }, 0xc4a06a, 4, 'dirt');
         } else {
           waste += dt * (pressure > 0.78 ? 0.48 : 0.28);
           if (pressure > 0.78) effects.shake(0.015, 0.08);

@@ -115,7 +115,8 @@ export function createBlastMinigame(): Minigame {
         charges,
       };
       if (phase === 'retreat' && retreat >= 2.7) {
-        const message = charges > 0 ? 'The round took the face.' : 'A mud cap. Buy powder from Silas.';
+        const message =
+          charges > 0 ? 'The round took the face.' : 'A mud cap. Buy powder from Silas.';
         return done(score, message, viz);
       }
       const message =

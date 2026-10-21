@@ -10,7 +10,12 @@ import type { ActiveQuest, GoldStash, ObjectiveState, SaveV1 } from '@/save/sche
 // objective; once all objectives are met the player can turn the quest in
 // at the giver NPC.
 
-export type ObjectiveType = 'collectGold' | 'sellDollars' | 'stakeClaim' | 'sampleColors' | 'runMachine';
+export type ObjectiveType =
+  | 'collectGold'
+  | 'sellDollars'
+  | 'stakeClaim'
+  | 'sampleColors'
+  | 'runMachine';
 
 export interface QuestObjective {
   id: string;
@@ -125,7 +130,13 @@ export const QUESTS: Record<string, QuestDef> = {
     description:
       'Buy a rocker and set it on your claim. Tap at each end of the rock until the box runs clean.',
     objectives: [
-      { id: 'run_rocker', description: 'Run the rocker', target: 1, type: 'runMachine', param: 'rocker' },
+      {
+        id: 'run_rocker',
+        description: 'Run the rocker',
+        target: 1,
+        type: 'runMachine',
+        param: 'rocker',
+      },
     ],
     reward: { dollars: 45 },
   },
@@ -136,7 +147,13 @@ export const QUESTS: Record<string, QuestDef> = {
     description:
       'A full sluice wants three things: a shovel in the hopper, the water held in the riffles, and a cleanup.',
     objectives: [
-      { id: 'run_sluice', description: 'Run the sluice', target: 1, type: 'runMachine', param: 'sluice' },
+      {
+        id: 'run_sluice',
+        description: 'Run the sluice',
+        target: 1,
+        type: 'runMachine',
+        param: 'sluice',
+      },
     ],
     reward: { dollars: 70 },
   },
@@ -144,9 +161,16 @@ export const QUESTS: Record<string, QuestDef> = {
     id: 'pete_tom',
     title: 'Wash a yard',
     giverNpc: 'old_pete',
-    description: 'The long tom has a grizzly on top and a box underneath. Shake the bars, then clean the lower riffles.',
+    description:
+      'The long tom has a grizzly on top and a box underneath. Shake the bars, then clean the lower riffles.',
     objectives: [
-      { id: 'run_tom', description: 'Run the long tom', target: 1, type: 'runMachine', param: 'long_tom' },
+      {
+        id: 'run_tom',
+        description: 'Run the long tom',
+        target: 1,
+        type: 'runMachine',
+        param: 'long_tom',
+      },
     ],
     reward: { dollars: 90 },
   },
@@ -174,7 +198,13 @@ export const QUESTS: Record<string, QuestDef> = {
     description:
       'Put a hand on the monitor hose and aim the nozzle at the dark band in the bank. Hold the spray on the pay, not the barren dirt.',
     objectives: [
-      { id: 'run_monitor', description: 'Run the monitor', target: 1, type: 'runMachine', param: 'hydraulic' },
+      {
+        id: 'run_monitor',
+        description: 'Run the monitor',
+        target: 1,
+        type: 'runMachine',
+        param: 'hydraulic',
+      },
     ],
     reward: { dollars: 150 },
   },

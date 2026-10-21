@@ -154,9 +154,7 @@ export function readGround(
   const jitter = hash01(x * 0.37 + z * 0.91 + shift * 19 + best.cfg.centerX);
   const pay = Math.max(0, Math.min(1, copy.pay * (0.9 + jitter * 0.18)));
   const colors =
-    habitat === 'barren'
-      ? 0
-      : Math.max(0, Math.min(18, Math.round(pay * 12 + jitter * 4 - 1.2)));
+    habitat === 'barren' ? 0 : Math.max(0, Math.min(18, Math.round(pay * 12 + jitter * 4 - 1.2)));
   return {
     streamId: best.cfg.id,
     along: best.along,
@@ -203,7 +201,13 @@ export function richestPlacer(
     const flowZ = cfg.orientation === 'NS' ? 1 : 0;
     consider(b.x + flowX * (b.r + 1.1), b.z + flowZ * (b.r + 1.1));
   }
-  return best ?? { x: cfg.centerX, z: cfg.centerZ, read: readGround([cfg], cfg.centerX, cfg.centerZ, payShift, boulders) };
+  return (
+    best ?? {
+      x: cfg.centerX,
+      z: cfg.centerZ,
+      read: readGround([cfg], cfg.centerX, cfg.centerZ, payShift, boulders),
+    }
+  );
 }
 
 export interface PayMark {
@@ -249,12 +253,23 @@ export function payMarks(
       const x = b.x + flowX * (b.r + 1.2);
       const z = b.z + flowZ * (b.r + 1.2);
       const read = readGround([cfg], x, z, payShift, boulders);
-      out.push({ x, z, habitat: read.habitat === 'barren' ? 'boulder_lee' : read.habitat, pay: Math.max(read.pay, 0.7), flowYaw });
+      out.push({
+        x,
+        z,
+        habitat: read.habitat === 'barren' ? 'boulder_lee' : read.habitat,
+        pay: Math.max(read.pay, 0.7),
+        flowYaw,
+      });
     }
   }
   return out;
 }
 
 export function stakeable(habitat: Habitat): boolean {
-  return habitat === 'inside_bend' || habitat === 'gravel_bar' || habitat === 'bedrock' || habitat === 'boulder_lee';
+  return (
+    habitat === 'inside_bend' ||
+    habitat === 'gravel_bar' ||
+    habitat === 'bedrock' ||
+    habitat === 'boulder_lee'
+  );
 }

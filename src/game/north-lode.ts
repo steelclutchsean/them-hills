@@ -81,7 +81,11 @@ function rockMaps(): { albedo: THREE.CanvasTexture; normal: THREE.CanvasTexture 
     ctx.stroke();
   }
   // Quartz lives in the stone, not as a row of glowing boxes.
-  const veins = ['rgba(214, 210, 200, 0.72)', 'rgba(168, 164, 156, 0.8)', 'rgba(186, 142, 64, 0.62)'];
+  const veins = [
+    'rgba(214, 210, 200, 0.72)',
+    'rgba(168, 164, 156, 0.8)',
+    'rgba(186, 142, 64, 0.62)',
+  ];
   veins.forEach((stroke, i) => {
     ctx.strokeStyle = stroke;
     ctx.lineWidth = i === 2 ? 3 : 2;
@@ -137,7 +141,12 @@ function hewnBox(w: number, h: number, d: number): THREE.BufferGeometry {
     const y = pos.getY(i);
     const z = pos.getZ(i);
     const n = Math.sin(x * 19 + y * 7.5 + z * 13);
-    pos.setXYZ(i, x + n * w * 0.06, y + Math.sin(z * 11 + x) * h * 0.008, z + Math.sin(y * 5 + x * 3) * d * 0.06);
+    pos.setXYZ(
+      i,
+      x + n * w * 0.06,
+      y + Math.sin(z * 11 + x) * h * 0.008,
+      z + Math.sin(y * 5 + x * 3) * d * 0.06,
+    );
   }
   geom.computeVertexNormals();
   return geom;
@@ -344,11 +353,7 @@ function quartzCrystals(): THREE.Group {
     });
     for (let i = 0; i < 3; i++) {
       const shard = new THREE.Mesh(new THREE.OctahedronGeometry(0.045 + (i % 2) * 0.02, 0), mat);
-      shard.position.set(
-        spot.side * 1.84,
-        0.95 + i * 0.22,
-        spot.z + (i - 1) * 0.12,
-      );
+      shard.position.set(spot.side * 1.84, 0.95 + i * 0.22, spot.z + (i - 1) * 0.12);
       shard.rotation.set(i * 0.4, spot.side, 0.6);
       shard.castShadow = true;
       group.add(shard);
@@ -550,7 +555,11 @@ export function dressNorthLode(group: THREE.Group): void {
   dropPts.name = 'drift-drips';
   group.add(dropPts);
 
-  const railMat = new THREE.MeshStandardMaterial({ color: 0xa39e96, roughness: 0.28, metalness: 0.74 });
+  const railMat = new THREE.MeshStandardMaterial({
+    color: 0xa39e96,
+    roughness: 0.28,
+    metalness: 0.74,
+  });
   const railGeom = new THREE.BoxGeometry(0.06, 0.05, 7.6);
   const leftRail = new THREE.Mesh(railGeom, railMat);
   leftRail.position.set(-0.28, 0.2, -4.6);
@@ -640,11 +649,7 @@ export function dressNorthLode(group: THREE.Group): void {
   wave.position.set(0.1, 1.15, -8.2);
   group.add(flash, flashBall, wave);
 
-  const rubble = new THREE.InstancedMesh(
-    new THREE.DodecahedronGeometry(0.22, 0),
-    rock,
-    12,
-  );
+  const rubble = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(0.22, 0), rock, 12);
   rubble.name = 'drift-rubble';
   rubble.count = 0;
   rubble.castShadow = true;
@@ -876,7 +881,11 @@ export function driftNearFall(originZ: number, playerZ: number): boolean {
 }
 
 /** The settled fall is a wall. The portal side walks out. The face side digs. */
-export function driftKeepOut(group: THREE.Group, origin: THREE.Vector3, player: THREE.Vector3): boolean {
+export function driftKeepOut(
+  group: THREE.Group,
+  origin: THREE.Vector3,
+  player: THREE.Vector3,
+): boolean {
   const rig = rigs.get(group);
   if (!rig || rig.phase !== 'buried' || rig.dig >= 1) return false;
   const localZ = player.z - origin.z;
@@ -899,7 +908,11 @@ export function setDriftBearer(group: THREE.Group, local: THREE.Vector3 | null):
 }
 
 /** Eye height inside the air of the drift, looking deeper in. */
-export function frameDriftWalk(origin: THREE.Vector3, player: THREE.Vector3, camera: THREE.Camera): void {
+export function frameDriftWalk(
+  origin: THREE.Vector3,
+  player: THREE.Vector3,
+  camera: THREE.Camera,
+): void {
   const lx = THREE.MathUtils.clamp(player.x - origin.x, -0.55, 0.55);
   const lz = THREE.MathUtils.clamp(player.z - origin.z, -8.2, -0.35);
   const eyeZ = THREE.MathUtils.clamp(lz + 0.12, -8.0, -0.5);
@@ -913,7 +926,11 @@ export function frameDriftInterior(origin: THREE.Vector3, camera: THREE.Camera):
   camera.lookAt(origin.x, origin.y + 1.7, origin.z - 8.0);
 }
 
-export function frameDriftShow(group: THREE.Group, origin: THREE.Vector3, camera: THREE.Camera): boolean {
+export function frameDriftShow(
+  group: THREE.Group,
+  origin: THREE.Vector3,
+  camera: THREE.Camera,
+): boolean {
   const rig = rigs.get(group);
   if (!rig) return false;
   if (rig.phase !== 'fuse' && rig.phase !== 'blast' && rig.phase !== 'cave') return false;
@@ -959,7 +976,9 @@ export function updateNorthLode(group: THREE.Group, time: number, creak: number,
   if (!rig) return;
   const flicker = 0.82 + Math.sin(time * 9.5) * 0.08 + Math.sin(time * 23) * 0.04;
   rig.lights.forEach((light, i) => {
-    light.intensity = (4.0 + flicker * 0.55 + Math.sin(time * 7 + i) * 0.18) * (rig.phase === 'blast' && rig.t < 0.2 ? 0.35 : 1);
+    light.intensity =
+      (4.0 + flicker * 0.55 + Math.sin(time * 7 + i) * 0.18) *
+      (rig.phase === 'blast' && rig.t < 0.2 ? 0.35 : 1);
   });
   rig.lamps.forEach((lamp) => {
     const mat = lamp.material as THREE.MeshStandardMaterial;
@@ -1040,7 +1059,10 @@ export function updateNorthLode(group: THREE.Group, time: number, creak: number,
       puff.visible = true;
       puff.position.set((i - 1.5) * 0.4, 1.2, -5.2);
       puff.scale.setScalar(0.3 + fall * 2.2);
-      (puff.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 0.5 * (1 - Math.max(0, rig.t - 1.2) / 1.6));
+      (puff.material as THREE.MeshBasicMaterial).opacity = Math.max(
+        0,
+        0.5 * (1 - Math.max(0, rig.t - 1.2) / 1.6),
+      );
     });
     if (rig.t > 1.7) rig.phase = 'buried';
   } else if (rig.phase === 'buried') {

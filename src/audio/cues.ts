@@ -34,11 +34,19 @@ export function attachGameplayCues(audio: AudioSystem): void {
   });
   onGameplay('machine-run', (e) => {
     const name: WorldCue =
-      e.kind === 'rocker' ? 'rocker' : e.kind === 'sluice' ? 'sluice' : e.kind === 'hydraulic' ? 'monitor' : 'tom';
+      e.kind === 'rocker'
+        ? 'rocker'
+        : e.kind === 'sluice'
+          ? 'sluice'
+          : e.kind === 'hydraulic'
+            ? 'monitor'
+            : 'tom';
     play(name, 1.05);
     play('chime', 1.15);
   });
-  onGameplay('jumper-confront', (e) => play(e.how === 'pay' ? 'coins' : 'jumper', e.how === 'scare' ? 1.15 : 0.9));
+  onGameplay('jumper-confront', (e) =>
+    play(e.how === 'pay' ? 'coins' : 'jumper', e.how === 'scare' ? 1.15 : 0.9),
+  );
   onGameplay('rumor', () => play('chime', 0.95));
   onGameplay('hire', () => play('coins', 0.92));
   onGameplay('supply-bought', () => play('coins', 1));

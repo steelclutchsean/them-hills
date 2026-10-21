@@ -126,7 +126,11 @@ export function availableMethods(owned: SaveV1['equipment']['ownedTiers']): Work
   return methods;
 }
 
-export function nextMethod(current: WorkMethod, owned: SaveV1['equipment']['ownedTiers'], dir: 1 | -1): WorkMethod {
+export function nextMethod(
+  current: WorkMethod,
+  owned: SaveV1['equipment']['ownedTiers'],
+  dir: 1 | -1,
+): WorkMethod {
   const methods = availableMethods(owned);
   const idx = Math.max(0, methods.indexOf(current));
   const next = (idx + dir + methods.length) % methods.length;
@@ -196,7 +200,12 @@ export function creekYieldFactor(save: SaveV1, read: GroundRead): number {
   return Math.max(0.35, geo);
 }
 
-export function claimYieldFactor(claims: readonly ClaimRecord[], x: number, z: number, habitat: Habitat): number {
+export function claimYieldFactor(
+  claims: readonly ClaimRecord[],
+  x: number,
+  z: number,
+  habitat: Habitat,
+): number {
   const claim = nearestClaim(claims, 'placer', x, z, 12);
   if (!claim) return 1;
   let factor = 0.5 + 0.5 * claim.pay;
@@ -238,7 +247,8 @@ export function buildListings(save: SaveV1): StoreListing[] {
   for (const category of Object.keys(EQUIPMENT) as EquipmentCategory[]) {
     const ownedTier = save.equipment.ownedTiers[category];
     const next = getNextUpgrade(category, ownedTier);
-    const gated = next?.questGated === true && !(next.gateQuest && isQuestCompleted(save, next.gateQuest));
+    const gated =
+      next?.questGated === true && !(next.gateQuest && isQuestCompleted(save, next.gateQuest));
     rows.push({
       kind: 'upgrade',
       id: category,
@@ -294,7 +304,14 @@ export function buildListings(save: SaveV1): StoreListing[] {
     id: 'cabin',
     displayName: 'Cabin frame',
     ownedLabel: campTier >= 2 ? 'built' : '—',
-    nextLabel: campTier >= 2 ? 'Built' : campTier < 1 ? 'Lean-to first' : nails >= 8 ? 'Build' : 'Need 8 nails',
+    nextLabel:
+      campTier >= 2
+        ? 'Built'
+        : campTier < 1
+          ? 'Lean-to first'
+          : nails >= 8
+            ? 'Build'
+            : 'Need 8 nails',
     nextCost: campTier >= 2 || campTier < 1 ? null : 80,
     affordable: hasClaim && campTier === 1 && nails >= 8 && wallet >= 80,
     questGated: false,
@@ -334,7 +351,19 @@ export function bestCamp(claims: readonly ClaimRecord[]): 0 | 1 | 2 {
 export function openingGuide(save: SaveV1): {
   title: string;
   detail: string;
-  beam: 'creek' | 'assayer' | 'pete' | 'store' | 'claim' | 'rocker' | 'sluice' | 'tom' | 'monitor' | 'lode' | 'mill' | 'company';
+  beam:
+    | 'creek'
+    | 'assayer'
+    | 'pete'
+    | 'store'
+    | 'claim'
+    | 'rocker'
+    | 'sluice'
+    | 'tom'
+    | 'monitor'
+    | 'lode'
+    | 'mill'
+    | 'company';
 } | null {
   const carry =
     save.inventory.carry.gold.flake_g +
@@ -363,21 +392,24 @@ export function openingGuide(save: SaveV1): {
   if (fresh) {
     return {
       title: 'First claim',
-      detail: 'Walk east along Coyote Creek. When the gravel glints underfoot, press E. Shift sprints.',
+      detail:
+        'Walk east along Coyote Creek. When the gravel glints underfoot, press E. Shift sprints.',
       beam: 'creek',
     };
   }
   if (!save.fieldwork.rumorsHeard.includes('lesson')) {
     return {
       title: 'Ask Old Pete',
-      detail: 'His fire is just west of the trail you spawned on. He names the tells: black sand, gray bedrock, white quartz, gravel, and the lee of a boulder.',
+      detail:
+        'His fire is just west of the trail you spawned on. He names the tells: black sand, gray bedrock, white quartz, gravel, and the lee of a boulder.',
       beam: 'pete',
     };
   }
   if (save.fieldwork.samples.length === 0) {
     return {
       title: 'Read the creek',
-      detail: 'Follow the black sand on the inside shore. Gray rock and white quartz confirm it. Press F and the hole keeps the count.',
+      detail:
+        'Follow the black sand on the inside shore. Gray rock and white quartz confirm it. Press F and the hole keeps the count.',
       beam: 'creek',
     };
   }
@@ -393,7 +425,8 @@ export function openingGuide(save: SaveV1): {
   if (owned.rocker < 1) {
     return {
       title: 'A rocker box',
-      detail: 'The rocker is $236 at the store. Keep panning Coyote Creek until you can pay. It sits on your claim.',
+      detail:
+        'The rocker is $236 at the store. Keep panning Coyote Creek until you can pay. It sits on your claim.',
       beam: 'store',
     };
   }
@@ -415,7 +448,8 @@ export function openingGuide(save: SaveV1): {
   if (owned.sluice < 2) {
     return {
       title: 'A sluice',
-      detail: 'Next is a full sluice. Shovel the hopper, hold the water in the riffles, then pick the gold out.',
+      detail:
+        'Next is a full sluice. Shovel the hopper, hold the water in the riffles, then pick the gold out.',
       beam: 'store',
     };
   }
@@ -429,35 +463,40 @@ export function openingGuide(save: SaveV1): {
   if (owned.longTom < 1) {
     return {
       title: 'A long tom',
-      detail: 'The tom is a longer box with a grizzly on top. Ask Pete, then buy it. Shake the bars, then clean the lower box.',
+      detail:
+        'The tom is a longer box with a grizzly on top. Ask Pete, then buy it. Shake the bars, then clean the lower box.',
       beam: 'pete',
     };
   }
   if (runs.long_tom < 1) {
     return {
       title: 'Wash a yard',
-      detail: 'Stand at the long tom and press E. Shake the grizzly when it rises, then clean the riffles.',
+      detail:
+        'Stand at the long tom and press E. Shake the grizzly when it rises, then clean the riffles.',
       beam: 'tom',
     };
   }
   if (save.fieldwork.hands < 1) {
     return {
       title: 'Hire a hand',
-      detail: 'Pete knows a hand. They walk the machines and watch the claim. One of them can hold a monitor hose. $1150.',
+      detail:
+        'Pete knows a hand. They walk the machines and watch the claim. One of them can hold a monitor hose. $1150.',
       beam: 'pete',
     };
   }
   if (owned.hydraulic < 1) {
     return {
       title: 'Earn the monitor',
-      detail: 'Bring Pete eight grams and $1350 and he will sign for the hose. Aim it at the dark streak in the bank.',
+      detail:
+        'Bring Pete eight grams and $1350 and he will sign for the hose. Aim it at the dark streak in the bank.',
       beam: 'pete',
     };
   }
   if (runs.hydraulic < 1) {
     return {
       title: 'Cut the streak',
-      detail: 'A hand is on the hose. Sweep the dark band and keep the water pressure in the middle.',
+      detail:
+        'A hand is on the hose. Sweep the dark band and keep the water pressure in the middle.',
       beam: 'monitor',
     };
   }
@@ -486,14 +525,16 @@ export function openingGuide(save: SaveV1): {
   if (arc && !arc.boughtOut && !arc.savedTown && arc.act < 4) {
     return {
       title: 'Quinn is in town',
-      detail: 'Ada Quinn of Consolidated Hydraulic is with the wagon. Hear the offer before the monitors take the bars.',
+      detail:
+        'Ada Quinn of Consolidated Hydraulic is with the wagon. Hear the offer before the monitors take the bars.',
       beam: 'company',
     };
   }
   if (arc && !arc.boughtOut && !arc.savedTown) {
     return {
       title: 'The lease',
-      detail: 'Buy Quinn out for $4200, or mill 20 loads and timber the drift so Mae and Pete can refuse her.',
+      detail:
+        'Buy Quinn out for $4200, or mill 20 loads and timber the drift so Mae and Pete can refuse her.',
       beam: 'company',
     };
   }
@@ -510,27 +551,132 @@ export function openingGuide(save: SaveV1): {
     detail: string;
     beam: 'store' | 'pete' | 'claim';
   }[] = [
-    { when: owned.rocker < 2, title: 'An apron on the rocker', detail: 'The store fits an apron for $1700. It keeps the gravel in the box.', beam: 'store' },
-    { when: owned.sluice < 3, title: 'A power sluice', detail: 'Pump-fed riffles are $1800. The box you have is the manual one.', beam: 'store' },
-    { when: owned.gear < 2, title: 'Waders', detail: 'Personal gear, tier 2, is $1450. Cold water stops being the job.', beam: 'store' },
-    { when: owned.pick < 2, title: 'A double jack', detail: 'The next pick is $1700. The single jack opened the ridge.', beam: 'store' },
-    { when: owned.shovel < 2, title: 'A full shovel', detail: 'Replace the toy spade. $1550 at the store.', beam: 'store' },
-    { when: owned.shovel < 3, title: 'A real shovel', detail: 'The long-handled shovel is $1680.', beam: 'store' },
-    { when: owned.classifier < 2, title: 'A classifier stack', detail: 'Three screens are $1580. The dirt you skip is the dirt you re-wash.', beam: 'store' },
-    { when: owned.classifier < 3, title: 'The five-stack', detail: 'The stand classifier is $1720.', beam: 'store' },
-    { when: owned.headlamp < 2, title: 'A headlamp', detail: 'The store lamp is $1520. The north adit is dark.', beam: 'store' },
-    { when: owned.snuffer < 2, title: 'Vials and a glass', detail: 'A snuffer bottle set is $1500.', beam: 'store' },
-    { when: owned.snuffer < 3, title: 'A scale', detail: 'The pro snuffer is $1680.', beam: 'store' },
-    { when: owned.detector < 2, title: 'A metal detector', detail: 'The mid-range PI is $1600.', beam: 'store' },
-    { when: owned.detector < 3, title: 'A pinpointer', detail: 'The pro detector is $1750.', beam: 'store' },
-    { when: owned.pan < 3, title: 'A riffled pan', detail: 'The 17 inch pan is $1720. The steel 14 inch can wait if you already bought it.', beam: 'store' },
-    { when: owned.gear < 3, title: 'Insulated gear', detail: 'The GPS kit is $1750.', beam: 'store' },
-    { when: owned.pick < 3, title: 'A hard-rock kit', detail: 'The last pick is $1750.', beam: 'store' },
-    { when: save.fieldwork.claims.length < 2, title: 'A second claim', detail: 'The county fee on a second stretch is $1650.', beam: 'claim' },
-    { when: save.fieldwork.claims.length < 3, title: 'A third claim', detail: 'The last filing the county allows is $1800.', beam: 'claim' },
-    { when: !save.fieldwork.claims.some((c) => c.kind === 'lode'), title: 'File the lode', detail: 'Pete will record the north mine for $1700 once the pick is yours.', beam: 'pete' },
-    { when: bestCamp(save.fieldwork.claims) < 1, title: 'A lean-to', detail: 'Nails and $1600 put a roof on the claim.', beam: 'store' },
-    { when: bestCamp(save.fieldwork.claims) < 2, title: 'A cabin', detail: 'The cabin is $1750. Nights stop costing you.', beam: 'store' },
+    {
+      when: owned.rocker < 2,
+      title: 'An apron on the rocker',
+      detail: 'The store fits an apron for $1700. It keeps the gravel in the box.',
+      beam: 'store',
+    },
+    {
+      when: owned.sluice < 3,
+      title: 'A power sluice',
+      detail: 'Pump-fed riffles are $1800. The box you have is the manual one.',
+      beam: 'store',
+    },
+    {
+      when: owned.gear < 2,
+      title: 'Waders',
+      detail: 'Personal gear, tier 2, is $1450. Cold water stops being the job.',
+      beam: 'store',
+    },
+    {
+      when: owned.pick < 2,
+      title: 'A double jack',
+      detail: 'The next pick is $1700. The single jack opened the ridge.',
+      beam: 'store',
+    },
+    {
+      when: owned.shovel < 2,
+      title: 'A full shovel',
+      detail: 'Replace the toy spade. $1550 at the store.',
+      beam: 'store',
+    },
+    {
+      when: owned.shovel < 3,
+      title: 'A real shovel',
+      detail: 'The long-handled shovel is $1680.',
+      beam: 'store',
+    },
+    {
+      when: owned.classifier < 2,
+      title: 'A classifier stack',
+      detail: 'Three screens are $1580. The dirt you skip is the dirt you re-wash.',
+      beam: 'store',
+    },
+    {
+      when: owned.classifier < 3,
+      title: 'The five-stack',
+      detail: 'The stand classifier is $1720.',
+      beam: 'store',
+    },
+    {
+      when: owned.headlamp < 2,
+      title: 'A headlamp',
+      detail: 'The store lamp is $1520. The north adit is dark.',
+      beam: 'store',
+    },
+    {
+      when: owned.snuffer < 2,
+      title: 'Vials and a glass',
+      detail: 'A snuffer bottle set is $1500.',
+      beam: 'store',
+    },
+    {
+      when: owned.snuffer < 3,
+      title: 'A scale',
+      detail: 'The pro snuffer is $1680.',
+      beam: 'store',
+    },
+    {
+      when: owned.detector < 2,
+      title: 'A metal detector',
+      detail: 'The mid-range PI is $1600.',
+      beam: 'store',
+    },
+    {
+      when: owned.detector < 3,
+      title: 'A pinpointer',
+      detail: 'The pro detector is $1750.',
+      beam: 'store',
+    },
+    {
+      when: owned.pan < 3,
+      title: 'A riffled pan',
+      detail: 'The 17 inch pan is $1720. The steel 14 inch can wait if you already bought it.',
+      beam: 'store',
+    },
+    {
+      when: owned.gear < 3,
+      title: 'Insulated gear',
+      detail: 'The GPS kit is $1750.',
+      beam: 'store',
+    },
+    {
+      when: owned.pick < 3,
+      title: 'A hard-rock kit',
+      detail: 'The last pick is $1750.',
+      beam: 'store',
+    },
+    {
+      when: save.fieldwork.claims.length < 2,
+      title: 'A second claim',
+      detail: 'The county fee on a second stretch is $1650.',
+      beam: 'claim',
+    },
+    {
+      when: save.fieldwork.claims.length < 3,
+      title: 'A third claim',
+      detail: 'The last filing the county allows is $1800.',
+      beam: 'claim',
+    },
+    {
+      when: !save.fieldwork.claims.some((c) => c.kind === 'lode'),
+      title: 'File the lode',
+      detail: 'Pete will record the north mine for $1700 once the pick is yours.',
+      beam: 'pete',
+    },
+    {
+      when: bestCamp(save.fieldwork.claims) < 1,
+      title: 'A lean-to',
+      detail: 'Nails and $1600 put a roof on the claim.',
+      beam: 'store',
+    },
+    {
+      when: bestCamp(save.fieldwork.claims) < 2,
+      title: 'A cabin',
+      detail: 'The cabin is $1750. Nights stop costing you.',
+      beam: 'store',
+    },
     {
       when: !save.fieldwork.claims.some((c) => c.improvements.cache),
       title: 'A cache',
@@ -555,30 +701,37 @@ export function journalLines(save: SaveV1): string[] {
   const arc = save.fieldwork.campaign;
   const lode = save.fieldwork.lode;
   if (arc) {
-    const ending = arc.boughtOut ? 'The lease is yours.' : arc.savedTown ? 'The town held.' : `Act ${arc.act}.`;
+    const ending = arc.boughtOut
+      ? 'The lease is yours.'
+      : arc.savedTown
+        ? 'The town held.'
+        : `Act ${arc.act}.`;
     lines.push(ending);
   }
   if (lode && (lode.ore > 0 || lode.milled > 0)) {
-    lines.push(`Ore in the cart ${lode.ore.toFixed(1)}. Milled ${lode.milled.toFixed(0)}. Timber sets ${lode.timber}.`);
+    lines.push(
+      `Ore in the cart ${lode.ore.toFixed(1)}. Milled ${lode.milled.toFixed(0)}. Timber sets ${lode.timber}.`,
+    );
   }
   const eventId = save.world.event?.id;
   if (eventId && eventId !== 'calm') lines.push(`The country is in a ${eventId}.`);
   lines.push(`Working with a ${methodLabel(save.fieldwork.method).toLowerCase()}.`);
-  if (save.fieldwork.hands > 0) lines.push(`Crew: ${save.fieldwork.hands} hand${save.fieldwork.hands === 1 ? '' : 's'}.`);
+  if (save.fieldwork.hands > 0)
+    lines.push(`Crew: ${save.fieldwork.hands} hand${save.fieldwork.hands === 1 ? '' : 's'}.`);
   if (save.fieldwork.claims.length === 0) {
     lines.push('No claim filed.');
   } else {
     for (const claim of save.fieldwork.claims) {
       const watch = claim.jumperSince !== null ? ' — jumpers on it' : '';
-      lines.push(
-        `${claim.name} (${claim.kind}, pay ${Math.round(claim.pay * 100)}%)${watch}`,
-      );
+      lines.push(`${claim.name} (${claim.kind}, pay ${Math.round(claim.pay * 100)}%)${watch}`);
     }
   }
   if (save.fieldwork.samples.length > 0) {
     lines.push('Color counts:');
     for (const sample of save.fieldwork.samples.slice(-6)) {
-      lines.push(`${sample.colors} colors · ${sample.habitat.replace('_', ' ')} · ${sample.streamId ?? 'dry'}`);
+      lines.push(
+        `${sample.colors} colors · ${sample.habitat.replace('_', ' ')} · ${sample.streamId ?? 'dry'}`,
+      );
     }
   }
   const quests = Object.keys(save.quests.active);

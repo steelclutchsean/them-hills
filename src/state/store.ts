@@ -79,10 +79,7 @@ export interface GameStateStore {
   /** Merge a partial slice into save.settings[key]. Easier than
    *  rebuilding the whole audio block to change one slider.
    *  Scalar settings (text size, subtitles) go through setSettings. */
-  updateSettingsSlice<K extends SettingsObjectKey>(
-    key: K,
-    patch: Partial<SettingsState[K]>,
-  ): void;
+  updateSettingsSlice<K extends SettingsObjectKey>(key: K, patch: Partial<SettingsState[K]>): void;
 
   /** Increment the lifetime pan counter; returns the new value (used as RNG component). */
   incrementPanCount(): number;
@@ -697,7 +694,8 @@ export const gameStore = createStore<GameStateStore>((set, get) => ({
     }
     if (save.fieldwork.claims.length >= 3) return { ok: false, reason: 'The county book is full.' };
     const cost = LODE_FEE;
-    if (save.wallet.balance < cost) return { ok: false, reason: `Filing a lode costs $${LODE_FEE}.` };
+    if (save.wallet.balance < cost)
+      return { ok: false, reason: `Filing a lode costs $${LODE_FEE}.` };
     const id = `lode_${mineId}`;
     const claim: ClaimRecord = {
       id,
@@ -724,7 +722,8 @@ export const gameStore = createStore<GameStateStore>((set, get) => ({
             mineId === 'north'
               ? {
                   ...state.save.fieldwork.campaign,
-                  act: state.save.fieldwork.campaign.act < 2 ? 2 : state.save.fieldwork.campaign.act,
+                  act:
+                    state.save.fieldwork.campaign.act < 2 ? 2 : state.save.fieldwork.campaign.act,
                   heard: state.save.fieldwork.campaign.heard.includes('lode-open')
                     ? state.save.fieldwork.campaign.heard
                     : [...state.save.fieldwork.campaign.heard, 'lode-open'],
@@ -732,7 +731,10 @@ export const gameStore = createStore<GameStateStore>((set, get) => ({
               : state.save.fieldwork.campaign,
           lode:
             mineId === 'north'
-              ? { ...state.save.fieldwork.lode, charges: Math.max(2, state.save.fieldwork.lode.charges) }
+              ? {
+                  ...state.save.fieldwork.lode,
+                  charges: Math.max(2, state.save.fieldwork.lode.charges),
+                }
               : state.save.fieldwork.lode,
           journal: remember(state.save.fieldwork.journal, {
             id: `lode-${mineId}`,
@@ -976,7 +978,10 @@ export const gameStore = createStore<GameStateStore>((set, get) => ({
 
   noteMachineRun(kind, gameTime) {
     set((state) => {
-      const runs = { ...state.save.fieldwork.machineRuns, [kind]: state.save.fieldwork.machineRuns[kind] + 1 };
+      const runs = {
+        ...state.save.fieldwork.machineRuns,
+        [kind]: state.save.fieldwork.machineRuns[kind] + 1,
+      };
       const names = {
         rocker: 'Rocker run',
         sluice: 'Sluice run',
@@ -1015,15 +1020,21 @@ export const gameStore = createStore<GameStateStore>((set, get) => ({
     if (!claim || (claim.jumperSince === null && how !== 'caught' && how !== 'escaped')) {
       return { ok: false, reason: 'Nobody is on that claim.' };
     }
-    if (how === 'pay' && save.wallet.balance < 40) return { ok: false, reason: 'Paying them off costs $40.' };
+    if (how === 'pay' && save.wallet.balance < 40)
+      return { ok: false, reason: 'Paying them off costs $40.' };
     set((state) => {
       const claims = state.save.fieldwork.claims.map((c) => {
         if (c.id !== claimId) return c;
         const pay =
-          how === 'escaped' ? c.pay * 0.88 : how === 'scare' || how === 'caught' ? Math.min(1, c.pay + 0.06) : c.pay;
+          how === 'escaped'
+            ? c.pay * 0.88
+            : how === 'scare' || how === 'caught'
+              ? Math.min(1, c.pay + 0.06)
+              : c.pay;
         return { ...c, pay, jumperSince: null };
       });
-      const wallet = how === 'pay' ? spend(state.save.wallet, 40, gameTime, 'jumper payoff') : state.save.wallet;
+      const wallet =
+        how === 'pay' ? spend(state.save.wallet, 40, gameTime, 'jumper payoff') : state.save.wallet;
       const body =
         how === 'pay'
           ? 'Forty dollars and they walked. The claim is quiet.'
@@ -1134,7 +1145,10 @@ export const gameStore = createStore<GameStateStore>((set, get) => ({
   onNewDay(gameTime) {
     set((state) => {
       const field = state.save.fieldwork;
-      const townBias = Math.max(0.84, Math.min(1.16, field.townBias + (Math.random() - 0.5) * 0.08));
+      const townBias = Math.max(
+        0.84,
+        Math.min(1.16, field.townBias + (Math.random() - 0.5) * 0.08),
+      );
       const claims = field.claims.map((c) => ({
         ...c,
         pay: Math.min(1, c.pay + (field.hands > 0 ? 0.04 * field.hands : 0)),
@@ -1163,7 +1177,7 @@ export const gameStore = createStore<GameStateStore>((set, get) => ({
     set((state) => {
       const field = state.save.fieldwork;
       if (field.claims.length === 0) return state;
-      let claims = field.claims.map((c) => ({ ...c }));
+      const claims = field.claims.map((c) => ({ ...c }));
       let lastJumperRoll = field.lastJumperRoll;
       let journal = field.journal;
       for (const claim of claims) {
@@ -1182,7 +1196,9 @@ export const gameStore = createStore<GameStateStore>((set, get) => ({
       }
       if (field.hands < 1 && gameTime - lastJumperRoll > 200) {
         lastJumperRoll = gameTime;
-        const open = claims.find((c) => c.kind === 'placer' && c.pay > 0.25 && c.jumperSince === null);
+        const open = claims.find(
+          (c) => c.kind === 'placer' && c.pay > 0.25 && c.jumperSince === null,
+        );
         if (open && Math.random() < 0.34) {
           open.jumperSince = gameTime;
           const detail = `Someone is working ${open.name} without you.`;
@@ -1276,7 +1292,12 @@ function methodAfterPurchase(current: WorkMethod, category: string, tier: number
   return current;
 }
 
-function tx(gameTime: number, type: Transaction['type'], amount: number, item: string): Transaction {
+function tx(
+  gameTime: number,
+  type: Transaction['type'],
+  amount: number,
+  item: string,
+): Transaction {
   return {
     id: `tx_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
     timestamp: gameTime,
@@ -1293,7 +1314,10 @@ function spend(wallet: WalletState, cost: number, gameTime: number, item: string
     ...wallet,
     balance: wallet.balance - cost,
     lifetimeSpending: wallet.lifetimeSpending + cost,
-    recentTransactions: [...wallet.recentTransactions.slice(-49), tx(gameTime, 'purchase', -cost, item)],
+    recentTransactions: [
+      ...wallet.recentTransactions.slice(-49),
+      tx(gameTime, 'purchase', -cost, item),
+    ],
   };
 }
 

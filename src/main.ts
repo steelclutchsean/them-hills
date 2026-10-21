@@ -1471,7 +1471,8 @@ async function bootstrap(): Promise<void> {
           .map((flake) => ({ x: flake.x, y: flake.y })),
       };
     }
-    if (v.kind === 'extract' || v.kind === 'muck') return { ...base, progress: 'progress' in v ? v.progress : v.rock };
+    if (v.kind === 'extract' || v.kind === 'muck')
+      return { ...base, progress: 'progress' in v ? v.progress : v.rock };
     if (v.kind === 'blast') return { ...base, phase: v.phase, fuse: v.fuse, placed: v.placed };
     if (v.kind === 'rocker') return { ...base, rock: v.rock };
     return base;

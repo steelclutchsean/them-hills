@@ -816,11 +816,19 @@ export function mountHud(root: HTMLElement, hooks: HudHooks = {}): MountedHud {
   toolbar.className = 'hud-toolbar';
   toolbar.setAttribute('role', 'toolbar');
   toolbar.setAttribute('aria-label', 'Kit');
-  const toolIcons: { id: 'inventory' | 'map' | 'journal' | 'pause' | 'settings'; label: string; path: string }[] = [
+  const toolIcons: {
+    id: 'inventory' | 'map' | 'journal' | 'pause' | 'settings';
+    label: string;
+    path: string;
+  }[] = [
     { id: 'inventory', label: 'Pack', path: 'M4 8h16v12H4z M8 8V6a4 4 0 0 1 8 0v2' },
     { id: 'map', label: 'Map', path: 'M4 6l6-2 4 2 6-2v14l-6 2-4-2-6 2z' },
     { id: 'journal', label: 'Journal', path: 'M6 4h10a2 2 0 0 1 2 2v14H8a2 2 0 0 0-2 2z M6 4v16' },
-    { id: 'settings', label: 'Settings', path: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z M12 2v3 M12 19v3 M2 12h3 M19 12h3 M5 5l2 2 M17 17l2 2 M19 5l-2 2 M7 17l-2 2' },
+    {
+      id: 'settings',
+      label: 'Settings',
+      path: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z M12 2v3 M12 19v3 M2 12h3 M19 12h3 M5 5l2 2 M17 17l2 2 M19 5l-2 2 M7 17l-2 2',
+    },
     { id: 'pause', label: 'Pause', path: 'M7 5h3v14H7z M14 5h3v14h-3z' },
   ];
   for (const icon of toolIcons) {
@@ -1078,7 +1086,13 @@ export function mountHud(root: HTMLElement, hooks: HudHooks = {}): MountedHud {
       seenCarry = totalG;
       seenWallet = s.walletBalance;
       const capture = document.body.dataset.capture === '1';
-      lookResume.hidden = capture || s.lookLocked || s.prospect !== null || s.store !== null || s.vendor !== null || s.dialogue !== null;
+      lookResume.hidden =
+        capture ||
+        s.lookLocked ||
+        s.prospect !== null ||
+        s.store !== null ||
+        s.vendor !== null ||
+        s.dialogue !== null;
 
       // Live spot price + source indicator (live = filled circle, cached =
       // half, baseline = empty). Updated by the spot-price service every 15 min.
@@ -1242,7 +1256,10 @@ export function mountHud(root: HTMLElement, hooks: HudHooks = {}): MountedHud {
         body.className = 'dlg-body';
         body.textContent = s.dialogue.body;
         copy.appendChild(body);
-        layout.append(s.dialogue.cinematic ? copy : portrait, ...(s.dialogue.cinematic ? [] : [copy]));
+        layout.append(
+          s.dialogue.cinematic ? copy : portrait,
+          ...(s.dialogue.cinematic ? [] : [copy]),
+        );
         dialogue.appendChild(layout);
 
         s.dialogue.options.forEach((opt, idx) => {
@@ -1379,7 +1396,10 @@ function setMeter(m: { fill: HTMLElement; pct: HTMLElement }, value: number, suf
   const color = clamped < 0.25 ? '#d65454' : clamped < 0.55 ? '#e0a542' : '#7cbf6c';
   m.fill.style.background = color;
   m.pct.textContent = `${(clamped * 100).toFixed(0)}%${suffix}`;
-  m.fill.parentElement?.parentElement?.classList.toggle('is-full', clamped >= 0.97 && suffix.length === 0);
+  m.fill.parentElement?.parentElement?.classList.toggle(
+    'is-full',
+    clamped >= 0.97 && suffix.length === 0,
+  );
 }
 
 // stepNumber() is no longer needed — the snapshot carries stepIndex /

@@ -25,9 +25,33 @@ interface WashProfile {
 }
 
 const PAN_PROFILES: Record<1 | 2 | 3, WashProfile> = {
-  1: { duration: 8, bandLo: 0.46, bandHi: 0.7, spillAt: 0.84, rate: 0.16, rhythmRate: 0.28, layers: 4 },
-  2: { duration: 8, bandLo: 0.4, bandHi: 0.76, spillAt: 0.86, rate: 0.18, rhythmRate: 0.3, layers: 4 },
-  3: { duration: 8, bandLo: 0.36, bandHi: 0.8, spillAt: 0.92, rate: 0.2, rhythmRate: 0.32, layers: 4 },
+  1: {
+    duration: 8,
+    bandLo: 0.46,
+    bandHi: 0.7,
+    spillAt: 0.84,
+    rate: 0.16,
+    rhythmRate: 0.28,
+    layers: 4,
+  },
+  2: {
+    duration: 8,
+    bandLo: 0.4,
+    bandHi: 0.76,
+    spillAt: 0.86,
+    rate: 0.18,
+    rhythmRate: 0.3,
+    layers: 4,
+  },
+  3: {
+    duration: 8,
+    bandLo: 0.36,
+    bandHi: 0.8,
+    spillAt: 0.92,
+    rate: 0.2,
+    rhythmRate: 0.32,
+    layers: 4,
+  },
 };
 
 const TUTORIAL: WashProfile = {
@@ -87,7 +111,13 @@ export function createPanMinigame(): Minigame {
       tier = t;
       wash = options?.wash ?? 'pan';
       const tutorial = options?.tutorial === true && wash === 'pan';
-      profile = tutorial ? TUTORIAL : wash === 'sluice' ? SLUICE : wash === 'long_tom' ? LONG_TOM : PAN_PROFILES[t];
+      profile = tutorial
+        ? TUTORIAL
+        : wash === 'sluice'
+          ? SLUICE
+          : wash === 'long_tom'
+            ? LONG_TOM
+            : PAN_PROFILES[t];
       cx = 0.55;
       cy = 0;
       lastAngle = 0;
@@ -137,7 +167,8 @@ export function createPanMinigame(): Minigame {
       if (moving) {
         moveTime += dt;
         if (rhythmic || wash === 'sluice') rhythmTime += dt;
-        const rate = wash === 'sluice' ? profile.rate : rhythmic ? profile.rhythmRate : profile.rate;
+        const rate =
+          wash === 'sluice' ? profile.rate : rhythmic ? profile.rhythmRate : profile.rate;
         sand = Math.max(0, sand - rate * dt);
       }
       if (radius > profile.spillAt && wash !== 'sluice') {

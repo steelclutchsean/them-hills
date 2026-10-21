@@ -205,11 +205,13 @@ export function createEffectSystem(): EffectSystem {
     if (!pads) return;
     for (const pad of pads) {
       if (!pad) continue;
-      const actuator = (pad as Gamepad & {
-        vibrationActuator?: {
-          playEffect: (type: string, params: Record<string, number>) => Promise<unknown>;
-        };
-      }).vibrationActuator;
+      const actuator = (
+        pad as Gamepad & {
+          vibrationActuator?: {
+            playEffect: (type: string, params: Record<string, number>) => Promise<unknown>;
+          };
+        }
+      ).vibrationActuator;
       if (actuator && typeof actuator.playEffect === 'function') {
         void actuator
           .playEffect('dual-rumble', {
@@ -219,9 +221,13 @@ export function createEffectSystem(): EffectSystem {
           })
           .catch(() => undefined);
       }
-      const haptic = (pad as Gamepad & { hapticActuators?: { pulse?: (v: number, ms: number) => Promise<unknown> }[] })
-        .hapticActuators?.[0];
-      if (haptic?.pulse) void haptic.pulse(Math.max(strong, weak), durationMs).catch(() => undefined);
+      const haptic = (
+        pad as Gamepad & {
+          hapticActuators?: { pulse?: (v: number, ms: number) => Promise<unknown> }[];
+        }
+      ).hapticActuators?.[0];
+      if (haptic?.pulse)
+        void haptic.pulse(Math.max(strong, weak), durationMs).catch(() => undefined);
     }
   }
 
