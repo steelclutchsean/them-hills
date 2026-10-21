@@ -38,6 +38,40 @@ export interface WaterReflection {
   ): void;
 }
 
+/**
+ * The beauty pass hides trees that sit in a scene camera. The mirror still
+ * needs those trunks. Only the fade clones are touched, so LOD impostors
+ * stay hidden, and opacity is restored before the beauty draw.
+ */
+function revealFadedMirrorTrees(scene: THREE.Scene): () => void {
+  const mask = new THREE.Layers();
+  mask.set(TREE_MIRROR_LAYER);
+  const touched: { mesh: THREE.Mesh; visible: boolean; opacity: number }[] = [];
+  scene.traverse((obj) => {
+    const mesh = obj as THREE.Mesh;
+    if (!mesh.isMesh || !mesh.layers.test(mask)) return;
+    if (mesh.userData.baseMat === undefined) return;
+    const mat = mesh.material as THREE.Material & { opacity?: number };
+    if (Array.isArray(mesh.material)) return;
+    touched.push({
+      mesh,
+      visible: mesh.visible,
+      opacity: typeof mat.opacity === 'number' ? mat.opacity : 1,
+    });
+    mesh.visible = true;
+    if (typeof mat.opacity === 'number') mat.opacity = 1;
+  });
+  return () => {
+    for (const item of touched) {
+      item.mesh.visible = item.visible;
+      const mat = item.mesh.material as THREE.Material & { opacity?: number };
+      if (!Array.isArray(item.mesh.material) && typeof mat.opacity === 'number') {
+        mat.opacity = item.opacity;
+      }
+    }
+  };
+}
+
 /** Anything under a skipped root is left out of the mirror. */
 export function skipReflection(root: THREE.Object3D): void {
   root.userData.skipReflection = true;
@@ -131,47 +165,51 @@ export function createWaterReflection(): WaterReflection {
         return;
       }
       tick += 1;
+      // Screen-space on the software path: draw the banks from this camera,
+      // and let the water shader flip that picture across the horizon.
+      // The reflected camera sat under the plane and the water never sampled
+      // the trunks. Real GPUs keep the projective mirror.
+      reflectionUniforms.uMirrorMode.value = treesOnly ? 1 : 0;
       if (tick % stride !== 0) return;
 
-      // Reflect the view camera across the creek plane. An above-water
-      // camera photographs the trees; it does not mirror them. The reflected
-      // camera sits under the surface and looks up, and only the tree layer
-      // is drawn, so the hill mesh cannot fill the target.
-      cameraPos.copy(camera.position);
-      reflectorPos.set(cameraPos.x, planeY, cameraPos.z);
-      view.subVectors(reflectorPos, cameraPos);
-      if (view.dot(normal) > 0) return;
-
-      view.reflect(normal).negate();
-      view.add(reflectorPos);
-
-      rotationMatrix.extractRotation(camera.matrixWorld);
-      lookAtPosition.set(0, 0, -1);
-      lookAtPosition.applyMatrix4(rotationMatrix);
-      lookAtPosition.add(cameraPos);
-      targetPos.subVectors(reflectorPos, lookAtPosition);
-      targetPos.reflect(normal).negate();
-      targetPos.add(reflectorPos);
-
       virtual.layers.set(treesOnly ? TREE_MIRROR_LAYER : REFLECTION_LAYER);
-      reflectionUniforms.uMirrorMode.value = 0;
-      virtual.position.copy(view);
-      virtual.up.set(0, 1, 0).applyMatrix4(rotationMatrix);
-      virtual.up.reflect(normal);
-      virtual.lookAt(targetPos);
-      virtual.near = Math.max(0.05, camera.near);
-      virtual.far = 120;
       virtual.fov = camera.fov;
       virtual.aspect = camera.aspect;
+      virtual.near = Math.max(0.05, camera.near);
+      virtual.far = treesOnly ? Math.min(camera.far, 160) : 120;
+
+      if (treesOnly) {
+        virtual.position.copy(camera.position);
+        virtual.quaternion.copy(camera.quaternion);
+        virtual.up.copy(camera.up);
+        const mirrorW = Math.min(512, Math.max(400, size));
+        const mirrorH = Math.max(120, Math.round(mirrorW / Math.max(camera.aspect, 0.5)));
+        if (target.width !== mirrorW || target.height !== mirrorH) target.setSize(mirrorW, mirrorH);
+      } else {
+        // Reflect the view camera across the creek plane.
+        cameraPos.copy(camera.position);
+        reflectorPos.set(cameraPos.x, planeY, cameraPos.z);
+        view.subVectors(reflectorPos, cameraPos);
+        if (view.dot(normal) > 0) return;
+
+        view.reflect(normal).negate();
+        view.add(reflectorPos);
+
+        rotationMatrix.extractRotation(camera.matrixWorld);
+        lookAtPosition.set(0, 0, -1);
+        lookAtPosition.applyMatrix4(rotationMatrix);
+        lookAtPosition.add(cameraPos);
+        targetPos.subVectors(reflectorPos, lookAtPosition);
+        targetPos.reflect(normal).negate();
+        targetPos.add(reflectorPos);
+
+        virtual.position.copy(view);
+        virtual.up.set(0, 1, 0).applyMatrix4(rotationMatrix);
+        virtual.up.reflect(normal);
+        virtual.lookAt(targetPos);
+      }
       virtual.updateProjectionMatrix();
       virtual.updateMatrixWorld();
-      // No oblique clip. It discarded the bank on this GPU. The tree layer
-      // has nothing under the plane to hide the trunks.
-      if (treesOnly) {
-        const mirrorW = Math.min(512, Math.max(320, size));
-        const mirrorH = Math.max(90, Math.round(mirrorW / Math.max(camera.aspect, 0.5)));
-        if (target.width !== mirrorW || target.height !== mirrorH) target.setSize(mirrorW, mirrorH);
-      }
 
       // Clip space, not the 0.5-biased texture matrix. The water shader applies
       // that bias once. Applying it here as well pinned every sample on the
@@ -198,7 +236,9 @@ export function createWaterReflection(): WaterReflection {
       const expFog = scene.fog instanceof THREE.FogExp2 ? scene.fog : null;
       const prevDensity = expFog?.density ?? 0;
       if (expFog) expFog.density = prevDensity * 0.08;
+      const restoreTrees = treesOnly ? revealFadedMirrorTrees(scene) : null;
       renderer.render(scene, virtual);
+      restoreTrees?.();
       if (expFog) expFog.density = prevDensity;
 
       renderer.shadowMap.autoUpdate = prevShadowAuto;

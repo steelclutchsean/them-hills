@@ -87,9 +87,9 @@ const FRAG = /* glsl */ `
 
     // Low haze tight to the sun, so the shafts have a volume to light
     // and the cool corner keeps the blue multiply above.
-    float fogH = exp(-max(h, 0.0) * 5.5);
-    float fogAmt = fogH * lowSun * smoothstep(0.48, 0.82, sunDot);
-    sky += vec3(1.05, 0.72, 0.42) * fogAmt * 0.7;
+    float fogH = exp(-max(h, 0.0) * 3.2);
+    float fogAmt = fogH * lowSun * smoothstep(0.52, 0.88, sunDot);
+    sky += vec3(1.05, 0.72, 0.42) * fogAmt * 0.95;
 
     // Projected cloud plane. Coverage comes from the weather grade.
     vec2 plane = dir.xz / max(h, 0.12);

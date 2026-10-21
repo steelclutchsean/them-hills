@@ -96,44 +96,44 @@ const GodrayShader = {
       vec3 col = texture2D(tDiffuse, vUv).rgb;
       vec2 toSun = uSun - vUv;
       float span = length(toSun);
-      // Far from the sun the cool corner stays the grade it already has.
-      float sunSide = 1.0 - smoothstep(0.12, 0.36, span);
+      // Cone under the sun only. The cool corner is beside the sun, not
+      // under it, so a distance falloff is not what keeps it blue.
+      float below = smoothstep(0.0, 0.05, uSun.y - vUv.y);
+      float lateral = abs(vUv.x - uSun.x);
+      float cone = below * (1.0 - smoothstep(0.02, 0.26, lateral));
+      float reach = 1.0 - smoothstep(0.05, 0.72, span);
+      float sunSide = cone * reach;
       float onScreen = smoothstep(-0.2, 0.02, uSun.x) * smoothstep(1.2, 0.98, uSun.x)
                      * smoothstep(-0.25, 0.0, uSun.y) * smoothstep(1.2, 0.98, uSun.y);
       if (sunSide < 0.001 || onScreen < 0.001 || uIntensity < 0.001) {
         gl_FragColor = vec4(col, 1.0);
         return;
       }
-      // Walk from the sun until a trunk or the ridge blocks the ray.
-      // A gap is a ray that stays clear longer, so the open sky on that
-      // angle stays bright and the angle that hits a crown goes dark.
+      // Radial blur toward the sun. A trunk on the ray drops the sum.
+      // A gap that stays bright the whole way leaves a shaft in the haze.
       vec2 sunUv = clamp(uSun, vec2(0.02), vec2(0.98));
-      vec2 dir = vUv - sunUv;
-      float dist = length(dir);
-      vec2 nrm = dir / max(dist, 0.0001);
-      float sunLum = dot(texture2D(tDiffuse, sunUv).rgb, vec3(0.2126, 0.7152, 0.0722));
-      float hit = 0.78;
-      for (int i = 0; i < 18; i++) {
-        float rayDist = 0.05 + float(i) * 0.028;
-        vec2 p = sunUv + nrm * rayDist;
-        if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0) break;
+      float clear = 0.0;
+      float weight = 0.0;
+      for (int i = 0; i < 24; i++) {
+        float rayT = (float(i) + 0.5) / 24.0;
+        vec2 p = mix(vUv, sunUv, rayT);
         float dep = texture2D(tDepth, p).r;
         float lum = dot(texture2D(tDiffuse, p).rgb, vec3(0.2126, 0.7152, 0.0722));
-        float rel = lum / max(sunLum, 0.2);
-        float sky = smoothstep(0.08, 0.28, rel);
-        if (dep > 0.02 && dep < 0.992) sky = min(sky, smoothstep(0.97, 0.998, dep));
-        if (sky < 0.35) {
-          hit = rayDist;
-          break;
-        }
+        float sky = smoothstep(0.16, 0.62, lum);
+        if (dep > 0.02 && dep < 0.992) sky = min(sky, smoothstep(0.94, 0.995, dep));
+        float w = 1.0 - rayT * 0.35;
+        clear += sky * w;
+        weight += w;
       }
-      // A crown close to the sun darkens that angle. A gap that stays
-      // clear past the ridge leaves a bright shaft.
-      float shafts = smoothstep(0.12, 0.36, hit);
+      float pass = clear / max(weight, 0.001);
+      float shafts = smoothstep(0.28, 0.72, pass);
       float lumHere = dot(col, vec3(0.2126, 0.7152, 0.0722));
-      float inSky = smoothstep(0.45, 1.5, lumHere);
+      float room = 1.0 - smoothstep(1.15, 3.2, lumHere);
+      float body = smoothstep(0.012, 0.1, lumHere);
+      float inSky = smoothstep(0.55, 1.45, lumHere);
       float rayAmt = sunSide * onScreen;
-      col *= mix(1.0, mix(0.2, 1.0, shafts), inSky * rayAmt);
+      col += vec3(1.35, 0.82, 0.4) * shafts * rayAmt * uIntensity * room * body * 0.95;
+      col *= mix(1.0, mix(0.42, 1.0, shafts), inSky * rayAmt);
       gl_FragColor = vec4(col, 1.0);
     }
   `,

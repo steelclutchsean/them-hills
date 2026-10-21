@@ -261,6 +261,8 @@ export function createSkyController(opts: {
     const sy = Math.sin(theta);
     const elev = sy;
     let density = 0.0072 + smooth01(0.4, -0.15, elev) * 0.0045;
+    // Extra haze while the sun is low, so the shafts have air to light.
+    density += smooth01(0.38, 0.02, Math.max(elev, 0.0)) * smooth01(-0.04, 0.08, elev) * 0.005;
     let cloudCover = 0.28;
     if (weather && weather.intensity > 0 && weather.state !== 'clear') {
       const storm = weather.state === 'rain';

@@ -34,7 +34,13 @@ import {
   startDialogue,
   type DialogueSession,
 } from '@/game/dialogue';
-import { applyArcAction, bankOre, placerEventFactor, tickArc, timberInPlace } from '@/game/campaign';
+import {
+  applyArcAction,
+  bankOre,
+  placerEventFactor,
+  tickArc,
+  timberInPlace,
+} from '@/game/campaign';
 import { createTownArc } from '@/game/town-arc';
 import { createWorldDress } from '@/game/world-dress';
 import {
@@ -308,6 +314,7 @@ async function bootstrap(): Promise<void> {
   // ---- Terrain ----
   const terrain = createTerrain(physics.rapier, courses);
   renderer.scene.add(terrain.mesh);
+  markTreeMirror(terrain.mesh);
 
   // ---- Streams + sites ----
   const streamList = STREAM_CONFIGS.map((cfg) =>
@@ -324,7 +331,7 @@ async function bootstrap(): Promise<void> {
   const mirror = mirrorBudget(softwareGl);
   waterReflection.setSize(mirror.size);
   waterReflection.setStride(mirror.stride);
-  waterReflection.setTreesOnly(true);
+  waterReflection.setTreesOnly(softwareGl);
   waterReflection.setEnabled(RENDER_QUALITY.reflections);
   const probe = probeBudget(softwareGl);
   creekProbe.setSize(probe.size);
@@ -835,7 +842,7 @@ async function bootstrap(): Promise<void> {
           const mirrorMenu = mirrorBudget(softwareGl);
           waterReflection.setSize(mirrorMenu.size);
           waterReflection.setStride(mirrorMenu.stride);
-          waterReflection.setTreesOnly(true);
+          waterReflection.setTreesOnly(softwareGl);
           waterReflection.setEnabled(RENDER_QUALITY.reflections);
           const probeMenu = probeBudget(softwareGl);
           creekProbe.setSize(probeMenu.size);
@@ -956,7 +963,8 @@ async function bootstrap(): Promise<void> {
   let interiorShot = params.get('shot') === 'lode';
   let driftLit = false;
   let waterRise = 0;
-  let holdView: { x: number; y: number; z: number; lx: number; ly: number; lz: number } | null = null;
+  let holdView: { x: number; y: number; z: number; lx: number; ly: number; lz: number } | null =
+    null;
   let foliageLook: THREE.Vector3 | null = null;
   let hideViewTrees = false;
   const viewFrustum = new THREE.Frustum();
@@ -978,7 +986,9 @@ async function bootstrap(): Promise<void> {
     const mat = (obj as THREE.Mesh).material;
     if (!mat) return true;
     const list = Array.isArray(mat) ? mat : [mat];
-    return list.some((entry) => entry.visible !== false && !(entry.transparent && entry.opacity <= 0.04));
+    return list.some(
+      (entry) => entry.visible !== false && !(entry.transparent && entry.opacity <= 0.04),
+    );
   }
 
   function expandViewBox(obj: THREE.Object3D, target: THREE.Box3): boolean {
@@ -1027,7 +1037,14 @@ async function bootstrap(): Promise<void> {
     return { present, missing: names.filter((name) => !present.includes(name)) };
   }
 
-  function shedView(distance: number): { x: number; y: number; z: number; lx: number; ly: number; lz: number } {
+  function shedView(distance: number): {
+    x: number;
+    y: number;
+    z: number;
+    lx: number;
+    ly: number;
+    lz: number;
+  } {
     const p = townArc.firePos;
     // East of the shed. The red crown that fills a south camera sits on the west side.
     return {
@@ -1078,7 +1095,8 @@ async function bootstrap(): Promise<void> {
   const fanRight = new THREE.Vector3();
   const fanUp = new THREE.Vector3();
   const fanDir = new THREE.Vector3();
-  const occluderSkip = /atmosphere|water_|terrain|grass|drift-|shaft-|guide-|fire-smoke|fire-ember|fire-flame|gravel|sky|rush-tent|stamp-mill|fire-shed|company-wagon/i;
+  const occluderSkip =
+    /atmosphere|water_|terrain|grass|drift-|shaft-|guide-|fire-smoke|fire-ember|fire-flame|gravel|sky|rush-tent|stamp-mill|fire-shed|company-wagon/i;
   let occluderRoots: THREE.Object3D[] | null = null;
 
   function solidOccluder(obj: THREE.Object3D): boolean {
@@ -1098,7 +1116,8 @@ async function bootstrap(): Promise<void> {
     if (occluderRoots && occluderRoots.length > 0) return occluderRoots;
     const found: THREE.Object3D[] = [];
     renderer.scene.traverse((obj) => {
-      if (obj.name.startsWith('scatter:') || obj.name === 'scatter-logs' || obj.name === 'boulders') found.push(obj);
+      if (obj.name.startsWith('scatter:') || obj.name === 'scatter-logs' || obj.name === 'boulders')
+        found.push(obj);
     });
     occluderRoots = found;
     return found;
@@ -1146,7 +1165,9 @@ async function bootstrap(): Promise<void> {
       sceneRay.set(cam, fanDir);
       sceneRay.near = 0.15;
       sceneRay.far = 12;
-      const hit = sceneRay.intersectObjects(roots, true).find((entry) => solidOccluder(entry.object));
+      const hit = sceneRay
+        .intersectObjects(roots, true)
+        .find((entry) => solidOccluder(entry.object));
       if (hit) hits++;
     }
     return hits;
@@ -1508,7 +1529,11 @@ async function bootstrap(): Promise<void> {
           const snap = gameStore.getState().serialize();
           snap.fieldwork = {
             ...snap.fieldwork,
-            campaign: { ...snap.fieldwork.campaign, act: 4, heard: [...snap.fieldwork.campaign.heard, 'ada'] },
+            campaign: {
+              ...snap.fieldwork.campaign,
+              act: 4,
+              heard: [...snap.fieldwork.campaign.heard, 'ada'],
+            },
           };
           gameStore.getState().hydrate(snap);
           townArc.update(worldTime, 4, 4, false, false);
@@ -1636,7 +1661,7 @@ async function bootstrap(): Promise<void> {
         const mirrorNow = mirrorBudget(softwareGl);
         waterReflection.setSize(mirrorNow.size);
         waterReflection.setStride(mirrorNow.stride);
-        waterReflection.setTreesOnly(true);
+        waterReflection.setTreesOnly(softwareGl);
         waterReflection.setEnabled(RENDER_QUALITY.reflections);
         const probeNow = probeBudget(softwareGl);
         creekProbe.setSize(probeNow.size);
@@ -1814,6 +1839,13 @@ async function bootstrap(): Promise<void> {
         return;
       }
       worldTime += dt;
+      // ?hour= pins the sky. Shot pages otherwise walk out of dawn while
+      // shaders compile, and the sun ends up in empty sky.
+      const pinHour = params.get('hour');
+      if (pinHour != null && pinHour !== '') {
+        const pinned = Number(pinHour);
+        if (Number.isFinite(pinned)) worldTime = reviewWorldTime(pinned);
+      }
 
       const carried = gameStore.getState().save.inventory.carry.gold;
       const drive = smoke.drive(dt, {
@@ -2117,7 +2149,9 @@ async function bootstrap(): Promise<void> {
             sceneLook.set(holdView.lx, holdView.ly, holdView.lz);
             sceneSubjects.push(sceneLook.clone());
             if (arcBanner === 'fire') {
-              sceneSubjects.push(new THREE.Vector3(townArc.firePos.x, townArc.firePos.y + 3.4, townArc.firePos.z));
+              sceneSubjects.push(
+                new THREE.Vector3(townArc.firePos.x, townArc.firePos.y + 3.4, townArc.firePos.z),
+              );
             }
           } else if (dialogue) {
             const who =
@@ -2133,7 +2167,10 @@ async function bootstrap(): Promise<void> {
             const npc = who ? townArc.actor(who) : null;
             if (npc) {
               const player = character.getPosition();
-              sceneSubjects.push(player.clone().setY(player.y + 1.3), npc.clone().setY(npc.y + 1.4));
+              sceneSubjects.push(
+                player.clone().setY(player.y + 1.3),
+                npc.clone().setY(npc.y + 1.4),
+              );
               if (who === 'silas') {
                 const mill = townArc.millPos;
                 sceneSubjects.push(new THREE.Vector3(mill.x - 4.4, mill.y + 2.8, mill.z + 0.2));
@@ -2833,8 +2870,13 @@ async function bootstrap(): Promise<void> {
               nuggetGrams: result.reward.nugget_g,
             });
             gameStore.getState().markTutorialComplete();
-            if (result.siteId === 'mine_north_cave' && gameStore.getState().save.fieldwork.campaign.act >= 2) {
-              gameStore.getState().hydrate(bankOre(gameStore.getState().save, result.skillBonus, worldTime));
+            if (
+              result.siteId === 'mine_north_cave' &&
+              gameStore.getState().save.fieldwork.campaign.act >= 2
+            ) {
+              gameStore
+                .getState()
+                .hydrate(bankOre(gameStore.getState().save, result.skillBonus, worldTime));
             }
             if (
               result.method === 'rocker' ||
@@ -2930,7 +2972,10 @@ async function bootstrap(): Promise<void> {
       } else if (
         interactJustPressed &&
         mines.some((m) => m.id === 'mine_north' && m.isPlayerInside(charPos)) &&
-        mines.some((m) => m.id === 'mine_north' && driftBuried(m.group) && driftNearFall(m.position.z, charPos.z))
+        mines.some(
+          (m) =>
+            m.id === 'mine_north' && driftBuried(m.group) && driftNearFall(m.position.z, charPos.z),
+        )
       ) {
         const north = mines.find((m) => m.id === 'mine_north');
         const dug = north ? digDrift(north.group) : 1;
@@ -3026,7 +3071,9 @@ async function bootstrap(): Promise<void> {
       // 11. HUD
       const arc = tickArc(gameStore.getState().save, dt, {
         allowEvents: simRunning && !playtestLock && !document.hidden,
-        inNorth: mines.some((m) => m.id === 'mine_north' && m.isPlayerInside(character.getPosition())),
+        inNorth: mines.some(
+          (m) => m.id === 'mine_north' && m.isPlayerInside(character.getPosition()),
+        ),
         gameTime: worldTime,
       });
       if (arc.changed) gameStore.getState().hydrate(arc.save);
@@ -3096,65 +3143,66 @@ async function bootstrap(): Promise<void> {
         }
       }
       const insideNorth = mines.some((m) => m.id === 'mine_north' && m.isPlayerInside(charPos));
-      const promptInfo = inSession || holdView
-        ? null
-        : nearestVendor
-          ? { text: `Sell at ${nearestVendor.vendor.name}`, glyph: interactGlyph }
-          : nearStore
-            ? { text: 'Open General Store', glyph: interactGlyph }
-            : nearInn
-              ? { text: 'Talk to Innkeeper', glyph: interactGlyph }
-              : nearPete
-                ? { text: 'Talk to Old Pete', glyph: interactGlyph }
-                : nearFire
-                  ? { text: 'Join the bucket line', glyph: interactGlyph }
-                  : nearMill
-                    ? { text: 'Talk to Silas Voss', glyph: interactGlyph }
-                    : nearCompany
-                      ? { text: 'Talk to Ada Quinn', glyph: interactGlyph }
-                      : nearMine
-                  ? { text: minePromptText, glyph: interactGlyph }
-                  : nearCamp
-                    ? { text: 'Rest at Camp (4h)', glyph: interactGlyph }
-                    : nearJumper
-                      ? { text: 'He squares up — confront him', glyph: interactGlyph }
-                      : jumperClose
-                        ? { text: 'A jumper is coming off your dirt', glyph: '' }
-                        : nearMachineInfo
-                          ? {
-                              text:
-                                nearMachineInfo.kind === 'rocker'
-                                  ? 'Work the rocker'
-                                  : nearMachineInfo.kind === 'sluice'
-                                    ? 'Feed the sluice'
-                                    : nearMachineInfo.kind === 'longtom'
-                                      ? 'Run the long tom'
-                                      : 'Aim the monitor',
-                              glyph: interactGlyph,
-                            }
-                          : driftLit &&
-                              mines.some(
-                                (m) =>
-                                  m.id === 'mine_north' &&
-                                  driftBuried(m.group) &&
-                                  driftNearFall(m.position.z, charPos.z),
-                              )
-                            ? { text: 'Dig through the fall', glyph: interactGlyph }
-                            : driftLit
-                            ? insideNorth
-                              ? { text: 'Lag a timber set ($40)', glyph: interactGlyph }
-                              : null
-                            : nearestSite
-                            ? {
-                                text: `Prospect the ${groundHere.label}`,
-                                glyph: interactGlyph,
-                              }
-                            : canStake
-                              ? {
-                                  text: `Stake this ${groundHere.label} (${stakeCost === 0 ? 'free' : `$${stakeCost}`})`,
-                                  glyph: interactGlyph,
-                                }
-                              : null;
+      const promptInfo =
+        inSession || holdView
+          ? null
+          : nearestVendor
+            ? { text: `Sell at ${nearestVendor.vendor.name}`, glyph: interactGlyph }
+            : nearStore
+              ? { text: 'Open General Store', glyph: interactGlyph }
+              : nearInn
+                ? { text: 'Talk to Innkeeper', glyph: interactGlyph }
+                : nearPete
+                  ? { text: 'Talk to Old Pete', glyph: interactGlyph }
+                  : nearFire
+                    ? { text: 'Join the bucket line', glyph: interactGlyph }
+                    : nearMill
+                      ? { text: 'Talk to Silas Voss', glyph: interactGlyph }
+                      : nearCompany
+                        ? { text: 'Talk to Ada Quinn', glyph: interactGlyph }
+                        : nearMine
+                          ? { text: minePromptText, glyph: interactGlyph }
+                          : nearCamp
+                            ? { text: 'Rest at Camp (4h)', glyph: interactGlyph }
+                            : nearJumper
+                              ? { text: 'He squares up — confront him', glyph: interactGlyph }
+                              : jumperClose
+                                ? { text: 'A jumper is coming off your dirt', glyph: '' }
+                                : nearMachineInfo
+                                  ? {
+                                      text:
+                                        nearMachineInfo.kind === 'rocker'
+                                          ? 'Work the rocker'
+                                          : nearMachineInfo.kind === 'sluice'
+                                            ? 'Feed the sluice'
+                                            : nearMachineInfo.kind === 'longtom'
+                                              ? 'Run the long tom'
+                                              : 'Aim the monitor',
+                                      glyph: interactGlyph,
+                                    }
+                                  : driftLit &&
+                                      mines.some(
+                                        (m) =>
+                                          m.id === 'mine_north' &&
+                                          driftBuried(m.group) &&
+                                          driftNearFall(m.position.z, charPos.z),
+                                      )
+                                    ? { text: 'Dig through the fall', glyph: interactGlyph }
+                                    : driftLit
+                                      ? insideNorth
+                                        ? { text: 'Lag a timber set ($40)', glyph: interactGlyph }
+                                        : null
+                                      : nearestSite
+                                        ? {
+                                            text: `Prospect the ${groundHere.label}`,
+                                            glyph: interactGlyph,
+                                          }
+                                        : canStake
+                                          ? {
+                                              text: `Stake this ${groundHere.label} (${stakeCost === 0 ? 'free' : `$${stakeCost}`})`,
+                                              glyph: interactGlyph,
+                                            }
+                                          : null;
 
       const digDown = input.isActive('DIG');
       const digJust = digDown && !digWasDown;

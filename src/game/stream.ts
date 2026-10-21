@@ -268,8 +268,21 @@ const FRAG_SHADER = /* glsl */ `
     float fres = pow(1.0 - max(dot(viewDir, surfNormal), 0.0), 2.1);
     vec3 reflected = mix(uHemiSky, uFoam, 0.22);
     float mirrorHit = 0.0;
-    // The tree pass is the mirror: trunks rendered from the reflected camera.
-    if (uHasReflect > 0.5) {
+    // Software path: the mirror target is this camera's banks and trunks.
+    // Flip it across the water's horizon so the far bank stands in the creek.
+    if (uHasReflect > 0.5 && uMirrorMode > 0.5) {
+      vec2 uv = gl_FragCoord.xy / max(uResolution, vec2(1.0));
+      vec2 mir = vec2(uv.x, 2.0 * uHorizon - uv.y);
+      mir += surfNormal.xz * 0.01;
+      if (mir.x > 0.0 && mir.x < 1.0 && mir.y > 0.0 && mir.y < 1.0) {
+        vec4 samp = texture2D(uReflect, mir);
+        float sampLum = dot(samp.rgb, vec3(0.2126, 0.7152, 0.0722));
+        if (samp.a > 0.3 || sampLum > 0.025) {
+          reflected = samp.rgb;
+          mirrorHit = 1.0;
+        }
+      }
+    } else if (uHasReflect > 0.5) {
       vec4 clip = uReflProjView * vec4(vWorld, 1.0);
       if (clip.w > 0.2) {
         vec2 uv = clip.xy / clip.w * 0.5 + 0.5;
@@ -283,7 +296,7 @@ const FRAG_SHADER = /* glsl */ `
         }
       }
     }
-    // Screen flip when the mirror target has no trunk at this point.
+    // Scene-color flip when the mirror target has no trunk at this point.
     if (mirrorHit < 0.5 && uHasScene > 0.5) {
       vec2 uv = gl_FragCoord.xy / max(uResolution, vec2(1.0));
       vec2 mir = vec2(uv.x, 2.0 * uHorizon - uv.y);
@@ -302,8 +315,8 @@ const FRAG_SHADER = /* glsl */ `
     }
     // Looking down the bed stays amber. A grazing view is the mirror, so
     // trunks on the bank read in the water instead of a flat tint.
-    float reflectAmt = mix(0.18, 0.82, smoothstep(0.04, 0.42, fres));
-    if (mirrorHit > 0.5) reflectAmt = max(reflectAmt, 0.72);
+    float reflectAmt = mix(0.16, 0.86, smoothstep(0.04, 0.42, fres));
+    if (mirrorHit > 0.5) reflectAmt = max(reflectAmt, 0.9);
     else reflectAmt *= 0.35;
     base = mix(base, reflected, reflectAmt);
     base = mix(base, foamCol, clamp(max(foamMask, lip), 0.0, 0.88));
