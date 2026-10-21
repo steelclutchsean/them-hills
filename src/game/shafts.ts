@@ -274,28 +274,29 @@ export function createLightShafts(): LightShafts {
         const off =
           (ndcA.x < -1 && ndcB.x < -1) || (ndcA.x > 1 && ndcB.x > 1) || (ndcA.z > 1 && ndcB.z > 1);
         if (sunInFront && off) {
-          // Slide the gap sideways until the streak sits on the sun. The
-          // world quad is what actually draws; an off-screen crown does not.
-          for (let n = 0; n < 6; n++) {
-            const aim = sunX + (i - 2.5) * 0.14;
-            const dx = THREE.MathUtils.clamp(aim - ndcB.x, -1.4, 1.4);
-            if (Math.abs(ndcA.x) < 1.05 && Math.abs(ndcB.x) < 1.05 && Math.abs(dx) < 0.22) break;
-            crown.addScaledVector(camRight, dx * 18);
-            toCam.copy(camera.position).sub(crown);
-            toCam.y = 0;
-            if (toCam.lengthSq() < 1e-4) toCam.set(sideX, 0, sideZ);
-            toCam.normalize();
-            end.copy(crown).addScaledVector(sunDir, 36);
-            start.copy(crown).addScaledVector(sunDir, -9);
-            start.y -= 8;
-            start.addScaledVector(toCam, 4.2);
-            widthDir.copy(end).sub(start);
-            widthDir.cross(toCam);
-            if (widthDir.lengthSq() < 1e-6) widthDir.copy(camRight);
-            widthDir.normalize();
-            ndcA.copy(start).project(camera);
-            ndcB.copy(end).project(camera);
-          }
+          // The gap is outside the frustum, so its projection is garbage.
+          // Stand a fresh streak in front of the camera, fanned off the sun.
+          const lateral = (i - 2.5) * 4.6;
+          const along = 15 + (i % 3) * 5;
+          crown
+            .copy(camera.position)
+            .addScaledVector(sunFlat, along)
+            .addScaledVector(camRight, lateral);
+          crown.y = camera.position.y + 3.6;
+          toCam.copy(camera.position).sub(crown);
+          toCam.y = 0;
+          if (toCam.lengthSq() < 1e-4) toCam.copy(camRight);
+          toCam.normalize();
+          end.copy(crown).addScaledVector(sunDir, 36);
+          start.copy(crown).addScaledVector(sunDir, -9);
+          start.y -= 8;
+          start.addScaledVector(toCam, 4.2);
+          widthDir.copy(end).sub(start);
+          widthDir.cross(toCam);
+          if (widthDir.lengthSq() < 1e-6) widthDir.copy(camRight);
+          widthDir.normalize();
+          ndcA.copy(start).project(camera);
+          ndcB.copy(end).project(camera);
         }
         const midX = (ndcA.x + ndcB.x) * 0.5;
         const farFromSun = Math.abs(midX - sunX) > 0.95 && Math.abs(ndcB.x - sunX) > 0.85;
