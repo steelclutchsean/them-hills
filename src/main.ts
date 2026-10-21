@@ -97,6 +97,7 @@ import { mountHud, type HudUpdate } from '@/ui/hud';
 import { mountMinimap, type MinimapLandmark, type MinimapStream } from '@/ui/minimap';
 import { createSettingsPanel } from '@/ui/settings';
 import { defaultSettings } from '@/save/schema';
+import { attachGameplayCues } from '@/audio/cues';
 import { createAudioSystem } from '@/audio/system';
 import {
   glRendererString,
@@ -605,6 +606,7 @@ async function bootstrap(): Promise<void> {
   // handler (and the first keydown) — first interaction unlocks audio
   // for the rest of the session.
   const audio = bindGameplayAudio(createAudioSystem());
+  attachGameplayCues(audio);
   let audioEnabledOnce = false;
   function nudgeAudioEnabled(): void {
     audio.tryEnable();
@@ -667,6 +669,7 @@ async function bootstrap(): Promise<void> {
   // doesn't have to open + tweak the panel on every load.
   const initialSettings = gameStore.getState().save.settings ?? defaultSettings();
   audio.setMasterVolume(initialSettings.audio.master);
+  audio.setMusicVolume(initialSettings.audio.music ?? 0.85);
   audio.setAmbientVolume(initialSettings.audio.ambient);
   audio.setSfxVolume(initialSettings.audio.sfx);
   input.setMouseSensitivityMultiplier(initialSettings.look.mouseSensitivity);
@@ -680,6 +683,7 @@ async function bootstrap(): Promise<void> {
     updateSetting: (key, patch) => gameStore.getState().updateSettingsSlice(key, patch),
     apply: {
       masterVolume: (v) => audio.setMasterVolume(v),
+      musicVolume: (v) => audio.setMusicVolume(v),
       ambientVolume: (v) => audio.setAmbientVolume(v),
       sfxVolume: (v) => audio.setSfxVolume(v),
       mouseSensitivity: (v) => input.setMouseSensitivityMultiplier(v),
@@ -973,6 +977,7 @@ async function bootstrap(): Promise<void> {
   });
 
   const sunNdc = new THREE.Vector3();
+  const _audioForward = new THREE.Vector3();
   let panMounted: 'camera' | 'world' = 'camera';
   function mountPan(mode: 'camera' | 'world'): void {
     if (panMounted === mode) return;
@@ -1437,9 +1442,53 @@ async function bootstrap(): Promise<void> {
         const d = Math.hypot(dx, dz);
         if (d < nearestStreamDist) nearestStreamDist = d;
       }
+      let streamPoint = { x: charPos.x, y: charPos.y, z: charPos.z };
+      let courseDist = Infinity;
+      for (const course of courses) {
+        const q = course.nearest(charPos.x, charPos.z);
+        if (q.dist < courseDist) {
+          courseDist = q.dist;
+          streamPoint = { x: q.sample.x, y: q.sample.waterY || charPos.y, z: q.sample.z };
+        }
+      }
+      if (courseDist < nearestStreamDist) nearestStreamDist = courseDist;
+      let inCaveAudio = false;
+      for (const m of mines) {
+        if (m.isPlayerInside(charPos)) {
+          inCaveAudio = true;
+          break;
+        }
+      }
+      const cam = renderer.camera;
+      const ear = cam.getWorldDirection(_audioForward);
+      const uiOpen =
+        inDialogueSession ||
+        inVendorSession ||
+        inStoreSession ||
+        settings.isOpen() ||
+        overlays.current() !== 'none';
       audio.update({
+        dt,
         distanceToNearestStream: nearestStreamDist,
         weatherIntensity: weather.getView().intensity,
+        hour: getSkyHour(worldTime),
+        inWater: inStreamWater,
+        inCave: inCaveAudio,
+        prospecting,
+        player: { x: charPos.x, y: charPos.y, z: charPos.z },
+        stream: streamPoint,
+        listener: {
+          x: cam.position.x,
+          y: cam.position.y,
+          z: cam.position.z,
+          fx: ear.x,
+          fy: ear.y,
+          fz: ear.z,
+          ux: 0,
+          uy: 1,
+          uz: 0,
+        },
+        attention: inDialogueSession ? 'dialogue' : uiOpen ? 'menu' : 'world',
       });
 
       // 8b. Footstep cadence — gated on movement state and surface. Wading
@@ -1451,7 +1500,7 @@ async function bootstrap(): Promise<void> {
       footstepTimer += dt;
       const stepInterval = charState === 'running' ? 0.32 : 0.5;
       if (playerMoving && footstepTimer >= stepInterval) {
-        audio.playFootstep(inStreamWater ? 'water' : 'grass');
+        audio.playFootstep(charState === 'running' ? 'run' : 'walk');
         footstepTimer = 0;
       } else if (!playerMoving) {
         footstepTimer = 0;

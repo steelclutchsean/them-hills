@@ -53,9 +53,15 @@ export interface SettingsState {
   audio: {
     /** 0..1 — top-level volume scaler. */
     master: number;
-    /** 0..1 — pink-noise stream burble. */
+    /**
+     * 0..1 — adaptive score. Saves written before the music bus omit
+     * this; readers treat absence as 0.85. Position, gold, and wallet
+     * are unrelated and stay on the v6 migration.
+     */
+    music?: number;
+    /** 0..1 — creek, wind, weather, town. */
     ambient: number;
-    /** 0..1 — per-event tones (UI taps, swings, splashes, chimes). */
+    /** 0..1 — footsteps, tools, gold, UI. */
     sfx: number;
   };
   look: {
@@ -518,7 +524,7 @@ export function createDefaultSave(): SaveV1 {
 
 export function defaultSettings(): SettingsState {
   return {
-    audio: { master: 1.0, ambient: 1.0, sfx: 1.0 },
+    audio: { master: 1.0, music: 0.85, ambient: 1.0, sfx: 1.0 },
     look: { mouseSensitivity: 1.0 },
     graphics: { fovDegrees: 60, shadowsEnabled: true },
   };

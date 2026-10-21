@@ -79,9 +79,9 @@ export function bindGameplayAudio(audio: AudioSystem): AudioSystem {
       audio.playQuestChime();
       emitGameplay('quest-chime', EMPTY);
     },
-    playFootstep(surface) {
-      audio.playFootstep(surface);
-      emitGameplay('footstep', { surface });
+    playFootstep(kind = 'walk') {
+      audio.playFootstep(kind);
+      emitGameplay('footstep', { surface: kind === 'water' ? 'water' : 'grass' });
     },
     playSplash() {
       audio.playSplash();

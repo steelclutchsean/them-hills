@@ -15,6 +15,7 @@ export interface SettingsPanelOpts {
   /** Apply a freshly-changed setting to the live runtime. */
   apply: {
     masterVolume(value: number): void;
+    musicVolume(value: number): void;
     ambientVolume(value: number): void;
     sfxVolume(value: number): void;
     mouseSensitivity(value: number): void;
@@ -119,6 +120,8 @@ interface SliderOpts {
   step: number;
   initial: number;
   format?: (v: number) => string;
+  /** Writes `data-audio` so tests can find the slider. */
+  dataAudio?: string;
   onChange(v: number): void;
 }
 
@@ -134,6 +137,7 @@ function makeSlider(opts: SliderOpts): HTMLDivElement {
   input.max = String(opts.max);
   input.step = String(opts.step);
   input.value = String(opts.initial);
+  if (opts.dataAudio) input.dataset.audio = opts.dataAudio;
   const value = document.createElement('span');
   value.className = 'value';
   const fmt = opts.format ?? ((v) => v.toFixed(2));
@@ -189,6 +193,7 @@ export function createSettingsPanel(opts: SettingsPanelOpts): SettingsPanel {
       max: 1,
       step: 0.01,
       initial: opts.initial.audio.master,
+      dataAudio: 'master',
       format: (v) => `${Math.round(v * 100)}%`,
       onChange: (v) => {
         opts.updateSetting('audio', { master: v });
@@ -198,11 +203,27 @@ export function createSettingsPanel(opts: SettingsPanelOpts): SettingsPanel {
   );
   root.appendChild(
     makeSlider({
-      label: 'Ambient (streams)',
+      label: 'Music',
+      min: 0,
+      max: 1,
+      step: 0.01,
+      initial: opts.initial.audio.music ?? 0.85,
+      dataAudio: 'music',
+      format: (v) => `${Math.round(v * 100)}%`,
+      onChange: (v) => {
+        opts.updateSetting('audio', { music: v });
+        opts.apply.musicVolume(v);
+      },
+    }),
+  );
+  root.appendChild(
+    makeSlider({
+      label: 'Ambience',
       min: 0,
       max: 1,
       step: 0.01,
       initial: opts.initial.audio.ambient,
+      dataAudio: 'ambient',
       format: (v) => `${Math.round(v * 100)}%`,
       onChange: (v) => {
         opts.updateSetting('audio', { ambient: v });
@@ -212,10 +233,11 @@ export function createSettingsPanel(opts: SettingsPanelOpts): SettingsPanel {
   );
   root.appendChild(
     makeSlider({
-      label: 'SFX (taps + chimes)',
+      label: 'Effects',
       min: 0,
       max: 1,
       step: 0.01,
+      dataAudio: 'sfx',
       initial: opts.initial.audio.sfx,
       format: (v) => `${Math.round(v * 100)}%`,
       onChange: (v) => {
