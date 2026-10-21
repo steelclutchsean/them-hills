@@ -202,7 +202,7 @@ const FRAG_SHADER = /* glsl */ `
     float spec = pow(max(0.0, dot(reflectDir, viewDir)), 56.0);
     base += uSunColor * (spec * 2.2 * uSunIntensity);
 
-    float fres = pow(1.0 - max(dot(viewDir, surfNormal), 0.0), 3.2);
+    float fres = pow(1.0 - max(dot(viewDir, surfNormal), 0.0), 2.1);
     vec3 reflected = mix(uHemiSky, uFoam, 0.22);
     if (uHasReflect > 0.5) {
       vec4 clip = uReflProjView * vec4(vWorld, 1.0);
@@ -213,8 +213,9 @@ const FRAG_SHADER = /* glsl */ `
     }
     // Without a reflection target, a strong fresnel just paints the creek
     // the color of the sky and it disappears into the bank.
-    float fresMix = uHasReflect > 0.5 ? 0.72 : 0.2;
-    base = mix(base, reflected, fres * fresMix);
+    // A floor keeps the mirror readable even when the camera looks down.
+    float reflectAmt = uHasReflect > 0.5 ? max(fres, 0.38) * 0.86 : fres * 0.2;
+    base = mix(base, reflected, reflectAmt);
 
     float cau = noise(worldXZ * 3.4 - scroll * 1.5) * noise(worldXZ * 6.2 + scroll * 0.6);
     base += vec3(0.55, 0.95, 0.85) * smoothstep(0.62, 0.9, cau) * (1.0 - depthFactor);

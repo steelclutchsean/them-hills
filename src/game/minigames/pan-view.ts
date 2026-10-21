@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { addGoldFlake } from '@/render/painterly';
 import { forceTopDraw } from './_util';
 import type { MinigameViz } from './types';
 
@@ -128,20 +129,16 @@ function makePanVariant(tier: 1 | 2 | 3): TierVariant {
 
   // Mount: lower-center, tilted up slightly so the camera looks INTO it.
   variant.position.set(0, -0.34, -0.5);
-  for (let i = 0; i < 5; i++) {
-    const flake = new THREE.Mesh(
-      new THREE.SphereGeometry(0.012, 6, 5),
-      new THREE.MeshStandardMaterial({
-        color: 0xffd56a,
-        emissive: 0xaa7711,
-        emissiveIntensity: 0.7,
-        metalness: 0.7,
-        roughness: 0.25,
-      }),
+  for (let i = 0; i < 7; i++) {
+    const a = (i / 7) * Math.PI * 2;
+    const radius = i % 3 === 0 ? 0.02 : 0.012;
+    addGoldFlake(
+      variant,
+      radius,
+      Math.cos(a) * panRadius * 0.36,
+      -0.03,
+      Math.sin(a) * panRadius * 0.26,
     );
-    const a = (i / 5) * Math.PI * 2;
-    flake.position.set(Math.cos(a) * panRadius * 0.38, -0.04, Math.sin(a) * panRadius * 0.28);
-    variant.add(flake);
   }
   variant.rotation.set(0.45, 0, 0);
 

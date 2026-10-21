@@ -77,11 +77,11 @@ export function groundMaps(): {
   return maps;
 }
 
-const shared = new Map<string, THREE.MeshStandardMaterial>();
+const shared = new Map<string, THREE.Material>();
 
 function lit(name: string, color: number, roughness = 0.86): THREE.MeshStandardMaterial {
   const hit = shared.get(name);
-  if (hit) return hit;
+  if (hit instanceof THREE.MeshStandardMaterial) return hit;
   const mat = new THREE.MeshStandardMaterial({
     name,
     color,
@@ -101,12 +101,207 @@ export function kitRockMaterial(): THREE.MeshStandardMaterial {
   return lit('sierra-rock', PALETTE.rock, 0.94);
 }
 
+function woodTextures(weathered: boolean): {
+  map: THREE.CanvasTexture;
+  normal: THREE.CanvasTexture;
+  ao: THREE.CanvasTexture;
+} {
+  const size = 128;
+  const albedo = document.createElement('canvas');
+  albedo.width = size;
+  albedo.height = size;
+  const actx = albedo.getContext('2d');
+  if (!actx) throw new Error('[painterly] canvas 2d unavailable');
+  actx.fillStyle = weathered ? '#4a2c18' : '#c48a52';
+  actx.fillRect(0, 0, size, size);
+  const plank = 32;
+  for (let y = 0; y < size; y += plank) {
+    const shade = weathered ? (y / size) * 28 : 12;
+    actx.fillStyle = `rgb(${156 - shade}, ${92 - shade * 0.4}, ${48 - shade * 0.2})`;
+    actx.fillRect(0, y, size, plank - 4);
+    actx.fillStyle = weathered ? '#2a160e' : '#3a2416';
+    actx.fillRect(0, y + plank - 4, size, 4);
+    actx.globalAlpha = 0.35;
+    actx.fillStyle = '#3a2414';
+    for (let g = 0; g < 5; g++) actx.fillRect(0, y + 3 + g * 5, size, 1);
+    actx.globalAlpha = 1;
+    if ((y / plank) % 3 === 0) {
+      actx.globalAlpha = 0.22;
+      actx.fillStyle = '#2a2218';
+      actx.fillRect(8, y + 6, 36, 10);
+      actx.globalAlpha = 1;
+    }
+  }
+  // Bottom courses pick up dirt.
+  const dirt = actx.createLinearGradient(0, size * 0.72, 0, size);
+  dirt.addColorStop(0, 'rgba(0,0,0,0)');
+  dirt.addColorStop(1, 'rgba(28,18,10,0.55)');
+  actx.fillStyle = dirt;
+  actx.fillRect(0, 0, size, size);
+
+  const normal = document.createElement('canvas');
+  normal.width = size;
+  normal.height = size;
+  const nctx = normal.getContext('2d');
+  if (!nctx) throw new Error('[painterly] canvas 2d unavailable');
+  const pixels = nctx.createImageData(size, size);
+  for (let y = 0; y < size; y++) {
+    const inPlank = y % plank;
+    const bevel = inPlank < 3 ? inPlank / 3 : inPlank > plank - 5 ? (plank - inPlank) / 5 : 1;
+    const ny = inPlank < 4 ? -0.65 : inPlank > plank - 6 ? 0.65 : Math.sin(y * 0.7) * 0.08;
+    const nx = Math.sin(y * 0.31) * 0.12;
+    const nz = 0.35 + bevel * 0.65;
+    const len = Math.hypot(nx, ny, nz) || 1;
+    for (let x = 0; x < size; x++) {
+      const o = (y * size + x) * 4;
+      pixels.data[o] = Math.round((nx / len) * 127 + 128);
+      pixels.data[o + 1] = Math.round((ny / len) * 127 + 128);
+      pixels.data[o + 2] = Math.round((nz / len) * 127 + 128);
+      pixels.data[o + 3] = 255;
+    }
+  }
+  nctx.putImageData(pixels, 0, 0);
+
+  const aoCanvas = document.createElement('canvas');
+  aoCanvas.width = size;
+  aoCanvas.height = size;
+  const octx = aoCanvas.getContext('2d');
+  if (!octx) throw new Error('[painterly] canvas 2d unavailable');
+  octx.fillStyle = '#d8d8d8';
+  octx.fillRect(0, 0, size, size);
+  for (let y = 0; y < size; y += plank) {
+    octx.fillStyle = '#2a2a2a';
+    octx.fillRect(0, y + plank - 5, size, 6);
+    octx.fillStyle = '#8a8a8a';
+    octx.fillRect(0, y, size, 2);
+  }
+  const dirtAo = octx.createLinearGradient(0, size * 0.7, 0, size);
+  dirtAo.addColorStop(0, 'rgba(255,255,255,0)');
+  dirtAo.addColorStop(1, 'rgba(40,40,40,0.65)');
+  octx.fillStyle = dirtAo;
+  octx.fillRect(0, 0, size, size);
+
+  const map = new THREE.CanvasTexture(albedo);
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.wrapS = THREE.RepeatWrapping;
+  map.wrapT = THREE.RepeatWrapping;
+  map.anisotropy = 4;
+  const normalMap = new THREE.CanvasTexture(normal);
+  normalMap.colorSpace = THREE.NoColorSpace;
+  normalMap.wrapS = THREE.RepeatWrapping;
+  normalMap.wrapT = THREE.RepeatWrapping;
+  const ao = new THREE.CanvasTexture(aoCanvas);
+  ao.colorSpace = THREE.NoColorSpace;
+  ao.wrapS = THREE.RepeatWrapping;
+  ao.wrapT = THREE.RepeatWrapping;
+  return { map, normal: normalMap, ao };
+}
+
+let woodFresh: {
+  map: THREE.CanvasTexture;
+  normal: THREE.CanvasTexture;
+  ao: THREE.CanvasTexture;
+} | null = null;
+let woodOld: {
+  map: THREE.CanvasTexture;
+  normal: THREE.CanvasTexture;
+  ao: THREE.CanvasTexture;
+} | null = null;
+
+function applyWood(
+  mat: THREE.MeshStandardMaterial,
+  weathered: boolean,
+): THREE.MeshStandardMaterial {
+  if (mat.map) return mat;
+  const tex = weathered ? (woodOld ??= woodTextures(true)) : (woodFresh ??= woodTextures(false));
+  mat.map = tex.map;
+  mat.normalMap = tex.normal;
+  mat.normalScale.set(1.15, 1.15);
+  mat.aoMap = tex.ao;
+  mat.aoMapIntensity = weathered ? 1.15 : 0.9;
+  mat.color.set(0xffffff);
+  mat.roughness = weathered ? 0.92 : 0.78;
+  mat.needsUpdate = true;
+  return mat;
+}
+
 export function timberMaterial(): THREE.MeshStandardMaterial {
-  return lit('sierra-timber', PALETTE.timber, 0.88);
+  return applyWood(lit('sierra-timber', PALETTE.timber, 0.88), false);
 }
 
 export function timberDarkMaterial(): THREE.MeshStandardMaterial {
-  return lit('sierra-timber-dark', PALETTE.timberDark, 0.9);
+  return applyWood(lit('sierra-timber-dark', PALETTE.timberDark, 0.9), true);
+}
+
+const goldGlintUniforms = { uTime: { value: 0 } };
+
+/** Shared metallic flake. The glint child is what the bloom pass catches. */
+export function goldFlakeMaterial(): THREE.MeshPhysicalMaterial {
+  const hit = shared.get('sierra-gold');
+  if (hit instanceof THREE.MeshPhysicalMaterial) return hit;
+  const mat = new THREE.MeshPhysicalMaterial({
+    name: 'sierra-gold',
+    color: 0xffd36a,
+    metalness: 1,
+    roughness: 0.18,
+    emissive: 0xffc14a,
+    emissiveIntensity: 0.55,
+    clearcoat: 1,
+    clearcoatRoughness: 0.08,
+    reflectivity: 0.85,
+  });
+  shared.set('sierra-gold', mat);
+  return mat;
+}
+
+export function goldGlintMaterial(): THREE.ShaderMaterial {
+  const existing = shared.get('sierra-gold-glint');
+  if (existing instanceof THREE.ShaderMaterial) return existing;
+  const mat = new THREE.ShaderMaterial({
+    name: 'sierra-gold-glint',
+    uniforms: goldGlintUniforms,
+    transparent: true,
+    depthWrite: false,
+    vertexShader: /* glsl */ `
+      varying vec3 vN;
+      void main() {
+        vN = normalize(normalMatrix * normal);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform float uTime;
+      varying vec3 vN;
+      void main() {
+        float spark = pow(max(vN.y, 0.0), 18.0);
+        float twinkle = 0.55 + 0.45 * sin(uTime * 7.0 + vN.x * 12.0);
+        vec3 col = vec3(1.85, 1.25, 0.42) * (0.25 + spark * 2.4 * twinkle);
+        gl_FragColor = vec4(col, 0.85);
+      }
+    `,
+  });
+  shared.set('sierra-gold-glint', mat);
+  return mat;
+}
+
+export function pulseGold(time: number): void {
+  goldGlintUniforms.uTime.value = time;
+}
+
+export function addGoldFlake(
+  parent: THREE.Object3D,
+  radius: number,
+  x: number,
+  y: number,
+  z: number,
+): void {
+  const flake = new THREE.Mesh(new THREE.SphereGeometry(radius, 10, 8), goldFlakeMaterial());
+  flake.position.set(x, y, z);
+  flake.scale.set(1.15, 0.55, 0.9);
+  parent.add(flake);
+  const glint = new THREE.Mesh(new THREE.SphereGeometry(radius * 0.45, 8, 6), goldGlintMaterial());
+  glint.position.set(x, y + radius * 0.15, z);
+  parent.add(glint);
 }
 
 export function stoneMaterial(): THREE.MeshStandardMaterial {

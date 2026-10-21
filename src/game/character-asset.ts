@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { upgradeLoadedMaterials } from '@/render/materials';
+import { addGoldFlake } from '@/render/painterly';
 
 // Loads the Quaternius Ranger outfit and bakes the Superhero head (eyes and
 // brows included) onto the Ranger Head bone. The pauldron and hood stay
@@ -13,7 +14,8 @@ const HEAD_GLTF = '/assets/characters/Superhero_Male_FullBody.gltf';
 const HIDDEN_OUTFIT_MESH_KEYWORDS = ['hood', 'pauldron'];
 
 const FEET_OFFSET_Y = -0.9;
-const SKIN_COLOR = 0xe7c19e;
+/** Matches the superhero head atlas (about 169, 109, 75) so the new hands agree with the face. */
+const SKIN_COLOR = 0xa96d4b;
 
 export interface BoneJoint {
   /** Bones from one or more skeletons that should animate identically. */
@@ -107,7 +109,11 @@ export async function loadCharacter(): Promise<CharacterRig> {
     hat.rotation.x = -0.22;
     headBone.add(hat);
   }
-  const tools = attachHandTools(bones.get('hand_r'));
+  const handR = bones.get('hand_r');
+  const handL = bones.get('hand_l');
+  if (handR) addRangerHand(handR, 1);
+  if (handL) addRangerHand(handL, -1);
+  const tools = attachHandTools(handR);
 
   return {
     group: wrapper,
@@ -236,19 +242,9 @@ function attachHandTools(hand: THREE.Object3D | undefined): {
   bowl.position.y = 0.14;
   pan.add(bowl);
   for (let i = 0; i < 7; i++) {
-    const flake = new THREE.Mesh(
-      new THREE.SphereGeometry(0.018 + (i % 3) * 0.008, 8, 6),
-      new THREE.MeshStandardMaterial({
-        color: 0xffd56a,
-        emissive: 0xc4841a,
-        emissiveIntensity: 0.45,
-        metalness: 0.7,
-        roughness: 0.22,
-      }),
-    );
     const a = (i / 7) * Math.PI * 2;
-    flake.position.set(Math.cos(a) * 0.07, 0.17, Math.sin(a) * 0.05);
-    pan.add(flake);
+    const radius = i % 4 === 0 ? 0.03 : 0.016 + (i % 3) * 0.006;
+    addGoldFlake(pan, radius, Math.cos(a) * 0.07, 0.17, Math.sin(a) * 0.045);
   }
   pan.visible = false;
 
@@ -282,8 +278,10 @@ async function attachModeledHead(headBone: THREE.Object3D): Promise<boolean> {
       const mat =
         (Array.isArray(source) ? source[0] : source)?.clone() ?? new THREE.MeshStandardMaterial();
       if (mat instanceof THREE.MeshStandardMaterial && !/eye/i.test(obj.name)) {
-        mat.roughness = Math.max(mat.roughness, 0.62);
-        mat.metalness = Math.min(mat.metalness, 0.06);
+        mat.color.set(0xffffff);
+        mat.roughness = 0.72;
+        mat.metalness = 0.02;
+        mat.emissive?.set(0x000000);
       }
       const mesh = new THREE.Mesh(geom, mat);
       mesh.name = `head-${obj.name}`;
@@ -292,6 +290,7 @@ async function attachModeledHead(headBone: THREE.Object3D): Promise<boolean> {
       group.add(mesh);
     });
     if (group.children.length === 0) return false;
+    group.add(createProspectorBeard());
     headBone.add(group);
     return true;
   } catch (err) {
@@ -380,6 +379,48 @@ function extractHeadGeometry(mesh: THREE.SkinnedMesh): THREE.BufferGeometry | nu
   geom.setIndex(indices);
   geom.computeVertexNormals();
   return geom;
+}
+
+/** Jaw, mustache, and sideburns in the modeled head's local space. Face is +Z before the group yaw. */
+function createProspectorBeard(): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'prospector-beard';
+  const hair = new THREE.MeshStandardMaterial({ color: 0x3a2418, roughness: 0.92 });
+  const jaw = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 8), hair);
+  jaw.scale.set(0.85, 0.62, 0.45);
+  jaw.position.set(0, -0.02, 0.07);
+  const mustache = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.012, 0.018), hair);
+  mustache.position.set(0, 0.012, 0.095);
+  const sideGeom = new THREE.BoxGeometry(0.016, 0.05, 0.02);
+  const sideL = new THREE.Mesh(sideGeom, hair);
+  sideL.position.set(0.048, 0.0, 0.06);
+  const sideR = sideL.clone();
+  sideR.position.x = -0.048;
+  group.add(jaw, mustache, sideL, sideR);
+  return group;
+}
+
+/** Palm, four fingers, and a thumb past the ranger bracer. Local +Y is the grip axis. */
+function addRangerHand(hand: THREE.Object3D, side: 1 | -1): void {
+  const skin = new THREE.MeshStandardMaterial({ color: SKIN_COLOR, roughness: 0.68 });
+  const palm = new THREE.Mesh(new THREE.BoxGeometry(0.064, 0.04, 0.078), skin);
+  palm.position.set(0, 0.05, 0.02);
+  palm.castShadow = true;
+  hand.add(palm);
+  const fingerGeom = new THREE.CylinderGeometry(0.008, 0.006, 0.04, 5);
+  for (let i = 0; i < 4; i++) {
+    const finger = new THREE.Mesh(fingerGeom, skin);
+    finger.position.set(-0.022 + i * 0.015, 0.086, 0.02);
+    finger.rotation.x = 0.78 + (i % 2) * 0.16;
+    finger.castShadow = true;
+    hand.add(finger);
+  }
+  const thumb = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.007, 0.036, 5), skin);
+  thumb.position.set(side * 0.038, 0.048, 0.028);
+  thumb.rotation.z = side * -0.85;
+  thumb.rotation.x = 0.45;
+  thumb.castShadow = true;
+  hand.add(thumb);
 }
 
 // Procedural prospector hat. Sits on top of the Head bone — local Y is upward

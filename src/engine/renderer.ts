@@ -27,6 +27,8 @@ export interface RendererBundle {
   applyGraphics(): void;
   /** Screen position of the sun for the god-ray pass. */
   setPostSun(x: number, y: number, elevation: number): void;
+  /** Desaturate the frame away from a screen point. Amount 0 disables it. */
+  setGradeFocus(x: number, y: number, amount: number): void;
   dispose(): void;
 }
 
@@ -146,6 +148,9 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererBundle {
     },
     setPostSun(x: number, y: number, elevation: number) {
       post.setSun(x, y, elevation);
+    },
+    setGradeFocus(x, y, amount) {
+      post.setFocus(x, y, amount);
     },
     render: () => post.render(),
     dispose: () => {
