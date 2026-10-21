@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { upgradeLoadedMaterials } from '@/render/materials';
 import { addGoldFlake } from '@/render/painterly';
 
@@ -425,9 +426,9 @@ function addRangerHand(hand: THREE.Object3D, side: 1 | -1): void {
 
 // Procedural prospector hat. Sits on top of the Head bone — local Y is upward
 // from the head bone's origin (which is roughly at the base of the skull).
-function createProspectorHat(): THREE.Group {
+function createProspectorHat(color = 0x3e2a17): THREE.Group {
   const matHat = new THREE.MeshStandardMaterial({
-    color: 0x3e2a17,
+    color,
     flatShading: true,
     roughness: 0.85,
   });
@@ -466,4 +467,115 @@ function createProspectorHat(): THREE.Group {
     if (o instanceof THREE.Mesh) o.castShadow = true;
   });
   return hat;
+}
+
+let crewOutfit: Promise<THREE.Group> | null = null;
+let crewHead: Promise<THREE.Object3D | null> | null = null;
+
+function loadCrewOutfit(): Promise<THREE.Group> {
+  crewOutfit ??= new GLTFLoader().loadAsync(OUTFIT_GLTF).then((gltf) => gltf.scene);
+  return crewOutfit;
+}
+
+function loadCrewHead(): Promise<THREE.Object3D | null> {
+  crewHead ??= (async () => {
+    const anchor = new THREE.Group();
+    const ok = await attachModeledHead(anchor);
+    return ok ? (anchor.children[0] ?? null) : null;
+  })();
+  return crewHead;
+}
+
+/**
+ * A hired hand or a claim jumper: the ranger body, the modeled head, and a
+ * hat. `shirt` tints the atlas so a hand and a jumper do not match.
+ */
+export async function createCrewVariant(shirt: number, hat: number): Promise<THREE.Group> {
+  const [source, head] = await Promise.all([loadCrewOutfit(), loadCrewHead()]);
+  const outfit = cloneSkinned(source);
+  // The ranger's feet are the glTF origin, and the mesh faces +Z. Crew yaw
+  // treats +Z as forward, so this clone stays unrotated and unshifted.
+  const tint = new THREE.Color(shirt);
+  outfit.traverse((obj) => {
+    const label = obj.name.toLowerCase();
+    if (HIDDEN_OUTFIT_MESH_KEYWORDS.some((key) => label.includes(key))) obj.visible = false;
+    if (!(obj instanceof THREE.Mesh)) return;
+    const shirtMesh = label.includes('body') && !label.includes('belt');
+    const sleeve = label.includes('arms') && !label.includes('bracer');
+    const sourceMat = obj.material;
+    const list = (Array.isArray(sourceMat) ? sourceMat : [sourceMat]).map((mat) => {
+      const next = mat.clone();
+      if (
+        (shirtMesh || sleeve) &&
+        next instanceof THREE.MeshStandardMaterial &&
+        !/eye/i.test(obj.name)
+      ) {
+        next.color.lerp(tint, shirtMesh ? 0.72 : 0.45);
+      }
+      return next;
+    });
+    obj.material = Array.isArray(sourceMat) ? list : (list[0] ?? sourceMat);
+    obj.castShadow = true;
+    obj.receiveShadow = true;
+  });
+  const headBone = outfit.getObjectByName('Head');
+  if (headBone) {
+    headBone.add(head ? head.clone(true) : createProspectorHead());
+    const cap = createProspectorHat(hat);
+    cap.position.y = 0.08;
+    cap.rotation.x = -0.22;
+    headBone.add(cap);
+  }
+  for (const name of ['upperarm_l', 'upperarm_r', 'thigh_l', 'thigh_r']) {
+    const bone = outfit.getObjectByName(name);
+    if (!bone) continue;
+    bone.userData.restX = bone.rotation.x;
+    bone.userData.restZ = bone.rotation.z;
+  }
+  const handR = outfit.getObjectByName('hand_r');
+  if (handR) {
+    addRangerHand(handR, 1);
+    handR.add(createCrewShovel());
+  }
+  const handL = outfit.getObjectByName('hand_l');
+  if (handL) {
+    addRangerHand(handL, -1);
+    handL.add(createCrewHose());
+  }
+  if (!(outfit instanceof THREE.Group)) {
+    const wrap = new THREE.Group();
+    wrap.add(outfit);
+    return wrap;
+  }
+  return outfit;
+}
+
+function createCrewShovel(): THREE.Group {
+  const shovel = new THREE.Group();
+  shovel.name = 'shovel';
+  shovel.visible = false;
+  shovel.position.set(0, 0.04, 0.03);
+  const handle = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.012, 0.014, 0.72, 6),
+    new THREE.MeshStandardMaterial({ color: 0x6b4630, roughness: 0.9 }),
+  );
+  handle.position.y = 0.36;
+  const blade = new THREE.Mesh(
+    new THREE.BoxGeometry(0.14, 0.16, 0.02),
+    new THREE.MeshStandardMaterial({ color: 0xb7a48c, metalness: 0.55, roughness: 0.38 }),
+  );
+  blade.position.y = 0.74;
+  shovel.add(handle, blade);
+  return shovel;
+}
+
+function createCrewHose(): THREE.Mesh {
+  const hose = new THREE.Mesh(
+    new THREE.TorusGeometry(0.14, 0.022, 6, 10, Math.PI),
+    new THREE.MeshStandardMaterial({ color: 0x24180f, roughness: 0.86 }),
+  );
+  hose.name = 'hand-hose';
+  hose.position.set(0, -0.08, 0.06);
+  hose.visible = false;
+  return hose;
 }

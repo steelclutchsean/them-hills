@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import type { ClaimRecord } from '@/save/schema';
+import { createCrewVariant } from '@/game/character-asset';
 import type { PlacedMachine } from '@/game/machines/placed';
 import { PALETTE } from '@/render/palette';
+import { markReflective } from '@/render/reflection';
 
 // Hired hands and claim jumpers. Hands shovel, rock, or work a hose.
 // A jumper steals until you close in, then squares up before you can answer.
@@ -40,6 +42,7 @@ interface JumperState {
 export function createCrew(scene: THREE.Scene): Crew {
   const root = new THREE.Group();
   root.name = 'crew';
+  markReflective(root);
   scene.add(root);
   const hands: THREE.Group[] = [];
   const jumpers = new Map<string, JumperState>();
@@ -61,7 +64,10 @@ export function createCrew(scene: THREE.Scene): Crew {
         const claim = args.claims[i % Math.max(1, args.claims.length)];
         const spots = args.machines.filter((m) => !claim || m.claimId === claim.id);
         const home = claim ? { x: claim.x, z: claim.z } : { x: 0, z: 0 };
-        const route = spots.length > 0 ? spots.map((m) => ({ x: m.x, z: m.z, kind: m.kind })) : [{ x: home.x, z: home.z, kind: 'rocker' as const }];
+        const route =
+          spots.length > 0
+            ? spots.map((m) => ({ x: m.x, z: m.z, kind: m.kind }))
+            : [{ x: home.x, z: home.z, kind: 'rocker' as const }];
         const leg = Math.floor(args.time * 0.18 + i) % route.length;
         const next = route[(leg + 1) % route.length] ?? route[0]!;
         const cur = route[leg] ?? route[0]!;
@@ -99,7 +105,8 @@ export function createCrew(scene: THREE.Scene): Crew {
             new THREE.SphereGeometry(0.13, 7, 6),
             new THREE.MeshStandardMaterial({ color: PALETTE.timberDark, roughness: 0.8 }),
           );
-          sack.position.set(0.16, 0.78, -0.12);
+          sack.name = 'sack';
+          sack.position.set(0.28, 0.95, 0.18);
           sack.castShadow = true;
           mesh.add(sack);
           root.add(mesh);
@@ -111,7 +118,10 @@ export function createCrew(scene: THREE.Scene): Crew {
         const fz = machine ? -Math.cos(machine.yaw) : 1;
         const homeX = machine ? machine.x - fx * 0.75 : claim.x;
         const homeZ = machine ? machine.z - fz * 0.75 : claim.z;
-        const dist = Math.hypot(state.mesh.position.x - args.playerX, state.mesh.position.z - args.playerZ);
+        const dist = Math.hypot(
+          state.mesh.position.x - args.playerX,
+          state.mesh.position.z - args.playerZ,
+        );
         if (state.phase === 'steal' && dist < 8) state.phase = 'approach';
         if (state.phase === 'steal') {
           const x = homeX;
@@ -179,47 +189,57 @@ export function createCrew(scene: THREE.Scene): Crew {
   };
 }
 
+function limb(mesh: THREE.Group, bone: string, proxy: string): THREE.Object3D | null {
+  return mesh.getObjectByName(bone) ?? mesh.getObjectByName(proxy) ?? null;
+}
+
+/** Add a swing on top of the bone rest so a skinned ranger and the proxy share one pose. */
+function swing(obj: THREE.Object3D | null, x: number, z = 0): void {
+  if (!obj) return;
+  const restX = typeof obj.userData.restX === 'number' ? obj.userData.restX : 0;
+  const restZ = typeof obj.userData.restZ === 'number' ? obj.userData.restZ : 0;
+  obj.rotation.x = restX + x;
+  obj.rotation.z = restZ + z;
+}
+
 function pose(mesh: THREE.Group, time: number, work: Work, seed: number): void {
-  const armL = mesh.getObjectByName('arm-l');
-  const armR = mesh.getObjectByName('arm-r');
-  const legL = mesh.getObjectByName('leg-l');
-  const legR = mesh.getObjectByName('leg-r');
+  const armL = limb(mesh, 'upperarm_l', 'arm-l');
+  const armR = limb(mesh, 'upperarm_r', 'arm-r');
+  const legL = limb(mesh, 'thigh_l', 'leg-l');
+  const legR = limb(mesh, 'thigh_r', 'leg-r');
   const shovel = mesh.getObjectByName('shovel');
   const hose = mesh.getObjectByName('hand-hose');
   if (shovel) shovel.visible = work === 'shovel' || work === 'steal';
   if (hose) hose.visible = work === 'hose';
-  const swing = Math.sin(time * 7 + seed);
+  const swingAmt = Math.sin(time * 7 + seed);
   if (work === 'walk') {
-    if (armL) armL.rotation.x = swing * 0.7;
-    if (armR) armR.rotation.x = -swing * 0.7;
-    if (legL) legL.rotation.x = -swing * 0.55;
-    if (legR) legR.rotation.x = swing * 0.55;
-    mesh.position.y += Math.abs(swing) * 0.03;
+    swing(armL, swingAmt * 0.7);
+    swing(armR, -swingAmt * 0.7);
+    swing(legL, -swingAmt * 0.55);
+    swing(legR, swingAmt * 0.55);
+    mesh.position.y += Math.abs(swingAmt) * 0.03;
   } else if (work === 'shovel' || work === 'steal') {
     const dig = Math.sin(time * 3.2 + seed);
-    if (armL) armL.rotation.x = -0.4 + dig * 0.9;
-    if (armR) armR.rotation.x = -0.8 + dig * 0.55;
-    if (legL) legL.rotation.x = 0.1;
-    if (legR) legR.rotation.x = -0.15;
+    swing(armL, -0.4 + dig * 0.9);
+    swing(armR, -0.8 + dig * 0.55);
+    swing(legL, 0.1);
+    swing(legR, -0.15);
   } else if (work === 'rock') {
     const rock = Math.sin(time * 2.6 + seed);
-    if (armL) armL.rotation.x = -0.6;
-    if (armR) armR.rotation.z = rock * 0.8;
-    if (armR) armR.rotation.x = -0.4;
-    if (legL) legL.rotation.x = 0.05;
-    if (legR) legR.rotation.x = -0.05;
+    swing(armL, -0.6);
+    swing(armR, -0.4, rock * 0.8);
+    swing(legL, 0.05);
+    swing(legR, -0.05);
   } else if (work === 'hose') {
-    if (armL) armL.rotation.x = -1.1;
-    if (armR) armR.rotation.x = -1.15 + Math.sin(time * 1.4) * 0.12;
-    if (legL) legL.rotation.x = 0.2;
-    if (legR) legR.rotation.x = -0.1;
+    swing(armL, -1.1);
+    swing(armR, -1.15 + Math.sin(time * 1.4) * 0.12);
+    swing(legL, 0.2);
+    swing(legR, -0.1);
   } else {
-    if (armL) armL.rotation.x = -2.4;
-    if (armR) armR.rotation.x = -2.4;
-    if (armL) armL.rotation.z = 0.4;
-    if (armR) armR.rotation.z = -0.4;
-    if (legL) legL.rotation.x = 0.15;
-    if (legR) legR.rotation.x = -0.2;
+    swing(armL, -2.4, 0.4);
+    swing(armR, -2.4, -0.4);
+    swing(legL, 0.15);
+    swing(legR, -0.2);
   }
 }
 
@@ -266,7 +286,10 @@ function person(shirt: number, hat: number): THREE.Group {
   shovel.rotation.x = 0.5;
   shovel.name = 'shovel';
   shovel.visible = false;
-  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.12, 0.02), new THREE.MeshStandardMaterial({ color: 0x8d8478, metalness: 0.45, roughness: 0.4 }));
+  const blade = new THREE.Mesh(
+    new THREE.BoxGeometry(0.16, 0.12, 0.02),
+    new THREE.MeshStandardMaterial({ color: 0x8d8478, metalness: 0.45, roughness: 0.4 }),
+  );
   blade.position.set(0.02, -0.64, 0.28);
   shovel.add(blade);
   armL.add(shovel);
@@ -283,5 +306,39 @@ function person(shirt: number, hat: number): THREE.Group {
   hose.visible = false;
   armR.add(hose);
   g.add(armL, armR);
+  for (const child of g.children) child.userData.proxy = true;
+  queueHero(g, shirt, hat);
   return g;
+}
+
+const heroQueue: { mesh: THREE.Group; shirt: number; hat: number }[] = [];
+let heroDrain: Promise<void> | null = null;
+
+function queueHero(mesh: THREE.Group, shirt: number, hat: number): void {
+  heroQueue.push({ mesh, shirt, hat });
+  heroDrain ??= drainHeroes();
+}
+
+async function drainHeroes(): Promise<void> {
+  try {
+    while (heroQueue.length > 0) {
+      const batch = heroQueue.splice(0);
+      for (const item of batch) {
+        if (item.mesh.userData.hero === true) continue;
+        try {
+          const hero = await createCrewVariant(item.shirt, item.hat);
+          const extras = item.mesh.children.filter((child) => child.userData.proxy !== true);
+          item.mesh.clear();
+          item.mesh.add(hero);
+          for (const extra of extras) item.mesh.add(extra);
+          item.mesh.userData.hero = true;
+        } catch (err) {
+          console.warn('[crew] ranger variant failed, keeping the proxy', err);
+        }
+      }
+    }
+  } finally {
+    heroDrain = null;
+    if (heroQueue.length > 0) heroDrain = drainHeroes();
+  }
 }
