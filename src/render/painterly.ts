@@ -128,19 +128,16 @@ export function groundDetailMap(): THREE.CanvasTexture {
 }
 
 /**
- * Max anisotropy above the low tier. Low stays at 4. Software GL caps at 8:
- * the device maximum made the lode readback miss the camera suite.
+ * Max anisotropy above the low tier. Low stays at 4. Software GL stays at 4
+ * too: 16 missed the lode readback, and 8 still ran the fire check out of time.
+ * That path gets the 512 tile, mipmaps, and the detail map instead.
  */
 export function applyGroundAnisotropy(
   maxAnisotropy: number,
   low: boolean,
   software: boolean,
 ): void {
-  const aniso = low
-    ? 4
-    : software
-      ? Math.min(8, Math.max(1, maxAnisotropy))
-      : Math.max(1, maxAnisotropy);
+  const aniso = low || software ? 4 : Math.max(1, maxAnisotropy);
   const painted = groundMaps();
   for (const tex of [
     painted.grass,
