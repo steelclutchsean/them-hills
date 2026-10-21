@@ -231,11 +231,13 @@ const FRAG_SHADER = /* glsl */ `
     float foamNoise = noise(worldXZ * 2.1 - scroll * 0.45);
     float foamMask = shore * smoothstep(0.64, 0.92, foamNoise) * 0.22;
     // Riffles are the shallow runs. Streaks follow the spline tangent.
-    float riffle = smoothstep(0.85, 0.28, vDepth);
+    // Shallows foam in the channel. It dies toward the bank so the shore
+    // is wet sand, not a white ring.
+    float riffle = smoothstep(0.85, 0.28, vDepth) * (1.0 - smoothstep(0.4, 0.82, t));
     float across = dot(worldXZ, vec2(flow.y, -flow.x));
     float along = dot(worldXZ, flow);
     float streak = noise(vec2(across * 5.5, along * 1.2 - uTime * uFlowSpeed * 3.0));
-    foamMask = max(foamMask, riffle * smoothstep(0.48, 0.8, streak) * 0.8);
+    foamMask = max(foamMask, riffle * smoothstep(0.62, 0.9, streak) * 0.2);
 
     float wake = 0.0;
     float lip = 0.0;
@@ -257,9 +259,9 @@ const FRAG_SHADER = /* glsl */ `
       wake = max(wake, max(body, trail));
       lip = max(lip, shoulder);
     }
-    foamMask = max(foamMask, max(wake, lip));
-    vec3 foamCol = mix(base, uFoam, clamp(foamMask, 0.0, 1.0));
-    foamCol = mix(foamCol, vec3(0.97, 0.95, 0.88), clamp(lip, 0.0, 0.9));
+    foamMask = max(foamMask, max(wake * 0.45, lip));
+    vec3 foamCol = mix(base, vec3(0.7, 0.78, 0.74), clamp(foamMask, 0.0, 0.4));
+    foamCol = mix(foamCol, vec3(0.9, 0.91, 0.86), clamp(lip, 0.0, 0.6));
 
     float h0 = n1;
     float h1 = noise(flowUv + vec2(0.16, 0.0) - flow * phase * 3.2);
@@ -338,7 +340,7 @@ const FRAG_SHADER = /* glsl */ `
       reflectAmt *= 0.35;
     }
     base = mix(base, reflected, reflectAmt);
-    base = mix(base, vec3(0.32, 0.28, 0.22), wet * 0.72);
+    base = mix(base, vec3(0.28, 0.25, 0.2), wet * 0.88);
     float foamAmt = clamp(max(foamMask, lip), 0.0, 0.88);
     // Keep the rock lips. Don't paint the mirror out with sheet foam.
     if (mirrorHit > 0.5) foamAmt = max(lip * 0.85, min(foamAmt, 0.32));
@@ -365,7 +367,7 @@ const FRAG_SHADER = /* glsl */ `
     lit = mix(lit, lit * uSunColor, 0.16 * uSunIntensity * shadow);
 
     float alpha = mix(0.18, 0.97, smoothstep(0.02, 0.48, depthFactor));
-    alpha *= mix(1.0, 0.22, smoothstep(0.58, 1.0, t));
+    alpha *= mix(1.0, 0.1, smoothstep(0.42, 0.96, t));
     alpha = max(alpha, lip * 0.72);
     alpha = mix(alpha, min(1.0, alpha + 0.12), fres * (1.0 - shore));
 
