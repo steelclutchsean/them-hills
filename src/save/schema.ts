@@ -14,14 +14,24 @@
 //   - New `settings` block holds player preferences for audio mix, look
 //     sensitivity, and graphics. Defaults match the previously
 //     hardcoded values so behavior is unchanged for fresh saves.
+// v5 changes:
+//   - `fieldwork` holds the work method, claims, color samples, journal,
+//     rumors, crew, and the town price bias. Position, carry gold, and
+//     wallet are untouched.
+//   - Equipment gains pick, rocker, longTom, and hydraulic. Missing keys
+//     migrate as unowned (0).
+// v6 changes:
+//   - Claims can hold a monitor. Coffee leaves a warmth timer. Machine
+//     runs are counted so Pete's tool jobs can complete. Position, carry
+//     gold, and wallet stay put.
 
-export const CURRENT_SAVE_VERSION = 4;
-export const BUILD_VERSION = '0.2.0-overhaul-phase1';
+export const CURRENT_SAVE_VERSION = 6;
+export const BUILD_VERSION = '0.4.0-gameplay';
 
 // ---------- Top-level shape ----------
 
 export interface SaveV1 {
-  version: 4;
+  version: 6;
   metadata: SaveMetadata;
   player: PlayerState;
   inventory: InventoryState;
@@ -34,6 +44,7 @@ export interface SaveV1 {
   progression: ProgressionState;
   rngSeeds: RngSeedState;
   settings: SettingsState;
+  fieldwork: FieldworkState;
 }
 
 // ---------- Settings ----------
@@ -42,9 +53,12 @@ export interface SettingsState {
   audio: {
     /** 0..1 — top-level volume scaler. */
     master: number;
-    /** 0..1 — adaptive score. Missing on v4 saves written before the
-     *  music bus; readers treat absence as the default below. */
-    music: number;
+    /**
+     * 0..1 — adaptive score. Saves written before the music bus omit
+     * this; readers treat absence as 0.85. Position, gold, and wallet
+     * are unrelated and stay on the v6 migration.
+     */
+    music?: number;
     /** 0..1 — creek, wind, weather, creatures, town murmur. */
     ambient: number;
     /** 0..1 — footsteps, tools, gold, UI. */
@@ -54,13 +68,25 @@ export interface SettingsState {
     /** Multiplier on the default mouse sensitivity (default constant
      *  stays in input/manager.ts; this scales it). 1.0 = unchanged. */
     mouseSensitivity: number;
+    /** Older books omit this. Readers treat absence as false. */
+    invertY?: boolean;
   };
   graphics: {
     /** Third-person FOV in degrees. Default 60. */
     fovDegrees: number;
     /** Real-time sun shadows. Disable on low-end hardware. */
     shadowsEnabled: boolean;
+    /** low | medium | high | ultra. Absence keeps the local quality pick. */
+    preset?: 'low' | 'medium' | 'high' | 'ultra';
   };
+  /** 0.85–1.4. Absence is 1. */
+  textScale?: number;
+  /** Dialogue, prompts, and the prospect line repeat in a subtitle row. */
+  subtitles?: boolean;
+  /** Markers keep a shape or hatch so hue is not the only signal. */
+  colorblind?: boolean;
+  /** KeyboardEvent.code per action id. Missing keys keep the defaults. */
+  bindings?: Partial<Record<string, string>>;
 }
 
 export interface SaveMetadata {
@@ -97,7 +123,14 @@ export interface PlayerState {
 
 // ---------- Inventory ----------
 
-export type ConsumableId = 'berries' | 'mushrooms' | 'meal_ration' | 'water_canteen' | 'firewood';
+export type ConsumableId =
+  | 'berries'
+  | 'mushrooms'
+  | 'meal_ration'
+  | 'water_canteen'
+  | 'firewood'
+  | 'coffee'
+  | 'nails';
 
 export interface InventoryState {
   carry: {
@@ -156,6 +189,14 @@ export interface EquipmentState {
      *  in-game point-light headlamp used at night, in storms, and inside
      *  the mine cave. Not part of the yield-multiplier calculation. */
     headlamp: 1 | 2;
+    /** 0 = not owned. A pick changes the dig into one heavy strike and opens a mine. */
+    pick: 0 | 1 | 2 | 3;
+    /** 0 = not owned. A rocker replaces the pan wash with a rocking beat. */
+    rocker: 0 | 1 | 2;
+    /** 0 = not owned. A long tom is a slow, high-volume wash. */
+    longTom: 0 | 1;
+    /** 0 = not owned. Hydraulic mining strips a bar and needs a hired hand. */
+    hydraulic: 0 | 1;
   };
   sluiceDeployment?: {
     siteId: string;
@@ -189,6 +230,8 @@ export interface WorldState {
   discovered: { siteIds: string[]; mineIds: string[]; hiddenClaimIds: string[] };
   sites: Record<string, SiteState>;
   placements: { sluice?: { siteId: string } };
+  /** Flood, drought, rush, or town fire. Older saves omit it. */
+  event: import('@/game/campaign').WorldEventState;
 }
 
 // ---------- Economy ----------
@@ -286,13 +329,111 @@ export interface RngSeedState {
   collectorVisitSeed: number;
 }
 
+// ---------- Fieldwork (v5) ----------
+
+export type Habitat = 'inside_bend' | 'gravel_bar' | 'bedrock' | 'boulder_lee' | 'tail' | 'barren';
+
+export type WorkMethod = 'pan' | 'rocker' | 'sluice' | 'long_tom' | 'hydraulic' | 'hardrock';
+
+export interface ClaimImprovements {
+  camp: 0 | 1 | 2;
+  cache: boolean;
+  rocker: boolean;
+  sluice: boolean;
+  longTom: boolean;
+  hydraulic: boolean;
+}
+
+export function emptyImprovements(): ClaimImprovements {
+  return { camp: 0, cache: false, rocker: false, sluice: false, longTom: false, hydraulic: false };
+}
+
+export interface ClaimRecord {
+  id: string;
+  kind: 'placer' | 'lode';
+  /** Creek id, or a mine id for a lode. */
+  streamId: string;
+  x: number;
+  z: number;
+  habitat: Habitat;
+  /** 1 fresh, falling as the claim is worked. */
+  pay: number;
+  stakedAt: number;
+  name: string;
+  improvements: ClaimImprovements;
+  /** Game time a jumper showed up, or null. */
+  jumperSince: number | null;
+}
+
+export interface ColorSample {
+  id: string;
+  streamId: string | null;
+  x: number;
+  z: number;
+  habitat: Habitat;
+  colors: number;
+  gameTime: number;
+}
+
+export interface JournalEntry {
+  id: string;
+  title: string;
+  body: string;
+  gameTime: number;
+}
+
+export interface FieldworkState {
+  method: WorkMethod;
+  claims: ClaimRecord[];
+  hands: number;
+  samples: ColorSample[];
+  journal: JournalEntry[];
+  rumorsHeard: string[];
+  unlockedStreams: string[];
+  /** Downstream shift of each creek's pay streak. Rain increases it. */
+  payShift: Record<string, number>;
+  lastJumperRoll: number;
+  /** Town price multiplier walked once per in-game day. */
+  townBias: number;
+  /** Hunger does not drain until this game time. A meal sets it. */
+  fedUntil: number;
+  /** Coffee warmth and easier stamina until this game time. */
+  coffeeUntil: number;
+  /** Completed runs of each machine. Pete's tool jobs read these. */
+  machineRuns: { rocker: number; sluice: number; long_tom: number; hydraulic: number };
+  /** Story act. Missing on older v6 blobs; ensureArc fills it. */
+  campaign: import('@/game/campaign').CampaignState;
+  /** North lode: air, timber, ore in the cart, powder. */
+  lode: import('@/game/campaign').LodeState;
+}
+
+export function defaultFieldwork(): FieldworkState {
+  return {
+    method: 'pan',
+    claims: [],
+    hands: 0,
+    samples: [],
+    journal: [],
+    rumorsHeard: [],
+    unlockedStreams: ['coyote_creek'],
+    payShift: { coyote_creek: 0, buckeye_run: 0 },
+    lastJumperRoll: 0,
+    townBias: 1,
+    fedUntil: 0,
+    coffeeUntil: 0,
+    machineRuns: { rocker: 0, sluice: 0, long_tom: 0, hydraulic: 0 },
+    campaign: { act: 1, companyPressure: 0, boughtOut: false, savedTown: false, heard: [] },
+    lode: { air: 1, timber: 0, ore: 0, charges: 0, creak: 0, drilled: 0, milled: 0, collapses: 0 },
+  };
+}
+
 // ---------- Defaults ----------
 
 export function createDefaultSave(): SaveV1 {
   const now = Date.now();
   const seed = Math.floor(Math.random() * 2 ** 31);
   return {
-    version: 4,
+    version: 6,
     metadata: {
       createdAt: now,
       lastSavedAt: now,
@@ -302,7 +443,8 @@ export function createDefaultSave(): SaveV1 {
     },
     player: {
       position: { x: 0, y: 0, z: 0 },
-      rotation: { yaw: 0, pitch: 0 },
+      // Face the creek. Yaw 0 looks north, and the opening hint says to walk east.
+      rotation: { yaw: -Math.PI / 2, pitch: 0 },
       meters: { stamina: 1, hunger: 1, thirst: 1 },
       spawnPoint: 'camp',
       appearance: { presetId: 'default' },
@@ -332,6 +474,10 @@ export function createDefaultSave(): SaveV1 {
         snuffer: 1,
         gear: 1,
         headlamp: 1,
+        pick: 0,
+        rocker: 0,
+        longTom: 0,
+        hydraulic: 0,
       },
     },
     world: {
@@ -342,6 +488,7 @@ export function createDefaultSave(): SaveV1 {
       discovered: { siteIds: [], mineIds: [], hiddenClaimIds: [] },
       sites: {},
       placements: {},
+      event: { id: 'calm', startedAt: 0, until: 0, stamp: 0 },
     },
     economy: {
       spotPrice: {
@@ -383,13 +530,28 @@ export function createDefaultSave(): SaveV1 {
       collectorVisitSeed: seed ^ 0x9abc,
     },
     settings: defaultSettings(),
+    fieldwork: {
+      ...defaultFieldwork(),
+      journal: [
+        {
+          id: 'welcome',
+          title: 'A new creek',
+          body: 'Coyote Creek is east. The first pan is one swing, then a short wash. Press J anytime for this journal.',
+          gameTime: 0,
+        },
+      ],
+    },
   };
 }
 
 export function defaultSettings(): SettingsState {
   return {
     audio: { master: 1.0, music: 0.85, ambient: 1.0, sfx: 1.0 },
-    look: { mouseSensitivity: 1.0 },
+    look: { mouseSensitivity: 1.0, invertY: false },
     graphics: { fovDegrees: 60, shadowsEnabled: true },
+    textScale: 1,
+    subtitles: false,
+    colorblind: false,
+    bindings: {},
   };
 }

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { dressNorthLode } from '@/game/north-lode';
 import { addMineWorks } from '@/game/structures';
 import { kitRockMaterial, stoneMaterial } from '@/render/painterly';
 import { RAPIER } from '@/physics/world';
@@ -305,6 +306,15 @@ export function createMineEntrance(
   );
   group.add(caveRight);
 
+  if (config.id === 'north') {
+    caveFloor.visible = false;
+    caveCeil.visible = false;
+    caveBack.visible = false;
+    caveLeft.visible = false;
+    caveRight.visible = false;
+    dressNorthLode(group);
+  }
+
   // Subtle warm "ore vein" glow at the back to give the player something to walk toward.
   const veinMat = new THREE.MeshStandardMaterial({
     color: 0xc89b3b,
@@ -315,6 +325,7 @@ export function createMineEntrance(
   });
   const vein = new THREE.Mesh(new THREE.IcosahedronGeometry(0.35, 0), veinMat);
   vein.position.set(0, 1.0, CAVE_BACK_Z + 0.4);
+  vein.visible = config.id !== 'north';
   group.add(vein);
 
   // ---- Cave pickaxe site (visible target inside the cave) ----
@@ -347,6 +358,11 @@ export function createMineEntrance(
   );
   oreChunk.position.set(0, CAVE_FLOOR_Y + 0.32, CAVE_FRONT_Z - CAVE_DEPTH * 0.45);
   oreChunk.castShadow = true;
+  if (config.id === 'north') {
+    caveSiteMat.emissiveIntensity = 0.05;
+    caveSiteMat.color.set(0x3a342c);
+    oreChunk.visible = false;
+  }
   group.add(oreChunk);
 
   // World-space position for the proximity probe

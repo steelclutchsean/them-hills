@@ -1,4 +1,11 @@
-import { CURRENT_SAVE_VERSION, defaultSettings, type SaveV1 } from './schema';
+import { ensureArc } from '@/game/campaign';
+import {
+  CURRENT_SAVE_VERSION,
+  defaultFieldwork,
+  defaultSettings,
+  emptyImprovements,
+  type SaveV1,
+} from './schema';
 
 // Migrators run in sequence from saved-version up to CURRENT_SAVE_VERSION.
 // Each one returns the same blob with `version` bumped and any new fields
@@ -56,6 +63,65 @@ const migrators: Record<number, MigratorFn> = {
     version: 4,
     settings: defaultSettings(),
   }),
+  // v4 → v5: claims, journal, work method, and the tools that change
+  // how a prospect plays. Position, carry gold, and wallet stay as they
+  // were. New tool keys start unowned.
+  4: (v4) => {
+    const equipment = (v4.equipment as Record<string, unknown>) ?? {};
+    const owned = (equipment.ownedTiers as Record<string, unknown>) ?? {};
+    const fieldwork = (v4.fieldwork as Record<string, unknown> | undefined) ?? defaultFieldwork();
+    return {
+      ...v4,
+      version: 5,
+      equipment: {
+        ...equipment,
+        ownedTiers: {
+          pick: 0,
+          rocker: 0,
+          longTom: 0,
+          hydraulic: 0,
+          ...owned,
+        },
+      },
+      fieldwork,
+    };
+  },
+  // v5 → v6: monitor slot, coffee warmth, and machine-run counts.
+  // Claims, position, carry gold, and wallet are copied through.
+  5: (v5) => {
+    const fieldwork = (v5.fieldwork as Record<string, unknown> | undefined) ?? {};
+    const base = defaultFieldwork();
+    const rawClaims = Array.isArray(fieldwork.claims) ? fieldwork.claims : [];
+    const claims = rawClaims.map((entry) => {
+      const claim = entry as Record<string, unknown>;
+      const improvements = (claim.improvements as Record<string, unknown> | undefined) ?? {};
+      return {
+        ...claim,
+        improvements: {
+          ...emptyImprovements(),
+          ...improvements,
+          hydraulic: improvements.hydraulic === true,
+        },
+      };
+    });
+    const runs = (fieldwork.machineRuns as Record<string, unknown> | undefined) ?? {};
+    return {
+      ...v5,
+      version: 6,
+      fieldwork: {
+        ...base,
+        ...fieldwork,
+        claims,
+        coffeeUntil: typeof fieldwork.coffeeUntil === 'number' ? fieldwork.coffeeUntil : 0,
+        machineRuns: {
+          rocker: typeof runs.rocker === 'number' ? runs.rocker : 0,
+          sluice: typeof runs.sluice === 'number' ? runs.sluice : 0,
+          long_tom: typeof runs.long_tom === 'number' ? runs.long_tom : 0,
+          hydraulic: typeof runs.hydraulic === 'number' ? runs.hydraulic : 0,
+        },
+      },
+    };
+  },
 };
 
 export function migrate(raw: unknown): SaveV1 {
@@ -80,5 +146,5 @@ export function migrate(raw: unknown): SaveV1 {
       `[save] save was written by a newer game version (v${current.version}); update the game to load.`,
     );
   }
-  return current as unknown as SaveV1;
+  return ensureArc(current as unknown as SaveV1);
 }

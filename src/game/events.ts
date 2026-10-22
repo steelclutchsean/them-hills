@@ -17,6 +17,25 @@ export interface GameplayEvents {
   find: { grams: number };
   'prospect-start': { siteId: string };
   sell: { vendorId: string; earned: number };
+  /** A wash pulse in the pan: tilt is the pan radius 0..1, rhythm is 0..1, spilled means gold slid off. */
+  'pan-wash': { tilt: number; rhythm: number; spilled: boolean };
+  sample: { colors: number; habitat: string };
+  'claim-staked': { claimId: string; habitat: string };
+  'claim-jumper': { claimId: string };
+  'creek-rise': { shift: number };
+  'method-change': { method: string };
+  rumor: { id: string };
+  hire: { hands: number };
+  'supply-bought': { id: string };
+  'area-unlock': { streamId: string };
+  /** A beat inside a rocker, sluice, long tom, or monitor. */
+  'machine-beat': { kind: string; quality: number };
+  'machine-run': { kind: string };
+  'jumper-confront': { claimId: string; how: string };
+  /** A round in the north drift. */
+  blast: { charges: number };
+  'timber-creak': Record<string, never>;
+  'cave-in': Record<string, never>;
 }
 
 type Handler<K extends keyof GameplayEvents> = (payload: GameplayEvents[K]) => void;
@@ -91,8 +110,8 @@ export function bindGameplayAudio(audio: AudioSystem): AudioSystem {
       audio.playStageComplete(stageIndex);
       emitGameplay('stage-complete', { stageIndex });
     },
-    playFind(grams) {
-      audio.playFind(grams);
+    playFind(grams, detail) {
+      audio.playFind(grams, detail);
       emitGameplay('find', { grams });
     },
   };

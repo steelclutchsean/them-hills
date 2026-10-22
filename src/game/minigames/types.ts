@@ -149,6 +149,70 @@ export type MinigameViz =
       lastTapFlashSec: number;
       /** Detector tier 1/2/3 — drives mesh and decay rate. */
       detectorTier: 1 | 2 | 3;
+    }
+  | {
+      kind: 'rocker';
+      /** 0 at one end of the rock, 1 at the other. */
+      rock: number;
+      rocksDone: number;
+      rocksNeeded: number;
+      water: number;
+      lastTap: number;
+      gold: number;
+    }
+  | {
+      kind: 'sluice';
+      phase: 'feed' | 'flow' | 'cleanup';
+      indicator: number;
+      flow: number;
+      slot: number;
+      slots: readonly number[];
+      cleaned: number;
+    }
+  | {
+      kind: 'longtom';
+      phase: 'grizzly' | 'cleanup';
+      shake: number;
+      hopper: number;
+      slot: number;
+      slots: readonly number[];
+      cleaned: number;
+      lastTap: number;
+    }
+  | {
+      kind: 'monitor';
+      aim: number;
+      band: number;
+      /** 0..1 nozzle pressure. Pay needs this inside the band as well as the aim. */
+      pressure: number;
+      pressureBand: number;
+      spray: boolean;
+      cut: number;
+      waste: number;
+      gold: number;
+    }
+  | {
+      kind: 'drill';
+      indicator: number;
+      sweet: number;
+      strikes: number;
+      need: number;
+      flash: number;
+    }
+  | {
+      kind: 'blast';
+      phase: 'place' | 'fuse' | 'retreat';
+      placed: number;
+      fuse: number;
+      retreat: number;
+      charges: number;
+    }
+  | {
+      kind: 'muck';
+      rock: number;
+      scoops: number;
+      need: number;
+      flash: number;
     };
 
 export interface CollectFlakeViz {
@@ -181,11 +245,25 @@ export type MinigameUpdate =
   | { kind: 'in_progress'; progress: MinigameProgress }
   | { kind: 'complete'; score: number; progress: MinigameProgress };
 
+/** Per-stage knobs. Pan, dig, and classify keep their own views. Rocker,
+ *  sluice, long tom, and monitor have separate view models. */
+export interface StageOptions {
+  tutorial?: boolean;
+  /** Classify rhythm is a rocker box instead of a sieve. */
+  rocker?: boolean;
+  /** How the pan stage wants to be washed. */
+  wash?: 'pan' | 'sluice' | 'long_tom';
+  /** Dig or strike uses the pick. */
+  asPick?: boolean;
+  /** Powder on hand for a blast. Zero still finishes; the round just coughs. */
+  charges?: number;
+}
+
 export interface Minigame {
   /** Reset state for a new stage entry. `toolTier` is the relevant tool
-   *  tier (e.g. shovel for dig). Stubs ignore it; later milestones use it
-   *  to widen sweet zones / change mechanics. */
-  start(toolTier: number): void;
+   *  tier (e.g. shovel for dig). `options` selects tutorial and the
+   *  work-method variant. */
+  start(toolTier: number, options?: StageOptions): void;
   update(ctx: MinigameContext): MinigameUpdate;
 }
 

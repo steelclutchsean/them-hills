@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { RAPIER } from '@/physics/world';
 import { bindFrameUniforms, FRAME_UNIFORM_GLSL } from '@/render/frame-uniforms';
-import { groundMaps } from '@/render/painterly';
+import { groundDetailMap, groundMaps } from '@/render/painterly';
+import type { Watercourse } from './watercourse';
 
 // 200m × 200m heightmap with deterministic rolling-hills generator.
 // Flattens a ~30m radius around the origin so the spawn area is gentle.
@@ -29,16 +30,12 @@ const BANK_WIDTH = 2.2; // meters past halfWidth where the gravel lip stays
 const BANK_HEIGHT = 1.15; // raised berm so the creek has a readable bank
 const BANK_TRANSITION = 2.6; // meters past the lip where gravel fades to grass
 
-export type ChannelOrientation = 'NS' | 'EW';
-
-export interface ChannelConfig {
-  centerX: number;
-  centerZ: number;
-  halfWidth: number;
-  halfLength: number;
-  orientation: ChannelOrientation;
-  /** Vertical drop in meters at the channel center; tapers to 0 at the banks. */
-  depth: number;
+export interface PaySplat {
+  x: number;
+  z: number;
+  radius: number;
+  /** 1 black sand, 2 gravel, 3 quartz, 4 bedrock. */
+  kind: number;
 }
 
 export interface Terrain {
@@ -47,6 +44,8 @@ export interface Terrain {
   collider: RAPIER.Collider;
   /** Ground height at world (x, z), bilinear interpolated. Matches the Rapier collider. */
   getHeightAt(x: number, z: number): number;
+  /** Blend pay streaks into the existing terrain splat. At most 32. */
+  setPayStreaks(marks: readonly PaySplat[]): void;
 }
 
 /** Column-major index: heights[i + j * nrows] where i = row (Z), j = col (X). */
@@ -56,12 +55,18 @@ function heightIdx(ix: number, iy: number): number {
 
 /** Pure terrain noise — no flattening, no carve. */
 function rawHeight(x: number, z: number): number {
-  return (
+  const base =
     Math.sin(x * 0.06) * 0.4 +
     Math.cos(z * 0.05) * 0.35 +
     Math.sin(x * 0.21 + z * 0.13) * 0.12 +
-    Math.cos(x * 0.07 - z * 0.09) * 0.08
-  );
+    Math.cos(x * 0.07 - z * 0.09) * 0.08;
+  const dist = Math.hypot(x, z);
+  const rim = smoothstep01(58, 96, dist);
+  const roll =
+    Math.sin(x * 0.02 + 0.6) * 0.55 +
+    Math.cos(z * 0.017 - 0.4) * 0.4 +
+    Math.sin((x + z) * 0.011) * 0.35;
+  return base + rim * (1.45 + roll);
 }
 
 function smoothstep01(a: number, b: number, x: number): number {
@@ -70,13 +75,17 @@ function smoothstep01(a: number, b: number, x: number): number {
   return t * t * (3 - 2 * t);
 }
 
-function generateHeights(channels: readonly ChannelConfig[]): Float32Array {
-  // Pre-compute each channel's target floor in normalized (pre-HEIGHT_SCALE)
-  // space. The target is "natural-at-center minus carve depth".
-  const targets = channels.map((ch) => {
-    const naturalAtCenter = rawHeight(ch.centerX, ch.centerZ);
-    return naturalAtCenter - ch.depth / HEIGHT_SCALE;
-  });
+/** Uncarved ground in meters, including the spawn flatten. */
+function naturalMeters(x: number, z: number): number {
+  const h = rawHeight(x, z);
+  const flattening = Math.max(0, 1 - Math.hypot(x, z) / 30);
+  return h * (1 - 0.7 * flattening) * HEIGHT_SCALE;
+}
+
+function generateHeights(courses: readonly Watercourse[]): Float32Array {
+  for (const course of courses) {
+    for (const s of course.samples) s.waterY = naturalMeters(s.x, s.z);
+  }
   const bankHeightNorm = BANK_HEIGHT / HEIGHT_SCALE;
 
   const heights = new Float32Array(N * N);
@@ -91,40 +100,30 @@ function generateHeights(channels: readonly ChannelConfig[]): Float32Array {
       const flattening = Math.max(0, 1 - distFromOrigin / 30);
       let scaled = h * (1 - 0.7 * flattening);
 
-      for (let i = 0; i < channels.length; i++) {
-        const ch = channels[i]!;
-        const target = targets[i]!;
-        let dCross: number;
-        let dAlong: number;
-        if (ch.orientation === 'NS') {
-          dCross = Math.abs(x - ch.centerX);
-          dAlong = Math.abs(z - ch.centerZ);
-        } else {
-          dCross = Math.abs(z - ch.centerZ);
-          dAlong = Math.abs(x - ch.centerX);
-        }
-        if (dAlong > ch.halfLength) continue;
+      for (const course of courses) {
+        const q = course.nearest(x, z);
+        const endFade = 1 - smoothstep01(1.6, 4.2, Math.abs(q.alongDist));
+        if (endFade <= 0) continue;
+        const dCross = Math.abs(q.lateral);
+        const hw = q.sample.halfWidth;
+        const target = (q.sample.waterY - q.sample.depth) / HEIGHT_SCALE;
 
-        // Riverbed pull-down. Inside halfWidth the floor merges to target;
-        // bidirectional so natural valleys also get pulled UP to target if
-        // they happen to be below it. Quadratic shape (1 - t²) keeps the bed
-        // flat at the centerline and curves up gently to the water edge.
-        if (dCross < ch.halfWidth) {
-          const t = dCross / ch.halfWidth;
-          const bedShape = 1 - t * t;
-          scaled = scaled + (target - scaled) * bedShape;
+        if (dCross < hw) {
+          const t = dCross / hw;
+          let bedShape = 1 - t * t;
+          if (q.sample.bar !== 0 && Math.sign(q.lateral || 1) === q.sample.bar) {
+            const band = smoothstep01(0.12, 0.32, t) * (1 - smoothstep01(0.72, 0.95, t));
+            bedShape *= 1 - 0.94 * band;
+            scaled += (0.1 / HEIGHT_SCALE) * band * endFade;
+          }
+          scaled = scaled + (target - scaled) * bedShape * endFade;
         }
 
-        // Bank raise. Between halfWidth and halfWidth + BANK_WIDTH the
-        // terrain is pushed UP by BANK_HEIGHT × sin(πt), peaking at the
-        // middle of the bank zone — so the bank rises smoothly out of the
-        // water edge, crests, and falls back to natural at the outer side.
-        const bankInner = ch.halfWidth;
-        const bankOuter = ch.halfWidth + BANK_WIDTH;
+        const bankInner = hw;
+        const bankOuter = hw + BANK_WIDTH;
         if (dCross > bankInner && dCross < bankOuter) {
           const t = (dCross - bankInner) / BANK_WIDTH;
-          const bankShape = Math.sin(t * Math.PI);
-          scaled += bankHeightNorm * bankShape;
+          scaled += bankHeightNorm * Math.sin(t * Math.PI) * endFade;
         }
       }
 
@@ -133,6 +132,36 @@ function generateHeights(channels: readonly ChannelConfig[]): Float32Array {
   }
   return heights;
 }
+
+// Worn tracks between town, camp, the creek, and the mines. Each vec4 is
+// start.xy, end.zw in world XZ. The creek end sits on Coyote's near bend.
+const PATHS: THREE.Vector4[] = [
+  new THREE.Vector4(0, 1, -13, 10),
+  new THREE.Vector4(-13, 10, -7, 5),
+  new THREE.Vector4(-7, 5, -15, 0),
+  new THREE.Vector4(-10, -3, 0, 0),
+  new THREE.Vector4(0, 2, 12, 6),
+  new THREE.Vector4(12, 6, 24, 2),
+  new THREE.Vector4(-7, 5, -22, -16),
+  new THREE.Vector4(-22, -16, -45, -45),
+  new THREE.Vector4(6, -6, 40, -72),
+  new THREE.Vector4(24, 8, 62, 18),
+  new THREE.Vector4(-21, -18, -21, 26),
+  new THREE.Vector4(-20, 6, 24, 10),
+];
+
+const LAMP_POS: THREE.Vector3[] = [
+  new THREE.Vector3(-13, 1.7, 10),
+  new THREE.Vector3(-7, 1.35, 5),
+  new THREE.Vector3(-15, 1.6, 0),
+  new THREE.Vector3(-10, 1.55, -3),
+];
+const LAMP_COLOR: THREE.Color[] = [
+  new THREE.Color(0xffb15a),
+  new THREE.Color(0xffc27a),
+  new THREE.Color(0xffb15a),
+  new THREE.Color(0xffd09a),
+];
 
 const TERRAIN_VS = /* glsl */ `
   attribute float aBankMask;
@@ -154,7 +183,10 @@ const TERRAIN_VS = /* glsl */ `
 
     #include <begin_vertex>
     #include <project_vertex>
-    #include <worldpos_vertex>
+    // This Three build's project_vertex does not declare worldPosition.
+    // The shadow chunk still reads that name, and the creek mirror compiles
+    // the material once with the shadow pass paused.
+    vec4 worldPosition = modelMatrix * vec4(transformed, 1.0);
     vWorld = worldPosition.xyz;
     vColor = color;
     vBankMask = aBankMask;
@@ -172,6 +204,12 @@ const TERRAIN_FS = /* glsl */ `
   uniform sampler2D uDirt;
   uniform sampler2D uGravel;
   uniform sampler2D uRock;
+  uniform sampler2D uDetail;
+  uniform vec4 uPaths[12];
+  uniform vec4 uPay[32];
+  uniform vec3 uLampPos[4];
+  uniform vec3 uLampColor[4];
+  uniform float uLampRange;
   varying vec3 vWorld;
   varying vec3 vNormal;
   varying vec3 vColor;
@@ -196,14 +234,18 @@ const TERRAIN_FS = /* glsl */ `
     return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
   }
 
-  vec3 triplanar(sampler2D tex, vec3 pos, vec3 n) {
+  vec3 triplanarScaled(sampler2D tex, vec3 pos, vec3 n, float scale) {
     vec3 w = abs(n);
-    w = pow(w, vec3(3.0));
+    // Steep faces take the side projections so a slope does not stretch the XZ tile.
+    w = pow(w, vec3(4.0));
     w /= max(w.x + w.y + w.z, 1e-4);
-    vec3 x = texture2D(tex, pos.zy * 0.18).rgb;
-    vec3 y = texture2D(tex, pos.xz * 0.18).rgb;
-    vec3 z = texture2D(tex, pos.xy * 0.18).rgb;
+    vec3 x = texture2D(tex, pos.zy * scale).rgb;
+    vec3 y = texture2D(tex, pos.xz * scale).rgb;
+    vec3 z = texture2D(tex, pos.xy * scale).rgb;
     return x * w.x + y * w.y + z * w.z;
+  }
+  vec3 triplanar(sampler2D tex, vec3 pos, vec3 n) {
+    return triplanarScaled(tex, pos, n, 0.18);
   }
 
   void main() {
@@ -223,15 +265,76 @@ const TERRAIN_FS = /* glsl */ `
     float dirtW = (1.0 - grassW) * (1.0 - rockW) * (1.0 - gravelW * 0.65);
     float sumW = max(grassW + dirtW + gravelW + rockW, 1e-3);
     vec3 tex = (grass * grassW + dirt * dirtW + gravel * gravelW + rock * rockW) / sumW;
+    // A separate high-frequency map, only inside about 30 m. Resampling the
+    // broad tile up close was the smeared streak. Skip the fetches past that.
+    float detailW = 1.0 - smoothstep(6.0, 30.0, distance(cameraPosition, vWorld));
+    if (detailW > 0.02) {
+      vec3 detail = triplanarScaled(uDetail, vWorld, n0, 3.4);
+      tex *= mix(vec3(1.0), detail * 1.45, detailW * 0.72);
+    }
 
     // Vertex color is a mild biome brightness, not a second photograph.
     vec3 albedo = tex * mix(vec3(1.08), vColor * 1.15, 0.12);
-    float macro = noise(worldXZ * 0.012);
+    // About 50 m. Olive to muted ochre, staying inside the meadow palette.
+    float macro = noise(worldXZ * 0.02);
+    vec3 coolPatch = vec3(0.84, 0.92, 0.74);
+    vec3 warmPatch = vec3(1.02, 0.90, 0.70);
+    albedo *= mix(coolPatch, warmPatch, macro);
     float mottle = noise(worldXZ * 0.045 + 4.0);
-    albedo *= mix(0.78, 1.22, macro);
-    albedo.r *= mix(0.92, 1.12, mottle);
-    albedo.g *= mix(1.08, 0.9, mottle);
-    float rough = mix(0.92, 0.72, maskShaped);
+    albedo *= mix(0.94, 1.05, mottle);
+    float rough = mix(0.92, 0.78, maskShaped);
+    // Wet sand just outside the channel. Darker and cooler than the dry bank,
+    // so the waterline is not a chalk ring.
+    float wetBand = smoothstep(0.18, 0.62, maskShaped);
+    albedo = mix(albedo, albedo * vec3(0.7, 0.76, 0.72), wetBand * 0.4);
+    // Wet bank: the gravel lip goes dark where it meets the water.
+    albedo *= mix(1.0, 0.56, smoothstep(0.15, 0.95, vBankMask));
+
+    float wear = 0.0;
+    for (int i = 0; i < 12; i++) {
+      vec2 a = uPaths[i].xy;
+      vec2 b = uPaths[i].zw;
+      vec2 ab = b - a;
+      float denom = max(dot(ab, ab), 0.001);
+      float tt = clamp(dot(worldXZ - a, ab) / denom, 0.0, 1.0);
+      float pd = length(worldXZ - (a + ab * tt));
+      wear = max(wear, 1.0 - smoothstep(0.35, 1.7, pd));
+    }
+    float pathPatch = smoothstep(0.38, 0.78, noise(worldXZ * 1.7 + 2.0));
+    vec3 pathDirt = dirt * vec3(0.62, 0.52, 0.40);
+    albedo = mix(albedo, pathDirt, wear * pathPatch);
+
+    // Pay tells blended into the splat. xy center, z radius, w kind
+    // (1 black sand, 2 gravel, 3 quartz, 4 bedrock). Gameplay fills these.
+    for (int i = 0; i < 32; i++) {
+      float r = uPay[i].z;
+      if (r < 0.05) continue;
+      float d = length(worldXZ - uPay[i].xy);
+      float w = 1.0 - smoothstep(r * 0.28, r, d);
+      if (w < 0.02) continue;
+      float kind = uPay[i].w;
+      vec3 tint = gravel;
+      float amt = 0.62;
+      float fleck = smoothstep(0.78, 0.95, noise(worldXZ * 11.0 + kind * 2.0));
+      if (kind < 1.5) {
+        tint = dirt * vec3(0.08, 0.07, 0.06);
+        amt = 0.9;
+        tint += vec3(1.15, 0.72, 0.16) * fleck;
+      } else if (kind < 2.5) {
+        tint = gravel * vec3(1.05, 0.92, 0.7);
+        amt = 0.8;
+        tint += vec3(0.9, 0.55, 0.12) * fleck * 0.85;
+      } else if (kind < 3.5) {
+        tint = vec3(0.92, 0.9, 0.84);
+        amt = 0.72;
+      } else {
+        tint = rock * vec3(0.45, 0.5, 0.58);
+        amt = 0.78;
+      }
+      float grit = noise(worldXZ * 2.8 + kind * 3.0);
+      w *= smoothstep(0.12, 0.62, grit * 0.65 + w);
+      albedo = mix(albedo, tint, clamp(w * amt, 0.0, 0.88));
+    }
 
     // Detail normal from the same hash noise, added in world XZ so lighting
     // breaks up the heightfield's large facets without extra vertices.
@@ -254,11 +357,12 @@ const TERRAIN_FS = /* glsl */ `
         );
       #endif
     #endif
-    // Keep a readable floor. Pitch-black shade fights the stylized kit.
-    shadow = mix(0.38, 1.0, shadow);
-
     vec3 sunDir = normalize(uSunDir);
-    float wrap = clamp(dot(n, sunDir) * 0.62 + 0.38, 0.0, 1.0);
+    // Soft wrap at noon. Once the sun drops, shade falls back to the cool
+    // fill so dusk and night are not one warm wash.
+    float sunUp = smoothstep(-0.02, 0.32, sunDir.y);
+    shadow = mix(mix(0.18, 0.38, sunUp), 1.0, shadow);
+    float wrap = clamp(dot(n, sunDir) * mix(0.92, 0.62, sunUp) + mix(0.04, 0.38, sunUp), 0.0, 1.0);
     float hemiW = clamp(n.y * 0.5 + 0.5, 0.0, 1.0);
     vec3 gi = uAmbientColor * (uAmbientIntensity * 0.65)
             + mix(uHemiGround, uHemiSky, hemiW) * uHemiIntensity;
@@ -270,7 +374,7 @@ const TERRAIN_FS = /* glsl */ `
     float specPow = mix(12.0, 72.0, clamp(1.0 - rough, 0.0, 1.0));
     float spec = pow(max(dot(n, halfDir), 0.0), specPow) * (1.0 - rough);
     // Banks read wet; open ground stays matte.
-    spec *= shadow * mix(0.03, 0.32, maskShaped);
+    spec *= shadow * mix(0.03, 0.12, maskShaped);
     lit += uSunColor * spec * uSunIntensity;
 
     // Caustics on the wet bed. Scrolling product noise, only where the
@@ -279,6 +383,13 @@ const TERRAIN_FS = /* glsl */ `
     float cauB = noise(worldXZ * 4.1 + vec2(uTime * 0.22, -uTime * 0.28));
     float caustic = smoothstep(0.55, 0.92, cauA * cauB) * maskShaped * shadow;
     lit += vec3(0.45, 0.85, 0.78) * caustic * uSunIntensity * 0.55;
+
+    float night = 1.0 - smoothstep(-0.05, 0.28, uSunDir.y);
+    for (int i = 0; i < 4; i++) {
+      float ld = distance(vWorld, uLampPos[i]);
+      float att = clamp(1.0 - ld / uLampRange, 0.0, 1.0);
+      lit += uLampColor[i] * att * att * night * 0.55;
+    }
 
     gl_FragColor = vec4(lit, 1.0);
     #include <fog_fragment>
@@ -302,7 +413,7 @@ const COLOR_SAND = new THREE.Color(0xc2b39a);
 function paintVertexColors(
   geom: THREE.BufferGeometry,
   heights: Float32Array,
-  channels: readonly ChannelConfig[],
+  courses: readonly Watercourse[],
 ): void {
   const positions = geom.attributes.position;
   if (!positions) return;
@@ -333,40 +444,23 @@ function paintVertexColors(
 
       let sandFactor = 0;
       let bankMask = 0;
-      for (const ch of channels) {
-        let dCross: number;
-        let dAlong: number;
-        if (ch.orientation === 'NS') {
-          dCross = Math.abs(wx - ch.centerX);
-          dAlong = Math.abs(wz - ch.centerZ);
-        } else {
-          dCross = Math.abs(wz - ch.centerZ);
-          dAlong = Math.abs(wx - ch.centerX);
-        }
-        // Channel is only relevant within its own length plus a small fade-out
-        // at the ends — past that, the bank/sand contribution is zero.
-        const alongFade = smoothstep01(ch.halfLength + 1.5, ch.halfLength - 1.5, dAlong);
+      for (const course of courses) {
+        const q = course.nearest(wx, wz);
+        const alongFade = 1 - smoothstep01(1.6, 4.2, Math.abs(q.alongDist));
         if (alongFade <= 0) continue;
-
-        const bankOuter = ch.halfWidth + BANK_WIDTH;
+        const dCross = Math.abs(q.lateral);
+        const bankOuter = q.sample.halfWidth + BANK_WIDTH;
         const blendOuter = bankOuter + BANK_TRANSITION;
         let mask = 0;
-        if (dCross < bankOuter) {
-          mask = 1;
-        } else if (dCross < blendOuter) {
-          mask = 1 - smoothstep01(bankOuter, blendOuter, dCross);
-        }
+        if (dCross < bankOuter) mask = 1;
+        else if (dCross < blendOuter) mask = 1 - smoothstep01(bankOuter, blendOuter, dCross);
         bankMask = Math.max(bankMask, mask * alongFade);
-
-        // Sand vertex tint extends a bit into the transition zone so banks
-        // read sandy underneath the rocks texture even if the texture blend
-        // hasn't fully kicked in yet.
         if (dCross < blendOuter) {
-          const sandEnd = ch.halfWidth * 1.6;
+          const sandEnd = q.sample.halfWidth * 1.6;
           if (dCross < sandEnd) {
             const t = Math.max(
               0,
-              (dCross - ch.halfWidth) / Math.max(0.001, sandEnd - ch.halfWidth),
+              (dCross - q.sample.halfWidth) / Math.max(0.001, sandEnd - q.sample.halfWidth),
             );
             sandFactor = Math.max(sandFactor, (1 - t) * alongFade);
           }
@@ -440,8 +534,8 @@ function sliceChunk(
   return geom;
 }
 
-export function createTerrain(world: RAPIER.World, channels: readonly ChannelConfig[]): Terrain {
-  const heights = generateHeights(channels);
+export function createTerrain(world: RAPIER.World, courses: readonly Watercourse[]): Terrain {
+  const heights = generateHeights(courses);
 
   const geom = new THREE.PlaneGeometry(EXTENT_X, EXTENT_Z, SUBDIVS, SUBDIVS);
   geom.rotateX(-Math.PI / 2);
@@ -456,7 +550,7 @@ export function createTerrain(world: RAPIER.World, channels: readonly ChannelCon
   positions.needsUpdate = true;
   geom.computeVertexNormals();
 
-  paintVertexColors(geom, heights, channels);
+  paintVertexColors(geom, heights, courses);
 
   const painted = groundMaps();
   const uniforms = THREE.UniformsUtils.merge([
@@ -467,6 +561,12 @@ export function createTerrain(world: RAPIER.World, channels: readonly ChannelCon
       uDirt: { value: painted.dirt },
       uGravel: { value: painted.gravel },
       uRock: { value: painted.rock },
+      uDetail: { value: groundDetailMap() },
+      uPaths: { value: PATHS },
+      uPay: { value: Array.from({ length: 32 }, () => new THREE.Vector4()) },
+      uLampPos: { value: LAMP_POS },
+      uLampColor: { value: LAMP_COLOR },
+      uLampRange: { value: 7 },
     },
   ]);
   bindFrameUniforms(uniforms);
@@ -509,6 +609,8 @@ export function createTerrain(world: RAPIER.World, channels: readonly ChannelCon
   const colliderDesc = RAPIER.ColliderDesc.heightfield(SUBDIVS, SUBDIVS, heights, scale);
   const collider = world.createCollider(colliderDesc);
 
+  const paySlots = uniforms.uPay!.value as THREE.Vector4[];
+
   return {
     mesh,
     collider,
@@ -531,6 +633,14 @@ export function createTerrain(world: RAPIER.World, channels: readonly ChannelCon
       const h0 = h00 + (h10 - h00) * tx;
       const h1 = h01 + (h11 - h01) * tx;
       return (h0 + (h1 - h0) * tz) * HEIGHT_SCALE;
+    },
+    setPayStreaks(marks) {
+      for (let i = 0; i < paySlots.length; i++) {
+        const mark = marks[i];
+        const slot = paySlots[i]!;
+        if (!mark) slot.set(0, 0, 0, 0);
+        else slot.set(mark.x, mark.z, mark.radius, mark.kind);
+      }
     },
   };
 }

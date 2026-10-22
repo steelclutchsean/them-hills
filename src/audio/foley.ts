@@ -24,7 +24,23 @@ export interface Foley {
   close(): void;
   confirm(): void;
   pluck(rate: number): void;
+  /** Gameplay-event one-shots. Clips are the sampled beds already in the bank. */
+  world(name: WorldCue, rate?: number): void;
 }
+
+export type WorldCue =
+  | 'wash'
+  | 'spill'
+  | 'sample'
+  | 'stake'
+  | 'jumper'
+  | 'rise'
+  | 'rocker'
+  | 'sluice'
+  | 'tom'
+  | 'monitor'
+  | 'coins'
+  | 'chime';
 
 const FEET: Record<Surface, readonly string[]> = {
   grass: SFX.footGrass,
@@ -215,6 +231,44 @@ export function createFoley(mixer: AudioMixer, bank: AudioBank): Foley {
     },
     pluck(rate) {
       shot(SFX.uiPluck, 0.2, { spatial: false, rate });
+    },
+    world(name, rate = 1) {
+      const r = Math.max(0.5, Math.min(1.6, rate));
+      if (name === 'wash' || name === 'sluice' || name === 'rise') {
+        shot(SFX.slosh, name === 'rise' ? 0.62 : 0.5, { rate: r });
+        if (name === 'rise') shot(SFX.footWater, 0.4, { rate: 0.86, delay: 0.06 });
+        return;
+      }
+      if (name === 'spill') {
+        shot(SFX.slosh, 0.34, { rate: 1.15 });
+        shot(SFX.gold, 0.22, { rate: 1.3, delay: 0.05 });
+        return;
+      }
+      if (name === 'sample' || name === 'tom') {
+        shot(SFX.dirt, 0.48, { rate: r });
+        shot(SFX.footGravel, 0.36, { rate: 0.94, delay: 0.04 });
+        return;
+      }
+      if (name === 'stake' || name === 'rocker') {
+        shot(SFX.footWood, 0.55, { rate: name === 'rocker' ? r : 0.82 });
+        shot(SFX.dig, name === 'stake' ? 0.42 : 0.28, { rate: 0.9, delay: 0.03 });
+        return;
+      }
+      if (name === 'monitor') {
+        shot(SFX.slosh, 0.58, { rate: 1.22 });
+        shot(SFX.footWater, 0.32, { rate: 1.4, delay: 0.04 });
+        return;
+      }
+      if (name === 'jumper') {
+        shot(SFX.dig, 0.46, { rate: 0.78 });
+        shot(SFX.footWood, 0.34, { rate: 1.18, delay: 0.08 });
+        return;
+      }
+      if (name === 'coins') {
+        shot(SFX.coins, 0.5, { spatial: false, rate: r });
+        return;
+      }
+      shot(SFX.uiPluck, 0.28, { spatial: false, rate: r });
     },
   };
 }

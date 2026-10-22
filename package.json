@@ -14,6 +14,7 @@
     "lint": "eslint src",
     "format": "prettier --write \"src/**/*.{ts,css,html}\" \"*.{json,ts}\"",
     "format:check": "prettier --check \"src/**/*.{ts,css,html}\" \"*.{json,ts}\"",
+    "test:ridge": "mkdir -p node_modules/.cache && esbuild src/game/ridge-pines.test.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/ridge-pines.test.mjs && node node_modules/.cache/ridge-pines.test.mjs",
     "test:smoke": "npm run build && playwright test"
   },
   "dependencies": {

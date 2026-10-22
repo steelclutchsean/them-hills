@@ -227,7 +227,8 @@ export function createCollectMinigame(): Minigame {
         viz,
       };
 
-      if (sessionTime >= STAGE_DURATION_SEC) {
+      const allPlucked = flakes.length > 0 && flakes.every((f) => f.suckProgress >= 1);
+      if (sessionTime >= STAGE_DURATION_SEC || allPlucked) {
         const ratio = collected / Math.max(1, flakes.length);
         const score = Math.max(
           profile.floorScore,

@@ -9,7 +9,7 @@
 import { allAudioUrls, IMPULSE, type Attention, type MusicCue } from './catalog';
 import { createAmbience } from './ambience';
 import { createAudioBank } from './bank';
-import { createFoley } from './foley';
+import { createFoley, type WorldCue } from './foley';
 import { createMixer, type MixLevels } from './mixer';
 import { createMusic } from './music';
 import { surfaceAt, type Surface } from './zones';
@@ -70,6 +70,8 @@ export interface AudioSystem {
   playStageComplete(stageIdx: number): void;
   playFind(grams: number, detail?: { nuggetGrams?: number; firstFind?: boolean }): void;
   playSale(): void;
+  /** One-shot for a gameplay event. Uses the sampled foley bank. */
+  playWorld(name: WorldCue, rate?: number): void;
   isEnabled(): boolean;
   setMasterVolume(value: number): void;
   setMusicVolume(value: number): void;
@@ -334,6 +336,10 @@ export function createAudioSystem(): AudioSystem {
       if (!ready() || !music) return;
       music.stinger('sale');
       foley!.coins();
+    },
+    playWorld(name, rate) {
+      if (!ready()) return;
+      foley!.world(name, rate);
     },
     setMasterVolume(value) {
       levels.master = clamp01(value);

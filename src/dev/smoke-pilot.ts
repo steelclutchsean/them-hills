@@ -48,11 +48,89 @@ export interface ThemHillsProbe {
   loopComplete: boolean;
   error: string | null;
   frameLuma: number;
+  drawCalls: number;
+  triangles: number;
+  frameMs: number;
+  frameBudget: { frameMs: number; drawCalls: number; triangles: number };
   peakCarryGrams: number;
   graphics: string;
+  mirrorMode?: number;
+  mirrorHorizon?: number;
+  probeReady?: boolean;
+  planarMatch?: number;
+  planarContrast?: number;
+  rebakeProbes?: () => void;
+  saveVersion: number;
+  panTier: number;
+  claimCount: number;
+  geologyMarks: number;
+  sampleHoles: number;
+  machineCount: number;
+  activeViz: string | null;
   save: () => Promise<void>;
+  /** A v4-shaped copy of the live save, for the migration smoke. */
+  exportLegacyV4: () => unknown;
+  /** Live price of the next tier, read from equipment config. */
+  upgradeCost: (category: string) => number | null;
+  buyUpgrade: (category: string) => boolean;
+  stakeClaim: () => { ok: boolean; reason: string };
+  prepareShowcase: () => { x: number; z: number };
+  startMachine: (kind: string) => boolean;
+  cancelProspect: () => void;
+  lookAt: (x: number, z: number) => void;
+  spawnJumper: () => boolean;
   /** Teleport to a named review camera. Returns false for an unknown name. */
   applyShot?: (name: string) => boolean;
+  /** Art-review camera nudge. Yaw, pitch, arm. */
+  framePose?: (yaw: number, pitch: number, arm: number) => void;
+  /** Open a story card or a world-event preview for capture. */
+  previewScene?: (who: string) => boolean;
+  /** Walk the player into the north drift and use the interior eye camera. */
+  enterDrift?: () => boolean;
+  standInDrift?: (localZ: number) => boolean;
+  driftLocalZ?: () => number;
+  driftPhase?: () => string;
+  driftClock?: () => number;
+  /**
+   * Last presented frame's near-black ratio, plus which of `need` are in the frustum.
+   * A capture fails when `black` is above 0.9 or `missing` is not empty.
+   */
+  sceneView?: (need: string[]) => { black: number; present: string[]; missing: string[] };
+  waterRise?: number;
+  blackRatio?: number;
+  /** True once the bucket line has swapped off the proxy heads. */
+  crewReady?: () => boolean;
+  scatterCount?: () => number;
+  /** Props inside a building box, and props standing in the creek channel. */
+  propAudit?: () => { overlaps: string[]; intruders: string[] };
+  /** Visible meshes wearing the default white material or an untextured gray. */
+  bareMeshes?: () => string[];
+  /** Hats parented to a head bone. `floating` is the ones whose box misses the skull. */
+  hatFit?: () => { checked: number; floating: string[] };
+  /** Live clip. `bind` is true only when an arm is back in the T-pose. */
+  playerPose: { clip: string; bind: boolean };
+  /** Camera yaw in radians. Movement is relative to this. */
+  yaw?: number;
+  /** Live prospect meter, so a playtest can read the same timing a player sees. */
+  prospect?: {
+    step: string;
+    awaiting: boolean;
+    action: string;
+    kind: string;
+    indicator?: number;
+    sweet?: number;
+    beat?: number;
+    cx?: number;
+    cy?: number;
+    radius?: number;
+    suction?: number;
+    flakes?: { x: number; y: number }[];
+    progress?: number;
+    phase?: string;
+    fuse?: number;
+    placed?: number;
+    rock?: number;
+  } | null;
   audio?: {
     context: string;
     buses: { master: boolean; music: boolean; sfx: boolean; ambience: boolean };
@@ -149,7 +227,7 @@ export function createSmokePilot(search = window.location.search): {
         }
         if (!world.site) return fail('no panning site');
         stand(world, world.site);
-        if (phaseTime > 3) return fail('prospect never started — not standing on a gold ring');
+        if (phaseTime > 3) return fail('prospect never started — not standing on a pay streak');
         if (phaseTime - lastNudge > 0.35) {
           lastNudge = phaseTime;
           return { ...ZERO, interact: true };
@@ -242,7 +320,7 @@ export function createSmokePilot(search = window.location.search): {
   }
 
   function driveMeter(viz: Extract<MinigameViz, { kind: 'dig' | 'strike' }>): SmokeDrive {
-    const distance = Math.abs(viz.indicator - 0.5);
+    const distance = Math.abs(viz.indicator - viz.sweetCenter);
     if (distance > 0.28) digArmed = true;
     if (digArmed && distance < 0.04) {
       digArmed = false;

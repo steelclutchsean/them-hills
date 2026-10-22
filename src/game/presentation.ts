@@ -24,6 +24,8 @@ export function presentProspectFind(opts: {
   nuggetGrams?: number;
   firstFind?: boolean;
 }): void {
+  const nugget = (opts.nuggetGrams ?? 0) >= 0.05;
+  const big = opts.grams >= 0.25 || nugget;
   const sparks = Math.round(14 + Math.min(22, opts.grams * 50));
   opts.effects.burstWorld(
     { x: opts.position.x, y: opts.position.y + 1.05, z: opts.position.z },
@@ -37,7 +39,12 @@ export function presentProspectFind(opts: {
     8,
     'dirt',
   );
-  opts.effects.shake(0.018, 0.2);
+  opts.effects.shake(big ? 0.055 : 0.018, big ? 0.38 : 0.2);
+  if (big) {
+    opts.effects.kickFov(nugget ? 6 : 4, 0.45);
+    opts.effects.rumble(nugget ? 180 : 120, nugget ? 0.8 : 0.4, nugget ? 0.55 : 0.25);
+  }
+  if (nugget) opts.effects.hitStop(0.16);
   opts.audio.playFind(opts.grams, {
     nuggetGrams: opts.nuggetGrams,
     firstFind: opts.firstFind,

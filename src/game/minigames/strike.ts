@@ -1,4 +1,4 @@
-import type { Minigame, MinigameUpdate, MinigameViz } from './types';
+import type { Minigame, MinigameUpdate, MinigameViz, StageOptions } from './types';
 
 // Strike minigame — pickaxe swings at a rock face. Shares the
 // timing-meter shape with dig.ts but tunes to a mining feel: bigger
@@ -47,9 +47,9 @@ export function createStrikeMinigame(): Minigame {
   }
 
   return {
-    start(toolTier: number) {
+    start(toolTier: number, options?: StageOptions) {
       const t = Math.max(1, Math.min(3, Math.floor(toolTier))) as 1 | 2 | 3;
-      profile = TIER_PROFILES[t];
+      profile = options?.asPick ? TIER_PROFILES[3] : TIER_PROFILES[t];
       swingsDone = 0;
       swingScores = [];
       sessionTime = 0;

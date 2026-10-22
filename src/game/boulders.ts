@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import { kitRockMaterial, stoneMaterial, timberDarkMaterial } from '@/render/painterly';
+import { kitRockMaterial, stoneMaterial } from '@/render/painterly';
+import { inTownClearing } from '@/game/biomes';
 import type { Terrain } from './terrain';
-import type { StreamConfig } from './stream';
+import type { Watercourse } from './watercourse';
 import { createRng } from './rng';
 
 // Procedural boulders, strategically placed near streams and the mine.
@@ -13,7 +14,7 @@ import { createRng } from './rng';
 // boulder gets a random diffuse, scale, displacement seed, and rotation,
 // so visible variety comes from the combination rather than any one factor.
 
-const ROCK_VARIANTS = [kitRockMaterial(), stoneMaterial(), timberDarkMaterial()];
+const ROCK_VARIANTS = [kitRockMaterial(), stoneMaterial()];
 
 /**
  * Sphere → boulder. Conservative per-vertex displacement so neighbors can't
@@ -61,10 +62,16 @@ function createBoulderGeometry(seed: number): THREE.BufferGeometry {
   return geom;
 }
 
+export interface BoulderWake {
+  streamId: string;
+  /** Packed for the water shader: xy = world xz, z = radius. */
+  rock: THREE.Vector3;
+}
+
 interface PlaceBouldersOpts {
   scene: THREE.Scene;
   terrain: Terrain;
-  streams: readonly StreamConfig[];
+  courses: readonly Watercourse[];
   /** Mine mouths. Boulders are kept out of the approach so the door reads. */
   minePositions: readonly THREE.Vector3[];
   /** Seed for the placement RNG. Default 0xb0. */
@@ -81,10 +88,12 @@ export interface BoulderField {
   count: number;
   /** Collision proxies — one ball per boulder, sized to the visual silhouette. */
   colliders: readonly BoulderCollider[];
+  /** In-stream stones that break the surface. The water shader foams behind them. */
+  wakes: readonly BoulderWake[];
 }
 
 export function placeBoulders(opts: PlaceBouldersOpts): BoulderField {
-  const { scene, terrain, streams, minePositions, seed = 0xb0 } = opts;
+  const { scene, terrain, courses, minePositions, seed = 0xb0 } = opts;
   const rng = createRng(seed);
 
   const variantMaterials = ROCK_VARIANTS;
@@ -94,6 +103,7 @@ export function placeBoulders(opts: PlaceBouldersOpts): BoulderField {
   scene.add(root);
   let placed = 0;
   const colliders: BoulderCollider[] = [];
+  const wakes: BoulderWake[] = [];
 
   function blocksEntrance(x: number, z: number): boolean {
     for (const mine of minePositions) {
@@ -107,24 +117,26 @@ export function placeBoulders(opts: PlaceBouldersOpts): BoulderField {
   }
 
   function placeOne(x: number, z: number, scaleRange: [number, number], submerge: number): void {
-    if (blocksEntrance(x, z)) return;
+    if (blocksEntrance(x, z) || inTownClearing(x, z)) return;
     const scale = scaleRange[0] + rng.next() * (scaleRange[1] - scaleRange[0]);
     const matIdx = rng.int(0, variantMaterials.length);
     const material = variantMaterials[matIdx];
     if (!material) return;
     const boulderGeom = createBoulderGeometry(Math.floor(rng.next() * 0xffffff));
     const mesh = new THREE.Mesh(boulderGeom, material);
+    mesh.name = 'boulder';
     mesh.scale.setScalar(scale);
     mesh.rotation.set(
       rng.range(0, Math.PI * 2),
       rng.range(0, Math.PI * 2),
       rng.range(0, Math.PI * 2),
     );
-    // Position so the boulder sits roughly half-buried — natural-looking
-    // for irregular shapes without flat bottoms. submerge pulls extra into
-    // the ground (in-stream boulders look like worn river stones).
+    // Seat on the carved ground. The center stays low so the stone reads
+    // as buried, not as a ball resting on the surface.
     const groundY = terrain.getHeightAt(x, z);
-    mesh.position.set(x, groundY + scale * 0.55 - submerge, z);
+    mesh.position.set(x, groundY + scale * 0.28 - submerge, z);
+    mesh.userData.townProp = true;
+    mesh.userData.propRadius = scale * 0.85;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     root.add(mesh);
@@ -141,35 +153,113 @@ export function placeBoulders(opts: PlaceBouldersOpts): BoulderField {
     });
   }
 
-  for (const s of streams) {
-    const ALONG_LEN = s.halfLength * 2;
-
-    // Bank-line boulders — clustered just outside the water on each side,
-    // sitting on the rising bank and the transition zone.
+  for (const course of courses) {
+    const samples = course.samples;
     for (let side = -1; side <= 1; side += 2) {
-      const COUNT_PER_SIDE = 8;
-      for (let i = 0; i < COUNT_PER_SIDE; i++) {
-        const t = (i + 0.2 + rng.next() * 0.6) / COUNT_PER_SIDE;
-        const along = (t - 0.5) * ALONG_LEN;
-        const cross = side * (s.halfWidth + 0.4 + rng.next() * 1.6);
-        const x = s.orientation === 'NS' ? s.centerX + cross : s.centerX + along;
-        const z = s.orientation === 'NS' ? s.centerZ + along : s.centerZ + cross;
-        placeOne(x, z, [0.55, 1.35], 0);
+      const countPerSide = 10;
+      for (let i = 0; i < countPerSide; i++) {
+        const sample = samples[Math.floor(((i + 0.2) / countPerSide) * (samples.length - 1))]!;
+        const cross = side * (sample.halfWidth + 1.8 + rng.next() * 2.1);
+        const x = sample.x + -sample.tz * cross;
+        const z = sample.z + sample.tx * cross;
+        if (courses.some((other) => other.contains(x, z, 0.4))) continue;
+        placeOne(x, z, [0.5, 1.3], 0);
       }
     }
 
-    // In-stream boulders — small to medium, slightly submerged so the
-    // water visibly flows around them.
-    const IN_COUNT = 6;
-    for (let i = 0; i < IN_COUNT; i++) {
-      const t = (i + 0.15 + rng.next() * 0.7) / IN_COUNT;
-      const along = (t - 0.5) * ALONG_LEN;
-      const cross = (rng.next() - 0.5) * s.halfWidth * 1.4;
-      const x = s.orientation === 'NS' ? s.centerX + cross : s.centerX + along;
-      const z = s.orientation === 'NS' ? s.centerZ + along : s.centerZ + cross;
-      placeOne(x, z, [0.35, 0.7], 0.25);
+    const inCount = course.id === 'coyote_creek' ? 8 : 5;
+    for (let i = 0; i < inCount; i++) {
+      const sample = samples[Math.floor(((i + 0.2) / inCount) * (samples.length - 1))]!;
+      const cross = (rng.next() - 0.5) * sample.halfWidth * 0.7;
+      const x = sample.x + -sample.tz * cross;
+      const z = sample.z + sample.tx * cross;
+      if (blocksEntrance(x, z) || inTownClearing(x, z)) continue;
+      const scale = 0.28 + rng.next() * 0.22;
+      const matIdx = rng.int(0, variantMaterials.length);
+      const material = variantMaterials[matIdx];
+      if (!material) continue;
+      const boulderGeom = createBoulderGeometry(Math.floor(rng.next() * 0xffffff));
+      const mesh = new THREE.Mesh(boulderGeom, material);
+      mesh.name = 'boulder';
+      mesh.scale.setScalar(scale);
+      mesh.rotation.set(rng.range(0, 0.4), rng.range(0, Math.PI * 2), rng.range(0, 0.3));
+      // The old placement used the pre-carve water surface, so the sphere
+      // sat on the creek like a floating barrel. Seat on the carved bed
+      // and let only a low crown break the surface.
+      const bed = terrain.getHeightAt(x, z);
+      const crown = Math.min(sample.waterY - scale * 0.55, bed + scale * 0.35);
+      mesh.position.set(x, crown, z);
+      mesh.userData.townProp = true;
+      mesh.userData.creekOk = true;
+      mesh.userData.propRadius = scale * 0.8;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      root.add(mesh);
+      placed++;
+      colliders.push({ pos: mesh.position.clone(), radius: scale * 0.55 });
+      wakes.push({ streamId: course.id, rock: new THREE.Vector3(x, z, scale * 0.7) });
     }
   }
+
+  // One stone in the Coyote pool the creek cameras frame, so the foam
+  // collar is in those shots and not only on a rock a bend away.
+  const coyote = courses.find((c) => c.id === 'coyote_creek');
+  if (coyote) {
+    let pool = coyote.samples[0];
+    let poolDist = Infinity;
+    for (const sample of coyote.samples) {
+      const dist = Math.abs(sample.z - 10);
+      if (dist < poolDist) {
+        poolDist = dist;
+        pool = sample;
+      }
+    }
+    if (pool) {
+      const x = pool.x - pool.tz * pool.halfWidth * 0.28;
+      const z = pool.z + pool.tx * pool.halfWidth * 0.28;
+      if (!blocksEntrance(x, z) && !inTownClearing(x, z)) {
+        const scale = 0.42;
+        const material = variantMaterials[0];
+        if (material) {
+          const mesh = new THREE.Mesh(createBoulderGeometry(0xc0c0a), material);
+          mesh.name = 'boulder';
+          mesh.scale.setScalar(scale);
+          const bed = terrain.getHeightAt(x, z);
+          const crown = Math.min(pool.waterY - scale * 0.5, bed + scale * 0.35);
+          mesh.position.set(x, crown, z);
+          mesh.userData.townProp = true;
+          mesh.userData.creekOk = true;
+          mesh.userData.propRadius = scale * 0.8;
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          root.add(mesh);
+          placed++;
+          colliders.push({ pos: mesh.position.clone(), radius: scale * 0.55 });
+          wakes.push({ streamId: coyote.id, rock: new THREE.Vector3(x, z, scale * 0.7) });
+        }
+      }
+    }
+  }
+
+  // The water shader only has eight wake slots. Keep the rocks nearest the
+  // reviewed stretch of each channel so foam shows up in the creek cameras.
+  const ranked: BoulderWake[] = [];
+  for (const course of courses) {
+    const hero =
+      course.id === 'coyote_creek'
+        ? { x: 25, z: 10 }
+        : { x: 0, z: course.samples[Math.floor(course.samples.length / 2)]?.z ?? 0 };
+    const mine = wakes
+      .filter((w) => w.streamId === course.id)
+      .sort((a, b) => {
+        const da = (a.rock.x - hero.x) ** 2 + (a.rock.y - hero.z) ** 2;
+        const db = (b.rock.x - hero.x) ** 2 + (b.rock.y - hero.z) ** 2;
+        return da - db;
+      });
+    ranked.push(...mine.slice(0, 8));
+  }
+  wakes.length = 0;
+  wakes.push(...ranked);
 
   // Mine-entrance ring — looks like rocks dislodged from carving the
   // entrance, scattered around the timber archway.
@@ -183,5 +273,5 @@ export function placeBoulders(opts: PlaceBouldersOpts): BoulderField {
     }
   }
 
-  return { group: root, count: placed, colliders };
+  return { group: root, count: placed, colliders, wakes };
 }

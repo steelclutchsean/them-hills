@@ -48,6 +48,8 @@ export interface CameraRig {
   /** Snap the rig. Used by the review-shot harness between screenshots. */
   setYawPitch(yaw: number, pitch: number): void;
   setArmLength(length: number): void;
+  /** Review shots over the creek turn this off so the bank doesn't pull the arm in. */
+  setAvoidance(on: boolean): void;
 }
 
 const X_AXIS = new THREE.Vector3(1, 0, 0);
@@ -73,6 +75,7 @@ export function createCameraRig(opts: CameraRigOpts): CameraRig {
   const rayOrigin = new RAPIER.Vector3(0, 0, 0);
   const rayDir = new RAPIER.Vector3(0, 0, 0);
   let shownDistance = armLength;
+  let avoidTerrain = true;
 
   return {
     camera,
@@ -104,19 +107,23 @@ export function createCameraRig(opts: CameraRigOpts): CameraRig {
       rayDir.y = dirY;
       rayDir.z = dirZ;
 
-      const ray = new RAPIER.Ray(rayOrigin, rayDir);
-      const excludeCollider = world.getCollider(excludeColliderHandle);
-      const hit = world.castRay(ray, armLength, true, undefined, undefined, excludeCollider);
-
       let desired = armLength;
-      if (hit !== null && hit.timeOfImpact > 0.35) {
-        desired = Math.max(MIN_CAMERA_DISTANCE, hit.timeOfImpact - RAY_BUFFER);
-      }
-
-      desiredCam.set(pivot.x + dirX * desired, pivot.y + dirY * desired, pivot.z + dirZ * desired);
-      const treeHit = fadeObstacles(pivot, desiredCam);
-      if (treeHit !== null && treeHit > 0.35 && treeHit < desired) {
-        desired = Math.max(MIN_CAMERA_DISTANCE, treeHit - RAY_BUFFER);
+      if (avoidTerrain) {
+        const ray = new RAPIER.Ray(rayOrigin, rayDir);
+        const excludeCollider = world.getCollider(excludeColliderHandle);
+        const hit = world.castRay(ray, armLength, true, undefined, undefined, excludeCollider);
+        if (hit !== null && hit.timeOfImpact > 0.35) {
+          desired = Math.max(MIN_CAMERA_DISTANCE, hit.timeOfImpact - RAY_BUFFER);
+        }
+        desiredCam.set(
+          pivot.x + dirX * desired,
+          pivot.y + dirY * desired,
+          pivot.z + dirZ * desired,
+        );
+        const treeHit = fadeObstacles(pivot, desiredCam);
+        if (treeHit !== null && treeHit > 0.35 && treeHit < desired) {
+          desired = Math.max(MIN_CAMERA_DISTANCE, treeHit - RAY_BUFFER);
+        }
       }
 
       // Pull in immediately when something is in the way; ease back out
@@ -143,6 +150,10 @@ export function createCameraRig(opts: CameraRigOpts): CameraRig {
     },
     setArmLength(length: number) {
       armLength = Math.max(MIN_CAMERA_DISTANCE, length);
+      shownDistance = armLength;
+    },
+    setAvoidance(on: boolean) {
+      avoidTerrain = on;
       shownDistance = armLength;
     },
   };

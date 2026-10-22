@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { RENDER_QUALITY } from '@/engine/quality';
+import { getQualityName, glRendererString, RENDER_QUALITY } from '@/engine/quality';
+import { applyGroundAnisotropy } from '@/render/painterly';
 import { createEnvironmentController, type EnvironmentController } from '@/engine/environment';
 import { createPostPipeline, type PostPipeline } from '@/engine/post';
 import type { SkyGrade } from '@/render/atmosphere';
@@ -25,6 +26,10 @@ export interface RendererBundle {
   render(): void;
   /** Re-read RENDER_QUALITY after a preset change. */
   applyGraphics(): void;
+  /** Screen position of the sun for the god-ray pass. */
+  setPostSun(x: number, y: number, elevation: number): void;
+  /** Desaturate the frame away from a screen point. Amount 0 disables it. */
+  setGradeFocus(x: number, y: number, amount: number): void;
   dispose(): void;
 }
 
@@ -45,6 +50,9 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererBundle {
   renderer.toneMappingExposure = RENDER_QUALITY.exposure;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // The composer renders several passes. Leave the counter alone so the
+  // frame budget can read the sum, and reset it once at the start of the frame.
+  renderer.info.autoReset = false;
 
   const scene = new THREE.Scene();
   scene.background = null;
@@ -138,8 +146,20 @@ export function createRenderer(canvas: HTMLCanvasElement): RendererBundle {
       sun.shadow.radius = RENDER_QUALITY.shadowRadius;
       sun.shadow.intensity = RENDER_QUALITY.shadowIntensity;
       scene.environmentIntensity = RENDER_QUALITY.environmentIntensity;
+      applyGroundAnisotropy(
+        renderer.capabilities.getMaxAnisotropy(),
+        getQualityName() === 'low',
+        /swiftshader|llvmpipe|softpipe/i.test(glRendererString(renderer.getContext())),
+      );
       post.bloom.strength = RENDER_QUALITY.bloomStrength;
+      post.applyQuality();
       post.setSize(window.innerWidth, window.innerHeight);
+    },
+    setPostSun(x: number, y: number, elevation: number) {
+      post.setSun(x, y, elevation);
+    },
+    setGradeFocus(x, y, amount) {
+      post.setFocus(x, y, amount);
     },
     render: () => post.render(),
     dispose: () => {

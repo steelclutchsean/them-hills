@@ -8,6 +8,12 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon.ico" sizes="32x32" />
     <style>
+      :root {
+        --text-scale: 1;
+        --paper: #f3e6c8;
+        --ink: #2a2118;
+        --gold-ink: #8a5a12;
+      }
       html,
       body {
         margin: 0;
@@ -15,7 +21,8 @@
         height: 100%;
         overflow: hidden;
         background: #000;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-family: Palatino, 'Iowan Old Style', Palatino Linotype, Georgia, serif;
+        font-size: calc(16px * var(--text-scale));
         color: #fff;
       }
       #game-canvas {
@@ -43,40 +50,47 @@
       #boot {
         position: fixed;
         inset: 0;
-        z-index: 40;
+        z-index: 22;
         display: flex;
         align-items: center;
-        justify-content: center;
-        background:
-          radial-gradient(ellipse at 50% 30%, rgba(200, 155, 59, 0.18), transparent 55%), #141a22;
-        pointer-events: auto;
+        justify-content: flex-end;
+        padding: 28px 6vw;
+        background: #1b140e;
+        pointer-events: none;
+      }
+      body[data-cinema='1'] #boot {
+        background: transparent;
       }
       #boot[hidden] {
         display: none;
       }
       .boot-card {
-        width: min(440px, calc(100vw - 32px));
-        padding: 28px 28px 22px;
-        border: 1px solid rgba(200, 155, 59, 0.45);
-        border-radius: 14px;
-        background: rgba(8, 10, 14, 0.88);
-        box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+        pointer-events: auto;
+        width: min(380px, calc(100vw - 32px));
+        padding: 32px 28px 24px;
+        border: 1px solid #8a6a3b;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+        background:
+          repeating-linear-gradient(0deg, rgba(90, 60, 30, 0.04) 0 1px, transparent 1px 7px),
+          #f3e6c8;
+        color: #2a2118;
       }
       .boot-kicker {
         margin: 0;
         letter-spacing: 0.22em;
         text-transform: uppercase;
-        color: #c89b3b;
+        color: #8a5a12;
         font-size: 12px;
       }
       .boot-card h1 {
         margin: 6px 0 12px;
-        font-size: 32px;
+        font-size: 40px;
         font-weight: 650;
+        letter-spacing: 0.02em;
       }
       #boot-status {
         margin: 0 0 14px;
-        color: rgba(255, 255, 255, 0.82);
+        color: #3a2e24;
         line-height: 1.45;
       }
       .boot-track {
@@ -94,19 +108,49 @@
       .panel-card ul {
         margin: 8px 0 16px;
         padding-left: 18px;
-        color: rgba(255, 255, 255, 0.82);
+        color: #3a2e24;
         line-height: 1.55;
       }
+      #boot-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-top: 12px;
+      }
       #boot-start,
+      #boot-new,
+      #boot-settings,
       .panel-actions button {
         font: inherit;
-        color: #1a1408;
-        background: #e2c27a;
-        border: 0;
-        border-radius: 8px;
+        color: #2a2118;
+        background: #f7edd4;
+        border: 1px solid #8a6a3b;
+        border-bottom-width: 3px;
+        border-radius: 3px;
         padding: 10px 16px;
         cursor: pointer;
         font-weight: 650;
+      }
+      #boot-start {
+        background: #6b3e16;
+        color: #f3e6c8;
+      }
+      #boot-start:hover,
+      #boot-new:hover,
+      #boot-settings:hover,
+      .panel-actions button:hover,
+      #boot-start.is-selected,
+      #boot-new.is-selected,
+      #boot-settings.is-selected,
+      .panel-actions button.is-selected {
+        background: #8a5a12;
+        color: #f7edd4;
+      }
+      #boot-start:active,
+      #boot-new:active,
+      #boot-settings:active,
+      .panel-actions button:active {
+        transform: translateY(1px);
       }
       .panel-scrim {
         position: fixed;
@@ -121,25 +165,45 @@
         top: 50%;
         left: 50%;
         transform: translate(-50%, -50%);
-        width: min(440px, calc(100vw - 32px));
-        max-height: min(80vh, 640px);
+        width: min(520px, calc(100vw - 32px));
+        max-height: min(84vh, 720px);
         overflow: auto;
         padding: 22px 24px;
-        border-radius: 14px;
-        border: 1px solid rgba(200, 155, 59, 0.45);
-        background: rgba(8, 10, 14, 0.94);
+        border-radius: 3px;
+        border: 1px solid #8a6a3b;
+        background:
+          repeating-linear-gradient(0deg, rgba(90, 60, 30, 0.04) 0 1px, transparent 1px 7px),
+          #f3e6c8;
+        color: #2a2118;
         pointer-events: auto;
+        box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35);
       }
       .panel-card h2 {
         margin: 0 0 8px;
         letter-spacing: 0.16em;
         text-transform: uppercase;
-        color: #c89b3b;
-        font-size: 14px;
+        color: #6b3e16;
+        font-size: 18px;
+      }
+      .panel-kicker {
+        margin: 14px 0 6px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        font-size: 12px;
+        color: #8a5a12;
       }
       .panel-actions {
         display: flex;
+        flex-wrap: wrap;
         gap: 8px;
+        margin-bottom: 6px;
+      }
+      .panel-books .panel-actions button:first-child {
+        flex: 1;
+        text-align: left;
+      }
+      body[data-journal='1'] .panel-card {
+        width: min(560px, calc(100vw - 32px));
       }
       body[data-map='1'] .panel-card {
         top: 18px;

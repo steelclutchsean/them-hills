@@ -1,24 +1,13 @@
 import * as THREE from 'three';
 import { RAPIER } from '@/physics/world';
 import type { MoveInput } from '@/input/manager';
-import {
-  applyClassify,
-  applyCollect,
-  applyDig,
-  applyFalling,
-  applyIdle,
-  applyJumping,
-  applyLanded,
-  applyPan,
-  applyRun,
-  applyWalk,
-} from './character-animations';
+import { armsAreBind, loadMotion, type MotionPlayer, type PoseClip } from './character-clips';
 import { loadCharacter, type CharacterRig } from './character-asset';
 import { getReviewPose } from '@/dev/review-shots';
 
-// Movement, jump, gravity, stamina, a state machine for animation selection,
-// and a rigged glTF character (Quaternius "Universal Base Characters"). Animations
-// drive the skeleton bones procedurally — the pack ships no bundled motion clips.
+// Movement, jump, gravity, stamina, and a rigged glTF ranger. Motion is the
+// Quaternius CC0 library, retargeted in character-clips, with a light IK
+// pass for the tool and for feet on a slope.
 //
 // The character mesh is centered on the Rapier capsule center so the feet land on
 // the visual ground when the capsule's bottom rests on the heightfield.
@@ -27,8 +16,27 @@ export type CharacterState = 'idle' | 'walking' | 'running' | 'jumping' | 'falli
 
 /** Optional task overlay; if non-null it overrides movement-state animation. */
 export interface ProspectingActivity {
-  step: 'dig' | 'classify' | 'pan' | 'collect' | 'strike' | 'extract';
+  step:
+    | 'dig'
+    | 'classify'
+    | 'pan'
+    | 'collect'
+    | 'strike'
+    | 'extract'
+    | 'rocker'
+    | 'sluice'
+    | 'tom'
+    | 'monitor'
+    | 'drill'
+    | 'blast'
+    | 'muck';
   progress: number;
+}
+
+export interface PlayerPose {
+  clip: PoseClip;
+  /** True only if an upper arm is still out in the bind T. */
+  bind: boolean;
 }
 
 export interface CharacterOpts {
@@ -46,13 +54,32 @@ export interface Character {
     jumpDown: boolean,
     sprintDown: boolean,
     cameraYaw: number,
+    comfort?: { regenBonus: number; drainScale: number },
   ): void;
+  /** A dig swing spends a little stamina. Food and coffee lower the cost. */
+  spendStamina(amount: number): void;
   /** activity overrides movement animation when non-null (e.g. during prospecting). */
-  postStep(dt: number, time: number, activity: ProspectingActivity | null): void;
+  postStep(
+    dt: number,
+    time: number,
+    activity: ProspectingActivity | null,
+    pose?: {
+      menu?: boolean;
+      carrying?: boolean;
+      ground?: (x: number, z: number) => number;
+    },
+  ): void;
+  /** Clip name plus whether the arms have fallen back to the bind T. */
+  getPose(): PlayerPose;
   getPosition(): THREE.Vector3;
   /** Teleport the kinematic body. Used by the playtest pilot to reach a site. */
   placeAt(x: number, y: number, z: number): void;
+  /** Teleport and treat the body as already standing, so the next step does not fall. */
+  plant(x: number, y: number, z: number): void;
+  setYaw(yaw: number): void;
   getYaw(): number;
+  /** World point the dig or pan camera and the wrist aim share. */
+  getToolFocus(): THREE.Vector3;
   getState(): CharacterState;
   getStamina(): number;
   /** Used by camera ray-casts to exclude the character's own collider. */
@@ -81,6 +108,9 @@ const LANDED_DURATION = 0.18;
 
 const CAPSULE_HALF_HEIGHT = 0.5;
 const CAPSULE_RADIUS = 0.4;
+/** Capsule center when the feet are on the ground. Planting higher than this
+ *  plus the snap distance plays a landing stumble on the first step. */
+export const FOOT_OFFSET = CAPSULE_HALF_HEIGHT + CAPSULE_RADIUS;
 
 export async function createCharacter(opts: CharacterOpts): Promise<Character> {
   // ---- Rapier body + collider ----
@@ -100,6 +130,7 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
 
   // ---- Visual rig (loaded glTF) ----
   const rig: CharacterRig = await loadCharacter();
+  const motion: MotionPlayer = await loadMotion(rig);
   const group = rig.group;
   group.position.set(opts.initialPosition.x, opts.initialPosition.y, opts.initialPosition.z);
   group.rotation.y = opts.initialYaw;
@@ -126,6 +157,7 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
     jumpDown: boolean,
     sprintDown: boolean,
     cameraYaw: number,
+    comfort?: { regenBonus: number; drainScale: number },
   ): void {
     const inputMag = Math.hypot(moveInput.x, moveInput.y);
     const moving = inputMag > 0.05;
@@ -177,11 +209,13 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
     else groundedGrace = Math.max(0, groundedGrace - dt);
     const supported = grounded || (groundedGrace > 0 && verticalVelocity > -2);
 
+    const drainScale = comfort?.drainScale ?? 1;
+    const regenBonus = comfort?.regenBonus ?? 0;
     if (sprinting) {
-      stamina = Math.max(0, stamina - STAMINA_DRAIN_PER_SEC * dt);
+      stamina = Math.max(0, stamina - STAMINA_DRAIN_PER_SEC * drainScale * dt);
       if (stamina < STAMINA_LOCKOUT_THRESHOLD) staminaLocked = true;
     } else {
-      stamina = Math.min(1, stamina + STAMINA_REGEN_PER_SEC * dt);
+      stamina = Math.min(1, stamina + (STAMINA_REGEN_PER_SEC + regenBonus) * dt);
       if (stamina >= STAMINA_MIN_FOR_SPRINT) staminaLocked = false;
     }
 
@@ -202,7 +236,42 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
     state = next;
   }
 
-  function postStep(_dt: number, time: number, activity: ProspectingActivity | null): void {
+  let toolStep: 'dig' | 'pan' | 'other' = 'other';
+  let clip: PoseClip = 'idle-hold-tool';
+
+  function focusAt(step: 'dig' | 'pan' | 'other'): THREE.Vector3 {
+    const t = body.translation();
+    const forwardX = -Math.sin(yaw);
+    const forwardZ = -Math.cos(yaw);
+    const reach = step === 'pan' ? 0.5 : 0.55;
+    const lift = step === 'pan' ? 0.36 : 0.72;
+    return new THREE.Vector3(t.x + forwardX * reach, t.y + lift, t.z + forwardZ * reach);
+  }
+
+  function showFor(step: ProspectingActivity['step'] | null, livePan: boolean): void {
+    if (
+      step === 'dig' ||
+      step === 'sluice' ||
+      step === 'tom' ||
+      step === 'strike' ||
+      step === 'drill' ||
+      step === 'muck'
+    ) {
+      rig.showTool('shovel');
+    } else if (step === 'pan' && !livePan) rig.showTool('pan');
+    else rig.showTool('none');
+  }
+
+  function postStep(
+    dt: number,
+    time: number,
+    activity: ProspectingActivity | null,
+    pose?: {
+      menu?: boolean;
+      carrying?: boolean;
+      ground?: (x: number, z: number) => number;
+    },
+  ): void {
     const t = body.translation();
     group.position.set(t.x, t.y, t.z);
     group.rotation.y = yaw;
@@ -210,54 +279,113 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
     const reviewPose = getReviewPose();
     const posed: ProspectingActivity | null =
       reviewPose === 'dig' || reviewPose === 'pan' ? { step: reviewPose, progress: 0.5 } : activity;
+    const livePan = activity?.step === 'pan';
+    const grip =
+      posed?.step === 'pan'
+        ? 'pan'
+        : posed?.step === 'dig' ||
+            posed?.step === 'sluice' ||
+            posed?.step === 'tom' ||
+            posed?.step === 'strike'
+          ? 'dig'
+          : 'other';
+    toolStep = grip === 'other' ? 'other' : grip;
 
-    if (posed?.step === 'dig') rig.showTool('shovel');
-    else if (posed?.step === 'pan') rig.showTool('pan');
-    else rig.showTool('none');
-
-    // Animation dispatch — task overlay wins over movement state.
-    if (posed) {
-      activity = posed;
-      switch (activity.step) {
-        case 'dig':
-          applyDig(rig, time, activity.progress);
-          break;
-        case 'classify':
-          applyClassify(rig, time, activity.progress);
-          break;
-        case 'pan':
-          applyPan(rig, time, activity.progress);
-          break;
-        case 'collect':
-          applyCollect(rig, time, activity.progress);
-          break;
+    let requested: PoseClip = 'idle';
+    if (pose?.menu && !posed) {
+      showFor(null, false);
+      requested = 'idle';
+    } else {
+      showFor(posed?.step ?? null, livePan);
+      if (posed) {
+        switch (posed.step) {
+          case 'dig':
+          case 'sluice':
+          case 'tom':
+          case 'strike':
+            requested = 'shovel';
+            break;
+          case 'rocker':
+            requested = 'rock';
+            break;
+          case 'monitor':
+            requested = 'aim';
+            break;
+          case 'pan':
+            requested = 'pan';
+            break;
+          case 'classify':
+          case 'collect':
+            requested = 'sort';
+            break;
+          case 'extract':
+            requested = 'kneel';
+            break;
+          case 'drill':
+            requested = 'shovel';
+            break;
+          case 'blast':
+            requested = 'kneel';
+            break;
+          case 'muck':
+            requested = 'rock';
+            break;
+          default:
+            requested = 'idle-hold-tool';
+            break;
+        }
+      } else {
+        switch (state) {
+          case 'walking':
+            requested = 'walk';
+            break;
+          case 'running':
+            requested = 'run';
+            break;
+          case 'jumping':
+            requested = 'jump';
+            break;
+          case 'falling':
+            requested = 'fall';
+            break;
+          case 'landed':
+            requested = 'land';
+            break;
+          case 'idle':
+          default:
+            requested = 'idle';
+            break;
+        }
       }
-      return;
     }
 
-    switch (state) {
-      case 'walking':
-        applyWalk(rig, time);
-        break;
-      case 'running':
-        applyRun(rig, time);
-        break;
-      case 'jumping':
-        applyJumping(rig, time);
-        break;
-      case 'falling':
-        applyFalling(rig, time);
-        break;
-      case 'landed': {
-        const t01 = Math.max(0, Math.min(1, 1 - landedTimer / LANDED_DURATION));
-        applyLanded(rig, time, t01);
-        break;
-      }
-      case 'idle':
-      default:
-        applyIdle(rig, time);
-        break;
-    }
+    const tool =
+      grip === 'dig'
+        ? 'dig'
+        : grip === 'pan'
+          ? 'pan'
+          : posed?.step === 'rocker'
+            ? 'rock'
+            : posed?.step === 'monitor'
+              ? 'aim'
+              : 'none';
+    clip = motion.update(dt, requested, {
+      time,
+      carrying: pose?.carrying === true && !posed,
+      tool,
+      toolTarget: tool === 'none' ? null : focusAt(grip === 'pan' ? 'pan' : 'dig'),
+      ground: pose?.ground ?? null,
+    });
+  }
+
+  function relocate(x: number, y: number, z: number, planted: boolean): void {
+    body.setTranslation(new RAPIER.Vector3(x, y, z), true);
+    body.setNextKinematicTranslation(new RAPIER.Vector3(x, y, z));
+    group.position.set(x, y, z);
+    verticalVelocity = 0;
+    grounded = planted;
+    wasGrounded = planted;
+    if (planted) groundedGrace = 0.18;
   }
 
   return {
@@ -269,15 +397,26 @@ export async function createCharacter(opts: CharacterOpts): Promise<Character> {
       return new THREE.Vector3(t.x, t.y, t.z);
     },
     placeAt(x, y, z) {
-      body.setTranslation(new RAPIER.Vector3(x, y, z), true);
-      body.setNextKinematicTranslation(new RAPIER.Vector3(x, y, z));
-      group.position.set(x, y, z);
-      verticalVelocity = 0;
-      grounded = false;
+      relocate(x, y, z, false);
+    },
+    plant(x, y, z) {
+      relocate(x, y, z, true);
+    },
+    setYaw(next) {
+      yaw = next;
+      group.rotation.y = next;
     },
     getYaw: () => yaw,
+    getToolFocus: () => focusAt(toolStep),
     getState: () => state,
+    getPose: () => {
+      group.updateWorldMatrix(true, true);
+      return { clip, bind: armsAreBind(rig) };
+    },
     getStamina: () => stamina,
+    spendStamina(amount: number) {
+      stamina = Math.max(0, stamina - Math.max(0, amount));
+    },
     getColliderHandle: () => collider.handle,
     serialize() {
       const t = body.translation();

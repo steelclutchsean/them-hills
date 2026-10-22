@@ -21,6 +21,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Ridge pine seating
+        run: npm run test:ridge
+
       - name: Lint
         run: npm run lint
 
