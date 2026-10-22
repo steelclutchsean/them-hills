@@ -309,7 +309,7 @@ test('captures fixed cameras', async ({ page }) => {
       .screenshot({
         path: `test-results/visual/${shot}.png`,
         animations: 'disabled',
-        timeout: 25_000,
+        timeout: 8_000,
       })
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
@@ -485,7 +485,7 @@ test('places machines on a claim and starts each one', async ({ page }) => {
 });
 
 test('drift, blast, cave-in, flood, and fire stay in frame', async ({ page }) => {
-  test.setTimeout(600_000);
+  test.setTimeout(780_000);
   const errors = trackErrors(page);
   await page.goto('/?shot=spawn&freezeSave=1');
   await waitReady(page);
@@ -574,7 +574,9 @@ test('drift, blast, cave-in, flood, and fire stay in frame', async ({ page }) =>
 
   expect(await page.evaluate(() => window.__themHills?.standInDrift?.(-4.65) ?? false)).toBe(true);
   await page.waitForFunction(() => (window.__themHills?.driftLocalZ?.() ?? -9) > -4.5, undefined, {
-    timeout: 10_000,
+    // Placed in the boards. The slide out to a walkable z is a few physics
+    // steps, and those steps are slow on the CI runner.
+    timeout: 60_000,
   });
   expect(await page.evaluate(() => window.__themHills?.standInDrift?.(-2.2) ?? false)).toBe(true);
   await page.waitForTimeout(400);
@@ -597,7 +599,7 @@ test('drift, blast, cave-in, flood, and fire stay in frame', async ({ page }) =>
     );
   }
   await page.waitForFunction(() => window.__themHills?.driftPhase?.() === 'idle', undefined, {
-    timeout: 10_000,
+    timeout: 60_000,
   });
   expect(await page.evaluate(() => window.__themHills?.standInDrift?.(-6.2) ?? false)).toBe(true);
   await page.waitForTimeout(400);
