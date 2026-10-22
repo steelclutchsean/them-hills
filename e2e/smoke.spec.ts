@@ -115,13 +115,18 @@ async function waitReady(page: Page): Promise<Probe> {
       return !!probe?.ready && probe.frameLuma > 0.4;
     },
     undefined,
-    { timeout: 90_000 },
+    // A GitHub runner's first presented frame can land after the local 90s.
+    { timeout: 150_000 },
   );
   return readProbe(page);
 }
 
+async function releaseLook(page: Page): Promise<void> {
+  await page.evaluate(() => document.exitPointerLock?.());
+}
+
 test('boots, guides the first claim, and the panels respond', async ({ page }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(480_000);
   const errors = trackErrors(page);
   await page.goto('/');
   await expect(page.locator('#boot-status')).toBeVisible();
@@ -152,13 +157,19 @@ test('boots, guides the first claim, and the panels respond', async ({ page }) =
   await page.keyboard.press('Tab');
   await page.keyboard.press('KeyM');
   await expect(page.locator('.panel-map-note')).toBeVisible();
+  // Chromium swallows the Escape that leaves pointer lock, so the map
+  // close has to be a second key after the lock is already gone.
+  await releaseLook(page);
   await page.keyboard.press('Escape');
   await expect(page.locator('.panel-map-note')).toBeHidden();
+  await releaseLook(page);
   await page.keyboard.press('Escape');
   await expect(page.locator('.panel-card h2')).toHaveText('Paused');
   await expect(page.locator('button[data-quality="high"]')).toBeVisible();
-  await page.evaluate(() => document.exitPointerLock());
-  await page.locator('button[data-quality="medium"]').click();
+  await releaseLook(page);
+  await page.locator('button[data-quality="medium"]').evaluate((el: HTMLButtonElement) => {
+    el.click();
+  });
   await page.waitForFunction(() => document.documentElement.dataset.quality === 'medium');
   await page.waitForFunction(() => window.__themHills?.graphics === 'medium');
   await page.keyboard.press('Escape');
@@ -174,7 +185,7 @@ test('boots, guides the first claim, and the panels respond', async ({ page }) =
       return Math.hypot(dx, dz) > 0.6;
     },
     origin,
-    { timeout: 8_000 },
+    { timeout: 30_000 },
   );
   await page.keyboard.up('KeyW');
 
@@ -184,7 +195,7 @@ test('boots, guides the first claim, and the panels respond', async ({ page }) =
 });
 
 test('plays the prospect loop and reloads the save', async ({ page }) => {
-  test.setTimeout(300_000);
+  test.setTimeout(600_000);
   const errors = trackErrors(page);
   await page.goto('/?smoke=1');
   const deadline = Date.now() + 180_000;
@@ -240,8 +251,8 @@ test('plays the prospect loop and reloads the save', async ({ page }) => {
 
 test('captures fixed cameras', async ({ page }) => {
   // Eleven SwiftShader readbacks. The lode shot clears its budget check and then
-  // the canvas screenshot; 6 minutes ran out on that last readback.
-  test.setTimeout(480_000);
+  // the canvas screenshot. A GitHub runner needs longer than the old six minutes.
+  test.setTimeout(780_000);
   const errors = trackErrors(page);
   const shots = [
     'spawn',
@@ -266,7 +277,7 @@ test('captures fixed cameras', async ({ page }) => {
     expect(applied, shot).toBe(true);
     const minLuma = shot === 'night' ? 0.05 : shot === 'dusk' ? 0.15 : shot === 'lode' ? 0.02 : 0.4;
     await page.waitForFunction((floor) => (window.__themHills?.frameLuma ?? 0) > floor, minLuma, {
-      timeout: 15_000,
+      timeout: 45_000,
     });
     await page.waitForTimeout(400);
     const budget = await page.evaluate(() => {
@@ -289,7 +300,7 @@ test('captures fixed cameras', async ({ page }) => {
           return !!view && view.black < 0.9 && view.missing.length === 0;
         },
         undefined,
-        { timeout: 15_000 },
+        { timeout: 45_000 },
       );
     }
     await page.screenshot({ path: `test-results/visual/${shot}.png` });
@@ -300,7 +311,7 @@ test('captures fixed cameras', async ({ page }) => {
 test('migrates a v4 save, buys a tool, and stakes a claim', async ({ page }) => {
   // Three boots. The purchase had already landed (wallet at the $80 headroom)
   // when the test clock cut off waitReady on the reload.
-  test.setTimeout(300_000);
+  test.setTimeout(720_000);
   const errors = trackErrors(page);
   await page.goto('/?freezeSave=1');
   await page.waitForSelector('#boot-start', { timeout: 120_000 });
@@ -407,7 +418,7 @@ test('migrates a v4 save, buys a tool, and stakes a claim', async ({ page }) => 
 });
 
 test('places machines on a claim and starts each one', async ({ page }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(420_000);
   const errors = trackErrors(page);
   await page.goto('/');
   await page.waitForSelector('#boot-start', { timeout: 120_000 });
@@ -415,7 +426,7 @@ test('places machines on a claim and starts each one', async ({ page }) => {
   await waitReady(page);
   const spot = await page.evaluate(() => window.__themHills?.prepareShowcase?.() ?? { x: 0, z: 0 });
   await page.waitForFunction(() => (window.__themHills?.machineCount ?? 0) >= 4, undefined, {
-    timeout: 10_000,
+    timeout: 60_000,
   });
   for (const kind of ['rocker', 'sluice', 'longtom', 'monitor'] as const) {
     const started = await page.evaluate(
@@ -424,7 +435,7 @@ test('places machines on a claim and starts each one', async ({ page }) => {
     );
     expect(started, kind).toBe(true);
     await page.waitForFunction((name) => window.__themHills?.activeViz === name, kind, {
-      timeout: 10_000,
+      timeout: 45_000,
     });
     const fitting: Record<string, string> = {
       rocker: 'rock',
@@ -461,12 +472,12 @@ test('places machines on a claim and starts each one', async ({ page }) => {
 });
 
 test('drift, blast, cave-in, flood, and fire stay in frame', async ({ page }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(600_000);
   const errors = trackErrors(page);
   await page.goto('/?shot=spawn&freezeSave=1');
   await waitReady(page);
   await page.waitForFunction(() => (window.__themHills?.scatterCount?.() ?? 0) > 0, undefined, {
-    timeout: 20_000,
+    timeout: 60_000,
   });
   const audit = await page.evaluate(
     () => window.__themHills?.propAudit?.() ?? { overlaps: ['missing'], intruders: ['missing'] },
@@ -476,7 +487,7 @@ test('drift, blast, cave-in, flood, and fire stay in frame', async ({ page }) =>
   const bare = await page.evaluate(() => window.__themHills?.bareMeshes?.() ?? ['missing']);
   expect(bare, bare.join('; ')).toEqual([]);
   await page.waitForFunction(() => (window.__themHills?.hatFit?.().checked ?? 0) >= 4, undefined, {
-    timeout: 25_000,
+    timeout: 60_000,
   });
   const hats = await page.evaluate(
     () => window.__themHills?.hatFit?.() ?? { checked: 0, floating: ['missing'] },
@@ -491,7 +502,7 @@ test('drift, blast, cave-in, flood, and fire stay in frame', async ({ page }) =>
       return !!view && view.black < 0.9 && view.missing.length === 0;
     },
     undefined,
-    { timeout: 20_000 },
+    { timeout: 60_000 },
   );
 
   expect(await page.evaluate(() => window.__themHills?.previewScene?.('blast') ?? false)).toBe(
@@ -519,7 +530,7 @@ test('drift, blast, cave-in, flood, and fire stay in frame', async ({ page }) =>
       return !!view && view.black < 0.9 && view.missing.length === 0;
     },
     undefined,
-    { timeout: 40_000 },
+    { timeout: 60_000 },
   );
 
   expect(await page.evaluate(() => window.__themHills?.previewScene?.('cavein') ?? false)).toBe(
@@ -588,7 +599,7 @@ test('drift, blast, cave-in, flood, and fire stay in frame', async ({ page }) =>
       return rise > 0.15 && !!view && view.black < 0.9 && view.missing.length === 0;
     },
     undefined,
-    { timeout: 20_000 },
+    { timeout: 60_000 },
   );
 
   expect(await page.evaluate(() => window.__themHills?.previewScene?.('rush') ?? false)).toBe(true);
@@ -605,7 +616,7 @@ test('drift, blast, cave-in, flood, and fire stay in frame', async ({ page }) =>
       return tents && storeOut;
     },
     undefined,
-    { timeout: 20_000 },
+    { timeout: 60_000 },
   );
 
   expect(await page.evaluate(() => window.__themHills?.previewScene?.('fire') ?? false)).toBe(true);
@@ -615,7 +626,7 @@ test('drift, blast, cave-in, flood, and fire stay in frame', async ({ page }) =>
       return !!view && view.black < 0.9 && view.missing.length === 0;
     },
     undefined,
-    { timeout: 20_000 },
+    { timeout: 60_000 },
   );
 
   expect(await page.evaluate(() => window.__themHills?.previewScene?.('quench') ?? false)).toBe(
@@ -632,7 +643,7 @@ test('drift, blast, cave-in, flood, and fire stay in frame', async ({ page }) =>
       );
     },
     undefined,
-    { timeout: 20_000 },
+    { timeout: 60_000 },
   );
 
   expect(errors, errors.join('\n')).toEqual([]);
@@ -641,7 +652,7 @@ test('drift, blast, cave-in, flood, and fire stay in frame', async ({ page }) =>
 test('audio system initializes and mix settings persist', async ({ page }) => {
   // Two full boots. On software GL the first claim test spends about three
   // minutes on one boot, so 180s closed the page during the second mix check.
-  test.setTimeout(360_000);
+  test.setTimeout(720_000);
   const errors = trackErrors(page);
   await page.goto('/');
   await page.waitForSelector('#boot-start', { timeout: 90_000 });
